@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/drugdamage/glyphwood/discussions
+    about: Ask questions, share runs and discuss ideas in GitHub Discussions.
+  - name: Report a security vulnerability
+    url: https://github.com/drugdamage/glyphwood/security/advisories/new
+    about: Please report security issues privately.
+  - name: Play in the browser
+    url: https://drugdamage.github.io/glyphwood/
+    about: The latest build of Glyphwood, playable on GitHub Pages.

@@ -1,0 +1,58 @@
+name: Bug report
+description: Something does not work as expected (crash, glitch, wrong behaviour).
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please search
+        [existing issues](https://github.com/drugdamage/glyphwood/issues) first.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug. What did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: If possible, include the seed and level (`--seed=N --level=N`) so we can get the same layout.
+      placeholder: |
+        1. Start a run
+        2. Wall jump next to the spitter in the second room
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: build
+    attributes:
+      label: How do you play?
+      options:
+        - Browser (GitHub Pages)
+        - Windows build
+        - Linux build
+        - macOS build
+        - From source (Godot editor)
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Game version or commit
+      placeholder: v0.2.0
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: OS, browser and Godot version (if relevant)
+      placeholder: Windows 11, Firefox 140 / Godot 4.5.1
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshots, video or log output
+      description: Drag files here. For crashes, paste the console output.
+      render: shell

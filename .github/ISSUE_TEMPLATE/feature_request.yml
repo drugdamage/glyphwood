@@ -1,0 +1,34 @@
+name: Feature request
+description: Suggest a new mechanic, enemy, item or improvement.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ideas are welcome! Glyphwood aims to stay **minimal**: keyboard first,
+        everything drawn with text glyphs, short roguelite runs.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve, or what would it add?
+      placeholder: Runs feel samey after a few levels because...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How should it look and play? ASCII mock-ups are very welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Contribution
+      options:
+        - label: I would like to implement this myself

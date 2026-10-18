@@ -1,0 +1,73 @@
+name: New room
+description: Submit a level chunk (30×20 characters of text) to be added to the game.
+title: "[Room]: "
+labels: ["room", "good first issue"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Every level is stitched together from **30 columns × 20 rows** text chunks.
+
+        | Glyph | Meaning | Glyph | Meaning |
+        | --- | --- | --- | --- |
+        | `.` | empty | `c` | crawler |
+        | `#` | solid | `b` | bat |
+        | `=` | one-way platform | `k` | knight |
+        | `^` | spikes | `s` | spitter |
+        | `h` | heart pickup | `e` | random ground enemy |
+
+        **Rules** (lines counted from 1): lines 1–2 are solid ceiling, lines 17–20 are floor (spike pits may cut into
+        lines 17–18), and lines 3–16 must be **open at both the left and right edge** so the
+        room can connect to any other. The hero jumps about 4 tiles up and 6 across without
+        dashing. Ground enemies stand directly on a solid tile.
+  - type: input
+    id: name
+    attributes:
+      label: Room name
+      placeholder: chasm
+    validations:
+      required: true
+  - type: textarea
+    id: room
+    attributes:
+      label: Room (30×20)
+      description: Exactly 20 lines of exactly 30 characters each.
+      render: text
+      value: |
+        ##############################
+        ##############################
+        ..............................
+        ..............................
+        ..............................
+        ..............................
+        ..............................
+        ..............................
+        ..............................
+        ..............................
+        ..............................
+        ..............................
+        ..............................
+        ..............................
+        ..............................
+        ..............................
+        ##############################
+        ##############################
+        ##############################
+        ##############################
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Idea behind the room
+      description: What should the player do here? Any tricky jump or enemy combo?
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: The room is exactly 30 columns × 20 rows
+          required: true
+        - label: Lines 3–16 are open at both edges
+          required: true
+        - label: I tested it in the game (optional but appreciated)
