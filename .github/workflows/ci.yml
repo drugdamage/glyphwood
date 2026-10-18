@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint (gdlint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install gdtoolkit
+        run: pip install "gdtoolkit==4.*"
+
+      - name: Run gdlint
+        run: gdlint scripts
+
+  import:
+    name: Import & smoke test (Godot 4.5.1)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-godot
+
+      - name: Import project
+        run: |
+          set -o pipefail
+          godot --headless --path . --import 2>&1 | tee import.log
+          if grep -nE "SCRIPT ERROR|Parse Error|Failed to load script" import.log; then
+            echo "::error::Godot reported script errors during import"
+            exit 1
+          fi
+
+      - name: Smoke test (bot plays for 20 seconds)
+        run: |
+          set -o pipefail
+          timeout 120 godot --headless --path . --quit-after 1200 -- --play --bot --seed=1 2>&1 | tee run.log
+          if grep -nE "SCRIPT ERROR|Parse Error|Failed to load script" run.log; then
+            echo "::error::Godot reported script errors while running the game"
+            exit 1
+          fi

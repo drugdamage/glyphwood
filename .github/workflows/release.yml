@@ -1,0 +1,105 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Export and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read version
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          project_version="$(sed -n 's/^config\/version="\(.*\)"/\1/p' project.godot)"
+          if [ "$version" != "$project_version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match application/config/version ($project_version) in project.godot"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: ./.github/actions/setup-godot
+        with:
+          templates: "true"
+
+      - name: Import project
+        run: godot --headless --path . --import
+
+      - name: Export all platforms
+        run: |
+          set -euo pipefail
+          export_preset() {
+            mkdir -p "$(dirname "$2")"
+            godot --headless --path . --export-release "$1" "$2"
+            test -s "$2" || { echo "::error::Export for '$1' produced no file at $2"; exit 1; }
+          }
+          export_preset "Windows Desktop" build/windows/Glyphwood.exe
+          export_preset "Linux"           build/linux/glyphwood.x86_64
+          export_preset "macOS"           build/macos/Glyphwood.zip
+          export_preset "Web"             build/web/index.html
+
+      - name: Package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for platform in windows linux; do
+            cp LICENSE "build/$platform/LICENSE.txt"
+          done
+          chmod +x build/linux/glyphwood.x86_64
+          (cd build/windows && zip -r -9 "../../dist/glyphwood-$VERSION-windows.zip" .)
+          (cd build/linux   && zip -r -9 "../../dist/glyphwood-$VERSION-linux.zip" .)
+          (cd build/web     && zip -r -9 "../../dist/glyphwood-$VERSION-web.zip" .)
+          # Godot already produces a zip containing Glyphwood.app for macOS.
+          cp build/macos/Glyphwood.zip "dist/glyphwood-$VERSION-macos.zip"
+          ls -la dist
+          (cd dist && sha256sum *.zip > SHA256SUMS.txt)
+
+      - name: Extract release notes from CHANGELOG.md
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          awk -v v="$VERSION" '
+            $0 ~ "^## \\[" v "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found && /^\[.*\]: / { exit }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "::error::No section for $VERSION in CHANGELOG.md"
+            exit 1
+          fi
+          {
+            echo
+            echo "---"
+            echo
+            echo "**Play in the browser:** https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/"
+            echo
+            echo "The macOS build is ad-hoc signed and not notarized: right-click **Glyphwood.app → Open** the first time."
+          } >> notes.md
+          cat notes.md
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          flags=()
+          if [[ "$VERSION" == *-* ]]; then flags+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" dist/*.zip dist/SHA256SUMS.txt \
+            --verify-tag \
+            --title "Glyphwood $GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            "${flags[@]}"

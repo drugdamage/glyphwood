@@ -1,0 +1,47 @@
+# gdlint configuration (gdtoolkit 4.x) — https://github.com/Scony/godot-gdscript-toolkit
+# Based on `gdlint --dump-default-config`, adjusted to the conventions used in this project.
+
+# Declarations in main.gd are grouped by purpose (input state, camera, debug options)
+# rather than by visibility, so the strict ordering rule is turned off.
+disable:
+- class-definitions-order
+
+excluded_directories: !!set
+  .git: null
+  .godot: null
+  addons: null
+
+# Data tables and draw calls are wider than the default 100 columns.
+max-line-length: 140
+tab-characters: 1
+max-file-lines: 1000
+max-public-methods: 30
+max-returns: 6
+function-arguments-number: 10
+
+class-name: ([A-Z][a-z0-9]*)+
+sub-class-name: _?([A-Z][a-z0-9]*)+
+signal-name: '[a-z][a-z0-9]*(_[a-z0-9]+)*'
+enum-name: ([A-Z][a-z0-9]*)+
+enum-element-name: '[A-Z][A-Z0-9]*(_[A-Z0-9]+)*'
+constant-name: _?[A-Z][A-Z0-9]*(_[A-Z0-9]+)*
+load-constant-name: (([A-Z][a-z0-9]*)+|_?[A-Z][A-Z0-9]*(_[A-Z0-9]+)*)
+class-variable-name: _?[a-z][a-z0-9]*(_[a-z0-9]+)*
+class-load-variable-name: (([A-Z][a-z0-9]*)+|_?[a-z][a-z0-9]*(_[a-z0-9]+)*)
+# `L()` is the localisation helper (like `tr()`), kept short on purpose.
+function-name: (_on_([A-Z][a-z0-9]*)+(_[a-z0-9]+)*|_?[a-z][a-z0-9]*(_[a-z0-9]+)*|L)
+function-argument-name: _?[a-z][a-z0-9]*(_[a-z0-9]+)*
+# `T` is used as a local alias for the tile size constant.
+function-variable-name: ([a-z][a-z0-9]*(_[a-z0-9]+)*|T)
+function-preload-variable-name: ([A-Z][a-z0-9]*)+
+loop-variable-name: _?[a-z][a-z0-9]*(_[a-z0-9]+)*
+
+comparison-with-itself: null
+duplicated-load: null
+expression-not-assigned: null
+mixed-tabs-and-spaces: null
+no-elif-return: null
+no-else-return: null
+trailing-whitespace: null
+unnecessary-pass: null
+unused-argument: null
