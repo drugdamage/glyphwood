@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="22" fill="#05090a"/>
+  <g font-family="Menlo, DejaVu Sans Mono, monospace" font-weight="700" text-anchor="middle">
+    <text x="22" y="40" font-size="20" fill="#2f7a46">'</text>
+    <text x="46" y="30" font-size="20" fill="#3f9a56">"</text>
+    <text x="96" y="36" font-size="20" fill="#2f7a46">,</text>
+    <text x="108" y="58" font-size="20" fill="#4fb066">/</text>
+    <text x="20" y="104" font-size="20" fill="#3f9a56">|</text>
+    <text x="104" y="110" font-size="20" fill="#2a6ea0">~</text>
+    <text x="64" y="86" font-size="64" fill="#e8ffd8">@</text>
+  </g>
+</svg>

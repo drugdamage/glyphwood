@@ -1,0 +1,31 @@
+# Godot 4 cache and imported assets (regenerated on import)
+.godot/
+.import/
+
+# Export output (export_presets.cfg itself is tracked: CI needs it)
+/build/
+/export/
+/android/
+*.tmp
+
+# Credentials must never be committed; keep them in CI secrets
+*.keystore
+export_credentials.cfg
+
+# Mono / .NET (not used, kept for safety)
+.mono/
+data_*/
+mono_crash.*.json
+
+# Tooling
+__pycache__/
+.venv/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*~
+.vscode/
+.idea/
