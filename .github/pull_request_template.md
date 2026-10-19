@@ -23,5 +23,5 @@
 - [ ] The PR title follows [Conventional Commits](https://www.conventionalcommits.org/) (`feat: ...`, `fix: ...`)
 - [ ] `gdlint scripts` passes
 - [ ] `godot --headless --path . --import` prints no `SCRIPT ERROR`
-- [ ] New UI text is added in both English and Russian (`D.STRINGS`)
+- [ ] New UI text is added to `scripts/strings.gd` in all six languages
 - [ ] `CHANGELOG.md` has an entry under **Unreleased** (for user-visible changes)

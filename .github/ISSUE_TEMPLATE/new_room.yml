@@ -1,73 +1,78 @@
 name: New room
-description: Submit a level chunk (30×20 characters of text) to be added to the game.
+description: Submit a vault (40×24 characters of text) to be added to the game.
 title: "[Room]: "
 labels: ["room", "good first issue"]
 body:
   - type: markdown
     attributes:
       value: |
-        Every level is stitched together from **30 columns × 20 rows** text chunks.
+        Side rooms called **vaults** are drawn as **40 columns × 24 rows** of text.
 
         | Glyph | Meaning | Glyph | Meaning |
         | --- | --- | --- | --- |
-        | `.` | empty | `c` | crawler |
-        | `#` | solid | `b` | bat |
-        | `=` | one-way platform | `k` | knight |
-        | `^` | spikes | `s` | spitter |
-        | `h` | heart pickup | `e` | random ground enemy |
+        | `.` | empty | `C` | chest |
+        | `#` | solid | `*` | shard cache |
+        | `=` | one-way platform | `h` | heart |
+        | `^` | spikes | `T` | torch |
+        | `~` | water | `e` | biome enemy |
+        | `%` | cracked wall (breakable) | `b` | bat |
 
-        **Rules** (lines counted from 1): lines 1–2 are solid ceiling, lines 17–20 are floor (spike pits may cut into
-        lines 17–18), and lines 3–16 must be **open at both the left and right edge** so the
-        room can connect to any other. The hero jumps about 4 tiles up and 6 across without
-        dashing. Ground enemies stand directly on a solid tile.
+        **Rules** (lines counted from 1): lines 13–19 must be **open at both the left and
+        right edge**, and line 20 must be solid at both edges, so the vault can join the
+        level on either side. The hero jumps about 4 tiles up and 6 across without
+        dashing. Chests and enemies stand directly on a solid tile.
   - type: input
     id: name
     attributes:
       label: Room name
-      placeholder: chasm
+      placeholder: sunken library
     validations:
       required: true
   - type: textarea
     id: room
     attributes:
-      label: Room (30×20)
-      description: Exactly 20 lines of exactly 30 characters each.
+      label: Vault (40×24)
+      description: Exactly 24 lines of exactly 40 characters each.
       render: text
       value: |
-        ##############################
-        ##############################
-        ..............................
-        ..............................
-        ..............................
-        ..............................
-        ..............................
-        ..............................
-        ..............................
-        ..............................
-        ..............................
-        ..............................
-        ..............................
-        ..............................
-        ..............................
-        ..............................
-        ##############################
-        ##############################
-        ##############################
-        ##############################
+        ########################################
+        ########################################
+        ########################################
+        ########################################
+        ########################################
+        ########################################
+        ########################################
+        ########################################
+        ########################################
+        ########################################
+        ########################################
+        ########################################
+        ........................................
+        ........................................
+        ........................................
+        ........................................
+        ........................................
+        ........................................
+        ........................................
+        ########################################
+        ########################################
+        ########################################
+        ########################################
+        ########################################
     validations:
       required: true
   - type: textarea
     id: idea
     attributes:
       label: Idea behind the room
-      description: What should the player do here? Any tricky jump or enemy combo?
+      description: What should the player do here? Any tricky jump, secret or enemy combo?
   - type: checkboxes
     id: checks
     attributes:
       label: Checklist
       options:
-        - label: The room is exactly 30 columns × 20 rows
+        - label: The vault is exactly 40 columns × 24 rows
           required: true
-        - label: Lines 3–16 are open at both edges
+        - label: Lines 13–19 are open at both edges and line 20 is solid there
           required: true
         - label: I tested it in the game (optional but appreciated)

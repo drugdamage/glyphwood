@@ -34,13 +34,19 @@ godot --path . -- --play --bot --seed=42 --level=2 --time=10 --shot=out.png
 | Flag | Effect |
 | --- | --- |
 | `--play` | Skip the title screen |
-| `--bot` | A simple bot plays (useful to test new rooms) |
-| `--seed=N` | Fixed RNG seed: same level layout every time |
-| `--level=N` | Start at level N (biomes cycle every level) |
+| `--bot` | A simple bot plays (useful to test levels) |
+| `--god` | The hero takes no damage |
+| `--seed=N` | Fixed seed: same level layout every time |
+| `--level=N` | Start at level N (two levels per biome; even levels end with a boss) |
+| `--boss` | Start next to the boss arena (with an even `--level`) |
+| `--zoo` | Spawn one enemy of every type next to the start |
+| `--menu=NAME` | Open a menu: `settings`, `inventory`, `map`, `pause` |
+| `--tab=N` | Settings tab to open (0 game, 1 video, 2 audio, 3 controls) |
+| `--lang=CODE` | Interface language: `en`, `ru`, `uk`, `de`, `es`, `fr` |
 | `--shot=file.png` | Save a screenshot after `--time` seconds, then quit |
 | `--time=S` | Delay for `--shot` (default 1 s) |
 | `--record=dir` | Save every third frame as PNG into `dir` |
-| `--lang=ru` | Force the interface language |
+| `--nopost` | Disable the post-processing shader |
 
 ### Checks to run before a PR
 
@@ -73,64 +79,72 @@ enforced by `gdlint` with the settings in [`.gdlintrc`](.gdlintrc).
 - Game objects are plain `Dictionary` records updated by static functions
   (`Hero.update`, `Foes.update`). Keep to this data-oriented style rather than
   introducing nodes per entity.
-- Static data (rooms, sprites, enemy stats, biomes, strings) lives in
-  `scripts/data.gd`; behaviour lives in the other scripts.
-- Any user-visible text goes into `D.STRINGS` in **both** `en` and `ru` and is read
-  with `L("key")`.
+- Static data lives in its own scripts: world constants, biomes, enemy stats and
+  hand-made rooms in `scripts/data.gd`, ASCII art in `scripts/sprites.gd`, items
+  in `scripts/items.gd`. Behaviour lives in the other scripts.
+- Any user-visible text goes into `scripts/strings.gd` with **all six**
+  translations (English, Russian, Ukrainian, German, Spanish, French) and is read
+  with `L("key")`. If you can't translate, copy the English text and say so in
+  the PR.
 
-## Adding a room chunk
+## How levels are built
 
-Rooms are plain text in `CHUNKS` in [`scripts/data.gd`](scripts/data.gd). Each one
-is exactly **30 columns × 20 rows**.
+`scripts/level.gd` lays out a level as a grid of rooms, each **40 × 24 tiles**.
+A path runs from the start room in the top row to the exit (or boss) room in the
+bottom row, moving sideways through openings in the walls and down through
+shafts in the floor. Path rooms are generated from a floor and ceiling height
+line with pits, platforms, secret pockets and decorations; one of them becomes an
+arena. Rooms next to the path become side rooms: the merchant, a shrine, treasure
+rooms and hand-made **vaults**.
+
+## Adding a vault
+
+Vaults are plain text in `VAULTS` in [`scripts/data.gd`](scripts/data.gd). Each one
+is exactly **40 columns × 24 rows**.
 
 | Glyph | Meaning | Glyph | Meaning |
 | --- | --- | --- | --- |
-| `.` | empty | `c` | crawler |
-| `#` | solid | `b` | bat |
-| `=` | one-way platform | `k` | knight |
-| `^` | spikes | `s` | spitter |
-| `h` | heart pickup | `e` | random ground enemy |
+| `.` | empty | `C` | chest |
+| `#` | solid | `*` | shard cache |
+| `=` | one-way platform | `h` | heart |
+| `^` | spikes | `T` | torch |
+| `~` | water | `e` | biome enemy |
+| `%` | cracked wall (breakable) | `b` | bat |
 
-`P` (player start) and `D` (exit door) are used only by the start and end chunks.
+Rules (rows and columns counted from 0):
 
-Rules so that any chunk can follow any other:
+- Rows 12–18 must be **open at both the left and right edge** (columns 0 and 39),
+  and row 19 must be solid at both edges. The room is joined to the path on one
+  side; the other side is sealed automatically.
+- The hero jumps about **4 tiles up** and **6 tiles across**; every platform you
+  want reachable must be reachable without the Feather charm or a dash.
+- Chests and enemies stand on the cell above a solid tile.
 
-- Rows 0–1 are solid ceiling, rows 16–19 are the floor (spike pits may cut into
-  rows 16–17).
-- Rows 2–15 must be **open at both the left and right edge** (column 0 and 29).
-- The hero jumps about **4 tiles up** and **6 tiles across**; every gap must be
-  passable without a dash.
-- Place ground enemies (`c`, `k`, `s`, `e`) on the row directly above a solid
-  surface. Bats (`b`) can float anywhere.
-
-Add the new array to `CHUNKS` with a short `# name` comment, then test it:
+Add the new array to `VAULTS` with a short `# name` comment, then look at it:
 
 ```sh
-godot --path . -- --play --seed=7      # try several seeds until your room appears
-godot --path . -- --play --bot         # watch the bot run through it
+godot --path . -- --play --seed=7      # try a few seeds and open the map (M)
+godot --path . -- --play --bot --god   # watch the bot run through levels
 ```
 
 Not comfortable with code? Use the **New room** issue form and paste your
-30×20 room as text, and we will add it for you.
+40 × 24 vault as text, and we will add it for you.
 
 ## Adding an enemy
 
-1. **Stats and sprite** – add an entry to `ENEMIES` in `scripts/data.gd`: `size`,
-   `hp`, `speed`, `color` and `frames` (lists of lines, bottom-aligned, facing
-   right; they are mirrored automatically). Extra frames for special states (like
-   the knight's `lunge`) go in the same dictionary.
-2. **Behaviour** – add a `"kind":` branch to `Foes.update()` in
-   `scripts/foes.gd`. Use `Physics.move()` for collision, `e.state` / `e.t` for a
-   small state machine, `g.fire()` to shoot, and respect `e.stun` so hits feel
-   right. Document the behaviour in the comment at the top of the file.
-3. **Special frames** – if the enemy has state-specific frames, return them from
-   `Foes.frame()`.
-4. **Knockback** – if it should react differently to hits, adjust
-   `hurt_enemy()` in `scripts/main.gd`.
-5. **Spawning** – give it a letter in `Level.build()` (`scripts/level.gd`),
-   document the letter in the chunk legend in `data.gd`, `README.md` and this
-   file, and place it in at least one room.
-6. **Telegraphs** – extra visual tells (like the knight's `!`) belong in
+1. **Stats** – add an entry to `ENEMIES` in `scripts/data.gd`: `size`, `hp`
+   (the starting sword deals 10), `speed`, `shards` and `fly`.
+2. **Sprite** – add art to `FOES` in `scripts/sprites.gd`: a palette (`pal`), a
+   glyph-to-colour map (`cmap`), the centre column (`a`) and lists of frames per
+   animation (rows bottom-aligned, facing right; they are mirrored
+   automatically).
+3. **Behaviour** – add a `"kind":` branch to `Foes.update()` in
+   `scripts/foes.gd` and pick its animation in `Foes.frame()`. Use
+   `Physics.move()` for collision, `e.state` / `e.t` for a small state machine,
+   `g.fire()` to shoot, and respect `e.stun` so hits feel right. Document the
+   behaviour in the comment at the top of the file.
+4. **Spawning** – add the kind to a biome's `foes` list in `scripts/data.gd`.
+5. **Telegraphs** – extra visual tells (like the knight's `!`) belong in
    `_draw_enemy()` in `scripts/renderer.gd`.
 
 ## Commit messages
@@ -182,7 +196,7 @@ Mark breaking changes with `!` (`feat!: ...`) or a `BREAKING CHANGE:` footer.
 2. Bump `config/version` in `project.godot`.
 3. Commit, then tag and push: `git tag v0.3.0 && git push origin v0.3.0`.
 4. The **Release** workflow exports all platforms and publishes the GitHub
-   release with the changelog section; **Pages** updates the browser build.
+   release with the changelog section.
 
 ## License
 

@@ -45,7 +45,7 @@ static func move(b: Dictionary, lv, dt: float, drop: bool = false, use_oneway: b
 		var row := int(floor((pos.y + size.y - 0.01) / T))
 		for tx in range(left, right + 1):
 			var t: int = lv.at(tx, row)
-			var lands := t == Level.SOLID
+			var lands: bool = lv.solid(tx, row)
 			if t == Level.ONEWAY and use_oneway and not drop and prev_bottom <= row * T + 0.5:
 				lands = true
 			if lands:
@@ -87,7 +87,7 @@ static func ground_ahead(b: Dictionary, lv, dir: int) -> bool:
 	var tx := int(floor(fx / T))
 	var ty := int(floor((b.pos.y + b.size.y + 2.0) / T))
 	var t: int = lv.at(tx, ty)
-	return t == Level.SOLID or t == Level.ONEWAY
+	return lv.solid(tx, ty) or t == Level.ONEWAY
 
 
 static func rect(b: Dictionary) -> Rect2:
@@ -102,12 +102,33 @@ static func foot(b: Dictionary) -> Vector2:
 	return Vector2(b.pos.x + b.size.x * 0.5, b.pos.y + b.size.y)
 
 
-## True if the rect overlaps the lower half of any spike tile.
+## True if the rect overlaps the lower half of a spike tile or the body of a lava tile.
 static func touches_spikes(r: Rect2, lv) -> bool:
 	var T := D.TILE
 	for ty in range(int(floor(r.position.y / T)), int(floor(r.end.y / T)) + 1):
 		for tx in range(int(floor(r.position.x / T)), int(floor(r.end.x / T)) + 1):
-			if lv.at(tx, ty) == Level.SPIKES:
+			var t: int = lv.at(tx, ty)
+			if t == Level.SPIKES:
 				if r.intersects(Rect2(tx * T + 2.0, ty * T + T * 0.45, T - 4.0, T * 0.55)):
 					return true
+			elif t == Level.LAVA:
+				if r.intersects(Rect2(tx * T, ty * T + T * 0.3, T, T * 0.7)):
+					return true
 	return false
+
+
+## True when the body's centre is inside a water tile.
+static func in_water(b: Dictionary, lv) -> bool:
+	var c := center(b)
+	return lv.at(int(floor(c.x / D.TILE)), int(floor(c.y / D.TILE))) == Level.WATER
+
+
+## Tiles of a given type overlapping a rect, as Vector2i.
+static func tiles_in(r: Rect2, lv, kind: int) -> Array:
+	var out: Array = []
+	var T := D.TILE
+	for ty in range(int(floor(r.position.y / T)), int(floor(r.end.y / T)) + 1):
+		for tx in range(int(floor(r.position.x / T)), int(floor(r.end.x / T)) + 1):
+			if lv.at(tx, ty) == kind:
+				out.append(Vector2i(tx, ty))
+	return out

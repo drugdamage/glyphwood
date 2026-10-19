@@ -1,12 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <rect width="128" height="128" rx="22" fill="#05090a"/>
-  <g font-family="Menlo, DejaVu Sans Mono, monospace" font-weight="700" text-anchor="middle">
-    <text x="22" y="40" font-size="20" fill="#2f7a46">'</text>
-    <text x="46" y="30" font-size="20" fill="#3f9a56">"</text>
-    <text x="96" y="36" font-size="20" fill="#2f7a46">,</text>
-    <text x="108" y="58" font-size="20" fill="#4fb066">/</text>
-    <text x="20" y="104" font-size="20" fill="#3f9a56">|</text>
-    <text x="104" y="110" font-size="20" fill="#2a6ea0">~</text>
-    <text x="64" y="86" font-size="64" fill="#e8ffd8">@</text>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="22" fill="#0b0709"/>
+  <circle cx="64" cy="58" r="46" fill="#7a1513" opacity="0.25"/>
+  <circle cx="64" cy="58" r="36" fill="#9a1d18"/>
+  <circle cx="80" cy="44" r="6" fill="#7f1714"/>
+  <circle cx="50" cy="70" r="4" fill="#7f1714"/>
+  <path d="M47 49 Q30 42 24 18 Q37 33 52 37 Z" fill="#0b0709"/>
+  <path d="M81 49 Q98 42 104 18 Q91 33 76 37 Z" fill="#0b0709"/>
+  <path d="M42 54 Q42 32 64 30 Q86 32 86 54 L86 82 L72 94 L56 94 L42 82 Z" fill="#0b0709"/>
+  <path d="M49 57 L79 57 L79 60.5 L65.8 60.5 L65.8 77 L62.2 77 L62.2 60.5 L49 60.5 Z" fill="#ff3d2a"/>
+  <path d="M30 104 L98 104 L94 110 L34 110 Z" fill="#9a1d18"/>
 </svg>

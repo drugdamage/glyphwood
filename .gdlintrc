@@ -14,8 +14,8 @@ excluded_directories: !!set
 # Data tables and draw calls are wider than the default 100 columns.
 max-line-length: 140
 tab-characters: 1
-max-file-lines: 1000
-max-public-methods: 30
+max-file-lines: 1500
+max-public-methods: 60
 max-returns: 6
 function-arguments-number: 10
 

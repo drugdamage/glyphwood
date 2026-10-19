@@ -47,7 +47,6 @@ jobs:
           export_preset "Windows Desktop" build/windows/Glyphwood.exe
           export_preset "Linux"           build/linux/glyphwood.x86_64
           export_preset "macOS"           build/macos/Glyphwood.zip
-          export_preset "Web"             build/web/index.html
 
       - name: Package
         env:
@@ -61,7 +60,6 @@ jobs:
           chmod +x build/linux/glyphwood.x86_64
           (cd build/windows && zip -r -9 "../../dist/glyphwood-$VERSION-windows.zip" .)
           (cd build/linux   && zip -r -9 "../../dist/glyphwood-$VERSION-linux.zip" .)
-          (cd build/web     && zip -r -9 "../../dist/glyphwood-$VERSION-web.zip" .)
           # Godot already produces a zip containing Glyphwood.app for macOS.
           cp build/macos/Glyphwood.zip "dist/glyphwood-$VERSION-macos.zip"
           ls -la dist
@@ -84,8 +82,6 @@ jobs:
           {
             echo
             echo "---"
-            echo
-            echo "**Play in the browser:** https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/"
             echo
             echo "The macOS build is ad-hoc signed and not notarized: right-click **Glyphwood.app → Open** the first time."
           } >> notes.md
