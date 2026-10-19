@@ -580,7 +580,7 @@ func _paint_dynamic(_ci: CanvasItem, _arg: Variant) -> void:
 	if not game.is_title():
 		for gh in game.ghosts:
 			var a: float = gh.life / 0.22 * 0.5
-			_sprite(gh.frame, gh.foot, gh.facing, S.HERO_PAL, {}, 2.0, Color(0.75, 0.12, 0.16, a), true)
+			_sprite(gh.frame, gh.foot, gh.facing, S.HERO_PAL, {}, S.HERO.a, Color(0.75, 0.12, 0.16, a), true, false, S.HERO.scale)
 		_draw_hero()
 		_draw_slashes()
 	for pt in game.particles:
@@ -771,7 +771,7 @@ func _draw_door(b: Dictionary) -> void:
 	var pal: Array = def.pal
 	if not lv.door_open:
 		pal = [Color(0.35, 0.35, 0.38), pal[1], pal[2]]
-	_sprite(def.idle[0], foot, 1, pal, def.cmap, def.a)
+	_sprite(def.idle[0], foot, 1, pal, def.cmap, def.a, Color(1, 1, 1), false, false, def.get("scale", 1.0))
 	if lv.door_open:
 		var c: Color = b.top
 		for i in 7:
@@ -797,7 +797,7 @@ func _draw_props() -> void:
 		var foot: Vector2 = pr.pos
 		if pr.kind == "chest" and not pr.open:
 			foot += Vector2(0, 0)
-		_sprite(fr, foot, 1, def.pal, def.cmap, def.a)
+		_sprite(fr, foot, 1, def.pal, def.cmap, def.a, Color(1, 1, 1), false, false, def.get("scale", 1.0))
 		if pr.kind == "shrine" and not pr.used:
 			for i in 3:
 				var ph := fmod(t * 0.4 + i * 0.33, 1.0)
@@ -882,7 +882,7 @@ func _draw_enemy(e: Dictionary) -> void:
 		for i in 4:
 			var a := t * 3.0 + i * TAU / 4.0
 			_glyph(Physics.center(e) + Vector2(cos(a) * e.size.x * 0.7, sin(a) * e.size.y * 0.6), "·", Color(1.0, 0.85, 0.3, 0.8), 1.0)
-	_sprite(Foes.frame(e), foot, e.dir, def.pal, def.cmap, def.a, tint, false, flash)
+	_sprite(Foes.frame(e), foot, e.dir, def.pal, def.cmap, def.a, tint, false, flash, def.get("scale", 1.0))
 	if e.elite:
 		_glyph(foot + Vector2(0, -e.size.y - D.GH * 1.2), "♦", Color(1.0, 0.85, 0.3), 0.9)
 	match e.kind:
@@ -926,18 +926,18 @@ func _draw_hero() -> void:
 	var tint := Color(1, 1, 1)
 	if p.heal_t > 0.0:
 		tint = Color(0.6, 1.0, 0.7)
-	_sprite(Hero.frame(p), Physics.foot(p), p.facing, S.HERO_PAL, {}, 2.0, tint)
+	_sprite(Hero.frame(p), Physics.foot(p), p.facing, S.HERO_PAL, {}, S.HERO.a, tint, false, false, S.HERO.scale)
 	if p.atk_t > p.atk_len - 0.16 and p.atk_kind == "side":
 		var wid: String = game.player.weapon
 		var wc: Color = Items.def(wid).get("color", Color(0.85, 0.9, 1.0))
 		var reach: float = p.st.reach
 		for i in int(2 + reach * 2.0):
-			_glyph(Physics.foot(p) + Vector2(p.facing * (D.GW * (3.5 + i)), -D.GH * 2.5), "=" if i < 2 else "-", wc, 1.0)
+			_glyph(Physics.foot(p) + Vector2(p.facing * (D.GW * (3.3 + i * 0.75)), -D.GH * 2.17), "=" if i < 2 else "-", wc, 0.8)
 
 
 func _neck_pos() -> Vector2:
 	var p: Dictionary = game.player
-	return Physics.foot(p) + Vector2(-p.facing * 4.0, -D.GH * 3.2)
+	return Physics.foot(p) + Vector2(-p.facing * 6.0, -D.GH * 2.9)
 
 
 func _draw_slashes() -> void:
@@ -992,7 +992,7 @@ static func _tangent_glyph(a: float) -> String:
 ## Draws a multi-row sprite with its bottom row standing on foot (world units).
 ## fr is either an Array of rows or {"g": rows, "m": palette masks}.
 func _sprite(fr: Variant, foot: Vector2, facing: int, pal: Array, cmap: Dictionary, anchor: float,
-		tint: Color = Color(1, 1, 1), ghost: bool = false, flash: bool = false) -> void:
+		tint: Color = Color(1, 1, 1), ghost: bool = false, flash: bool = false, sc: float = 1.0) -> void:
 	var rows: Array = fr.g if fr is Dictionary else fr
 	var masks: Array = fr.m if fr is Dictionary else []
 	var n := rows.size()
@@ -1000,7 +1000,7 @@ func _sprite(fr: Variant, foot: Vector2, facing: int, pal: Array, cmap: Dictiona
 	for i in n:
 		var line: String = rows[i]
 		var mask: String = masks[i] if i < masks.size() else ""
-		var y := foot.y - (n - 1 - i) * D.GH - D.GH * 0.5
+		var y := foot.y - ((n - 1 - i) * D.GH + D.GH * 0.5) * sc
 		for j in line.length():
 			var ch := line[j]
 			if ch == " ":
@@ -1020,10 +1020,10 @@ func _sprite(fr: Variant, foot: Vector2, facing: int, pal: Array, cmap: Dictiona
 					pidx = cmap[line[j]]
 				col = pal[mini(pidx, pal.size() - 1)] * tint
 				col.a = tint.a
-			var wp := Vector2(foot.x + (j - anchor) * D.GW * dir, y)
+			var wp := Vector2(foot.x + (j - anchor) * D.GW * sc * dir, y)
 			if not ghost:
-				_glyph(wp, ch, Color(0, 0, 0, 0.75 * col.a), 1.12, null, Vector2(1.5, 1.5))
-			_glyph(wp, ch, col, 1.12)
+				_glyph(wp, ch, Color(0, 0, 0, 0.75 * col.a), 1.12 * sc, null, Vector2(1.5, 1.5) * sc)
+			_glyph(wp, ch, col, 1.12 * sc)
 
 
 # ---------------------------------------------------------------- lights

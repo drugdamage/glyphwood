@@ -13,7 +13,7 @@ config_version=5
 config/name="Glyphwood"
 config/description="A gothic action platformer drawn with text characters."
 run/main_scene="res://scenes/main.tscn"
-config/version="0.3.0"
+config/version="0.3.1"
 config/features=PackedStringArray("4.5", "GL Compatibility")
 config/icon="res://icon.svg"
 
@@ -26,5 +26,6 @@ window/size/viewport_height=800
 
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
+gl_compatibility/item_buffer_size=131072
 environment/defaults/default_clear_color=Color(0.012, 0.018, 0.022, 1)
 textures/vram_compression/import_etc2_astc=true

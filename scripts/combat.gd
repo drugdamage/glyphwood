@@ -128,16 +128,18 @@ static func kill_enemy(g, e: Dictionary) -> void:
 	g.sfx("kill", 0.0, 0.6 if e.boss else 1.0)
 	var def: Dictionary = S.FOES[e.kind]
 	var pal: Array = def.pal
-	var lines: Array = Foes.frame(e)
+	var fr: Variant = Foes.frame(e)
+	var lines: Array = fr.g if fr is Dictionary else fr
 	var f := Physics.foot(e)
 	var a: float = def.a
+	var sc: float = def.get("scale", 1.0)
 	for i in lines.size():
 		var line: String = lines[i]
 		for j in line.length():
 			var ch := line[j]
 			if ch == " ":
 				continue
-			var pp := f + Vector2((j - a) * D.GW * e.dir, -(lines.size() - i - 0.5) * D.GH)
+			var pp := f + Vector2((j - a) * D.GW * sc * e.dir, -(lines.size() - i - 0.5) * D.GH * sc)
 			g.particles.append({"p": pp, "v": Vector2(g.rng.randf_range(-140, 140), g.rng.randf_range(-260, -80)),
 				"g": ch, "c": pal[0], "life": 1.1, "max": 1.1, "grav": 900.0, "drag": 0.5, "s": 1.0})
 	var st: Dictionary = g.player.st
@@ -201,7 +203,8 @@ static func hurt_player(g, dmg: int, src_x: float, spikes: bool = false) -> void
 			var line: String = lines[i]
 			for j in line.length():
 				if line[j] != " ":
-					g.particles.append({"p": Physics.foot(p) + Vector2((j - 2) * D.GW, -(lines.size() - i - 0.5) * D.GH),
+					var off := Vector2((j - S.HERO.a) * D.GW, -(lines.size() - i - 0.5) * D.GH) * S.HERO.scale
+					g.particles.append({"p": Physics.foot(p) + off,
 						"v": Vector2(g.rng.randf_range(-120, 120), g.rng.randf_range(-280, -120)), "g": line[j],
 						"c": S.HERO_PAL[0], "life": 1.6, "max": 1.6, "grav": 700.0, "drag": 0.4, "s": 1.0})
 	elif spikes:

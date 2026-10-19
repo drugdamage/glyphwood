@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-20
+
+### Fixed
+
+- Crash in the renderer after dashing, jumping or opening the inventory a few
+  times: a frame drew more glyphs than the renderer's item buffer holds, and
+  overflowing it crashes Godot 4.5's Compatibility renderer. The buffer is now
+  large enough for every frame.
+- Wall jump: holding toward the wall now jumps up along it instead of throwing
+  you the other way; otherwise you kick off the wall, with a shorter input lock.
+
+### Changed
+
+- The hero, black knights and skeletons are drawn with smaller glyphs at a
+  higher level of detail (nine rows instead of five or six).
+- New application icon: the dripping G from the title logo.
+
 ## [0.3.0] - 2026-10-19
 
 ### Added
@@ -107,6 +124,7 @@ First public release.
 - Bundled DejaVu Sans Mono font, used in the Web build (where system fonts are
   unavailable) and as a fallback for glyphs missing from the system font.
 
-[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/drugdamage/glyphwood/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/drugdamage/glyphwood/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/drugdamage/glyphwood/releases/tag/v0.2.0

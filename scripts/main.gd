@@ -646,6 +646,7 @@ func _debug_capture(dt: float) -> void:
 				avg += d / _dts.size()
 				mx = maxf(mx, d)
 			print("avg=%.1fms max=%.1fms" % [avg * 1000.0, mx * 1000.0])
+			print("prims=%d" % Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME))
 			print("draws=%d fps=%d menu=%s state=%d level=%d hp=%d kills=%d shards=%d x=%.0f/%.0f" % [
 				Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), Engine.get_frames_per_second(),
 				str(menu.stack), state, level_num, player.get("hp", 0), kills, player.get("shards", 0),

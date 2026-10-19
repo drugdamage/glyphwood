@@ -173,9 +173,14 @@ static func update(g, p: Dictionary, dt: float) -> void:
 			g.sfx("jump", -6.0)
 			g.burst(Physics.foot(p), [".", ","], g.biome.edge, 5, 50.0)
 		elif wall != 0 and not p.on_floor:
-			p.vel = Vector2(-wall * 210.0, -400.0)
-			p.wall_lock = 0.15
-			p.facing = -wall
+			if dirx == wall:
+				# holding into the wall: climb up it instead of kicking away
+				p.vel = Vector2(-wall * 60.0, -400.0)
+				p.wall_lock = 0.05
+			else:
+				p.vel = Vector2(-wall * 230.0, -390.0)
+				p.wall_lock = 0.1
+				p.facing = -wall
 			p.jump_buf = 0.0
 			p.air_dash = true
 			g.sfx("wall", -4.0)

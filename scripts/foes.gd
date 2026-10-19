@@ -40,7 +40,7 @@ static func create(kind: String, foot: Vector2, level_num: int, rng: RandomNumbe
 	}
 
 
-static func frame(e: Dictionary) -> Array:
+static func frame(e: Dictionary) -> Variant:
 	var def: Dictionary = S.FOES[e.kind]
 	var anim := "move"
 	match e.kind:
