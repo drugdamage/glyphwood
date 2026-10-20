@@ -42,9 +42,6 @@ const DIFF := {
 	"hard": {"dmg": 1.4, "hp": 1.3, "toll": 0.5, "xp": 1.25},
 	"nightmare": {"dmg": 1.9, "hp": 1.6, "toll": 1.0, "xp": 1.5},
 }
-const NAME_A := ["Ash", "Grave", "Hollow", "Mourn", "Dusk", "Wither", "Bone", "Raven", "Thorn", "Gloam", "Rot", "Cinder", "Black",
-	"Dread", "Wraith", "Sorrow"]
-const NAME_B := ["mere", "wood", "fall", "moor", "reach", "vale", "crypt", "barrow", "spire", "deep", "mire", "hold", "gate", "fen"]
 const RUN_KEYS := ["hp", "base_hp", "ink", "shards", "weapon", "charms", "bag", "xp", "xp_level", "up_hp", "up_dmg"]
 ## Glyph-level fallbacks for Chinese and Japanese text (system fonts).
 const CJK_FONTS := {
@@ -325,7 +322,8 @@ func apply_settings(changed: String = "") -> void:
 		if DisplayServer.window_get_mode() != want:
 			DisplayServer.window_set_mode(want)
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED if cfg.get_v("vsync") else DisplayServer.VSYNC_DISABLED)
-	Engine.max_fps = int(cfg.get_v("fps"))
+	Engine.max_fps = 0 if _shot_path != "" else int(cfg.get_v("fps"))
+	Engine.physics_ticks_per_second = _tick_rate()
 	world.zoom_idx = int(cfg.get_v("zoom"))
 	if all or changed in ["zoom", "quality", "lang"]:
 		world.redraw_all()
@@ -343,6 +341,20 @@ func set_setting(key: String, v: Variant) -> void:
 		return
 	cfg.set_v(key, v)
 	apply_settings(key)
+
+
+## The game steps as often as frames are shown (60 to 240 times a second), so
+## high frame rates also move smoothly instead of repeating 60 Hz positions.
+func _tick_rate() -> int:
+	if _shot_path != "" or ui_check:
+		return 60
+	var target := int(cfg.get_v("fps"))
+	if target <= 0:
+		target = 240
+	var hz := int(DisplayServer.screen_get_refresh_rate()) if DisplayServer.get_name() != "headless" else -1
+	if cfg.get_v("vsync") and hz > 0:
+		target = mini(target, hz)
+	return clampi(target, 60, 240)
 
 
 ## Particles kept alive at once, by quality.
@@ -418,12 +430,6 @@ func free_world_slot() -> int:
 	return -1
 
 
-static func make_world_name(seed_v: int) -> String:
-	var r := RandomNumberGenerator.new()
-	r.seed = seed_v
-	return NAME_A[r.randi() % NAME_A.size()] + NAME_B[r.randi() % NAME_B.size()]
-
-
 ## Starts a new hero in a new world slot.
 func create_world(wname: String, diff: String, seed_v: int) -> void:
 	world_slot = free_world_slot()
@@ -450,7 +456,7 @@ func _migrate_save() -> void:
 		return
 	var cf := ConfigFile.new()
 	if cf.load(RUN_PATH) == OK and cf.get_value("run", "ver", 1) == RUN_VERSION and free_world_slot() >= 0:
-		cf.set_value("run", "name", make_world_name(cf.get_value("run", "seed", 0)))
+		cf.set_value("run", "name", "Glyphwood")
 		cf.set_value("run", "difficulty", "normal")
 		cf.set_value("run", "played", int(Time.get_unix_time_from_system()))
 		cf.save(WORLD_PATH % free_world_slot())
@@ -756,8 +762,7 @@ func on_boss_killed(e: Dictionary) -> void:
 
 func _input(event: InputEvent) -> void:
 	ctl.note_event(event)
-	if menu.capturing():
-		menu.capture(event)
+	if menu.capturing() and menu.capture(event):
 		get_viewport().set_input_as_handled()
 
 
@@ -1038,6 +1043,9 @@ func add_slash(kind: String, combo: int, facing: int, reach: float = 1.0) -> voi
 
 
 func add_ghost(p: Dictionary) -> void:
+	# one afterimage per 60th of a second, whatever the tick rate
+	if not ghosts.is_empty() and ghosts[-1].life > 0.205:
+		return
 	ghosts.append({"foot": Physics.foot(p), "facing": p.facing, "frame": Hero.frame(p), "life": 0.22})
 
 

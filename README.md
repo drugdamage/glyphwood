@@ -16,8 +16,9 @@ An endless descent through a graveyard forest, an ossuary and an ashen abyss,
 with procedural levels, secret walls, arenas, a merchant and a boss at the end
 of every biome; lanterns are your checkpoints and a small arrow always points
 the way, while every kill grows your hero for good, so a few minutes or a few
-hours both count. Combos, dash lunges, rising slashes and critical hits, several
-worlds with four difficulties, keyboard, mouse and gamepad, and seven languages.
+hours both count. Combos, dash lunges, rising slashes, critical hits and bosses
+that stagger, several worlds you name yourself with four difficulties, keyboard,
+mouse and gamepad, and seven languages.
 
 ## Install
 

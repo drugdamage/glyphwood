@@ -68,9 +68,9 @@ const ENEMIES := {
 	"wisp": {"size": Vector2(14, 14), "hp": 25, "speed": 48.0, "shards": 4, "fly": true},
 	"archer": {"size": Vector2(14, 26), "hp": 40, "speed": 50.0, "shards": 5, "fly": false},
 	"bomber": {"size": Vector2(16, 16), "hp": 30, "speed": 85.0, "shards": 4, "fly": false},
-	"warden": {"size": Vector2(56, 40), "hp": 520, "speed": 60.0, "shards": 60, "fly": false},
-	"wraith": {"size": Vector2(40, 44), "hp": 640, "speed": 90.0, "shards": 80, "fly": true},
-	"colossus": {"size": Vector2(52, 52), "hp": 800, "speed": 70.0, "shards": 100, "fly": false},
+	"warden": {"size": Vector2(56, 40), "hp": 360, "speed": 60.0, "shards": 60, "fly": false},
+	"wraith": {"size": Vector2(40, 44), "hp": 440, "speed": 90.0, "shards": 80, "fly": true},
+	"colossus": {"size": Vector2(52, 52), "hp": 560, "speed": 70.0, "shards": 100, "fly": false},
 }
 
 const BOSSES := ["warden", "wraith", "colossus"]

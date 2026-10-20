@@ -318,7 +318,7 @@ func _draw() -> void:
 		# moon and stars drift very slowly
 		var title: bool = game.is_title()
 		var mp: Vector2 = Vector2(vp.x * (0.87 if title else 0.78), vp.y * (0.1 if title else 0.15)) - game.cam * s * 0.02
-		_draw_moon(mp, minf(20.0 * s, vp.y * 0.065))
+		_draw_moon(mp, minf(24.0 * s, vp.y * 0.075))
 		for i in 70:
 			var sx := fposmod(_hash01(i, 3) * vp.x * 1.5 - game.cam.x * s * 0.05, vp.x)
 			var sy := _hash01(i, 9) * vp.y * 0.6
@@ -326,14 +326,17 @@ func _draw() -> void:
 			_gc(self, Vector2(sx, sy), "." if i % 3 else "+", Color(0.75, 0.7, 0.8, tw), fs, font)
 
 
-## A blood moon: a slow pulsing halo, a shaded disc with an eclipse shadow
-## eating into it, craters that read as a faint skull, cracks, drifting black
-## clouds and now and then a bat crossing it.
+## A blood moon: a halo that throbs like a heartbeat, a shaded disc with an
+## eclipse shadow eating into it, craters that read as a skull with one burning
+## eye that follows the hero and blinks, cracks, blood dripping from the rim,
+## drifting black clouds and now and then a bat crossing it.
 func _draw_moon(c: Vector2, r: float) -> void:
-	var pulse := 0.85 + 0.15 * sin(t * 0.7)
-	for k in 6:
-		var f := 1.0 + k * 0.42
-		draw_circle(c, r * f, Color(0.55, 0.03, 0.04, 0.05 * pulse * (1.0 - k / 6.0)))
+	var hb := fposmod(t, 1.5)
+	var beat := exp(-hb * 8.0) + (0.7 * exp(-(hb - 0.28) * 8.0) if hb > 0.28 else 0.0)
+	var pulse := 0.75 + 0.6 * beat
+	for k in 7:
+		var f := 1.0 + k * 0.45
+		draw_circle(c, r * f, Color(0.6, 0.02, 0.03, 0.07 * pulse * (1.0 - k / 7.0)))
 	var disc := _circle_poly(c, r, 40)
 	# shading from deep blood at the rim to a sick glow toward the upper left
 	for k in 7:
@@ -371,11 +374,51 @@ func _draw_moon(c: Vector2, r: float) -> void:
 			var a := TAU * i / 16.0
 			ell.append(Vector2(cx + cos(a) * w * 0.5, cy + sin(a) * r * 0.09))
 		draw_colored_polygon(ell, Color(0.03, 0.01, 0.02, 0.72))
+	_draw_moon_eye(c + Vector2(-0.36, -0.12) * r, r)
+	# blood runs down from the lower rim and drips off
+	var blood := Color(0.55, 0.02, 0.03)
+	for i in 4:
+		var x: float = [-0.32, 0.06, 0.3, -0.12][i]
+		var top := c + Vector2(x, sqrt(1.0 - x * x) - 0.04) * r
+		var ph := fposmod(t * 0.3 + i * 0.29, 1.0)
+		var drip := r * 0.22 * minf(ph * 2.0, 1.0)
+		draw_line(top, top + Vector2(0, drip), blood, maxf(1.0, r * 0.05))
+		if ph > 0.5:
+			var f := (ph - 0.5) * 2.0
+			draw_circle(top + Vector2(0, drip + f * f * r * 3.0), maxf(1.0, r * 0.045), Color(blood, 1.0 - f))
 	# a bat crosses the moon every so often
 	var bt := fposmod(t, 23.0)
 	if bt < 4.0:
 		var bp := c + Vector2(lerpf(-2.2, 2.2, bt / 4.0) * r, sin(bt * 5.0) * r * 0.15 - r * 0.2)
-		_gc(self, bp, "^v^" if int(t * 8.0) % 2 == 0 else "vvv", Color(0.02, 0.0, 0.01), fs, bold)
+		var bat := "^v^" if int(t * 8.0) % 2 == 0 else "vvv"
+		var bw := bold.get_string_size(bat, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		draw_string(bold, Vector2(bp.x - bw * 0.5, bp.y + fs * 0.36), bat, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(0.02, 0.0, 0.01))
+
+
+## A burning slit eye in the moon's left socket that looks toward the hero and
+## blinks every few seconds.
+func _draw_moon_eye(e: Vector2, r: float) -> void:
+	var look := Vector2(vp.x * 0.5, vp.y * 0.6)
+	if not game.player.is_empty() and not game.is_title():
+		look = sp(Physics.center(game.player))
+	var bl := fposmod(t, 6.7)
+	var open := 1.0 if bl > 0.24 else absf(bl - 0.12) / 0.12
+	var glow := 0.75 + 0.25 * sin(t * 3.1)
+	draw_circle(e, r * 0.32, Color(1.0, 0.35, 0.05, 0.14 * open * glow))
+	var iris := Color(1.0, 0.72, 0.18).lerp(Color(1.0, 0.95, 0.5), glow - 0.75)
+	draw_colored_polygon(_ellipse(e, Vector2(0.16, 0.13 * open + 0.01) * r, 20), iris)
+	var pp := e + (look - e).normalized() * r * 0.06
+	draw_colored_polygon(_ellipse(pp, Vector2(0.03, 0.11 * open + 0.005) * r, 12), Color(0.05, 0.0, 0.0))
+	# a scowling brow slanting down toward the middle of the face
+	draw_line(e + Vector2(-0.24, -0.27) * r, e + Vector2(0.22, -0.12) * r, Color(0.12, 0.0, 0.01), maxf(1.5, r * 0.08))
+
+
+func _ellipse(c: Vector2, rad: Vector2, n: int) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	for i in n:
+		var a := TAU * i / n
+		out.append(c + Vector2(cos(a) * rad.x, sin(a) * rad.y))
+	return out
 
 
 func _circle_poly(c: Vector2, r: float, n: int) -> PackedVector2Array:

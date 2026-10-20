@@ -23,6 +23,16 @@ static func update(g, e: Dictionary, dt: float) -> void:
 		if e.kind == "wraith":
 			for side in [-1, 1]:
 				g.spawn_enemy("wisp", Physics.center(e) + Vector2(side * 60, 0))
+	if e.get("stagger", 0.0) > 0.0:
+		e.stagger -= dt
+		e.flash = 0.04 if int(e.stagger * 10.0) % 2 == 0 else 0.0
+		if e.fly:
+			e.vel = e.vel.move_toward(Vector2(0, 30.0), 400.0 * dt)
+			e.pos += e.vel * dt
+		else:
+			e.vel.x = 0.0
+			_fall(e, g.lv, dt)
+		return
 	match e.kind:
 		"warden":
 			_warden(g, e, dt)

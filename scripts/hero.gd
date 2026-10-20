@@ -34,7 +34,7 @@ const REGEN_DELAY := 4.0
 const REGEN_RATE := 0.05
 const BASE_HP := 100
 const HP_PER_LEVEL := 6
-const DMG_PER_LEVEL := 0.04
+const DMG_PER_LEVEL := 0.06
 const BASE_CRIT := 0.08
 
 
@@ -238,7 +238,7 @@ static func update(g, p: Dictionary, dt: float) -> void:
 	else:
 		var grav := GRAVITY * (1.15 if p.vel.y > 0.0 else 1.0)
 		p.vel.y = minf(p.vel.y + grav * dt, WALL_FALL if p.sliding else MAX_FALL)
-	if p.sliding and int(p.anim * 20.0) % 3 == 0:
+	if p.sliding and g.rng.randf() < 20.0 * dt:
 		g.burst(Physics.center(p) + Vector2(wall * 7, -6), ["'", "."], g.biome.edge, 1, 20.0)
 
 	# attack
@@ -272,7 +272,7 @@ static func update(g, p: Dictionary, dt: float) -> void:
 			elif held.up:
 				dir = Vector2(0, -1)
 			var from := Physics.center(p) + Vector2(p.facing * 6.0, -4.0)
-			g.fire(from, dir * KNIFE_SPEED, "hero", st.dmg * 1.2 * st.dmg_mult)
+			g.fire(from, dir * KNIFE_SPEED, "hero", st.dmg * 2.0 * st.dmg_mult)
 			g.sfx("throw")
 		else:
 			g.sfx("error", -8.0)

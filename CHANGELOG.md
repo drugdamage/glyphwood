@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-20
+
+### Added
+
+- **Name your world.** New world opens with the name field ready: type any name
+  (up to 20 characters), Backspace erases, Enter or Tab moves on. The game no
+  longer suggests names; every new world still gets its own layout.
+- **Boss stagger.** Each time a boss loses a quarter of its health it stands
+  dazed for 1.8 seconds, takes 50% more damage and drops a health orb.
+
+### Changed
+
+- **Performance.** On macOS the game renders through Metal instead of OpenGL,
+  which roughly doubles the frame rate and cuts power use. The game now steps
+  as often as frames are shown (60 to 240 times a second, following the frame
+  limit, V-Sync and the display), so high frame rates are really smooth instead
+  of repeating 60 Hz positions.
+- **Balance.** Bosses have about 30% less health (Moss Warden 360, Bell Wraith
+  440, Ember Colossus 560); each hero level adds 6% damage instead of 4%; ink
+  knives hit for twice the blade's damage instead of 1.2×.
+- The blood moon is angrier: a burning slit eye in its skull follows the hero
+  and blinks under a scowling brow, blood drips from its rim and its halo
+  throbs like a heartbeat.
+
+### Fixed
+
+- The bat crossing the moon printed an error every frame instead of drawing.
+
 ## [0.5.0] - 2026-10-20
 
 ### Added
@@ -217,7 +245,8 @@ First public release.
 - Bundled DejaVu Sans Mono font, used in the Web build (where system fonts are
   unavailable) and as a fallback for glyphs missing from the system font.
 
-[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/drugdamage/glyphwood/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/drugdamage/glyphwood/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/drugdamage/glyphwood/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/drugdamage/glyphwood/compare/v0.3.0...v0.3.1

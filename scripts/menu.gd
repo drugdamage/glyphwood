@@ -47,6 +47,9 @@ var _map_ci: Node2D
 var _map_rect := Rect2()
 ## The world being created on the "new_world" screen, and the one picked in "worlds".
 var _nw := {"name": "", "difficulty": "normal", "seed": 0}
+## True while keys type into the new world's name.
+var _typing := false
+const NAME_MAX := 20
 var _world := {}
 ## The panel text has to stay inside (checked with --uicheck).
 var _bounds := Rect2()
@@ -82,6 +85,7 @@ func close() -> void:
 	sel = 0
 	col = 0
 	_capture = {}
+	_typing = false
 	game.ctl.swallow()
 	game.sfx("menu_back", -4.0)
 
@@ -90,6 +94,7 @@ func close_all() -> void:
 	stack.clear()
 	game.ctl.swallow()
 	_capture = {}
+	_typing = false
 	sel = 0
 
 
@@ -106,7 +111,7 @@ func top() -> String:
 
 
 func capturing() -> bool:
-	return not _capture.is_empty()
+	return not _capture.is_empty() or _typing
 
 
 func _process(delta: float) -> void:
@@ -211,13 +216,11 @@ func _build(name: String) -> Array:
 			out.append_array(_settings_tab())
 			out.append(_btn(game.L("m_back"), close))
 		"new_world":
-			if _nw.name == "":
-				_reroll_name(0)
-			out.append({"type": "value", "label": game.L("s_world_name"), "value": _nw.name, "tip": game.L("tip_world_name"),
-				"act": _reroll_name.bind(1), "adj": _reroll_name})
+			out.append({"type": "text", "label": game.L("s_world_name"), "value": _nw.name, "tip": game.L("tip_world_name"),
+				"act": _start_typing})
 			out.append({"type": "value", "label": game.L("s_difficulty"), "value": game.L("diff_" + _nw.difficulty),
 				"tip": game.L("diffd_" + _nw.difficulty), "act": _cycle_diff.bind(1), "adj": _cycle_diff})
-			out.append(_btn(game.L("m_create"), func() -> void: game.create_world(_nw.name, _nw.difficulty, _nw.seed)))
+			out.append(_btn(game.L("m_create"), _create_world))
 			out.append(_btn(game.L("m_back"), close))
 		"worlds":
 			for w in game.worlds():
@@ -246,15 +249,52 @@ func _new_world() -> void:
 		game.sfx("error", -6.0)
 		_message(game.L("worlds_full"))
 		return
-	_nw = {"name": "", "difficulty": "normal", "seed": 0}
-	_reroll_name(0)
+	_nw = {"name": "", "difficulty": "normal", "seed": randi()}
 	open("new_world")
+	_typing = true
 
 
-## Bound as _reroll_name.bind(dir) or called by _adjust with dir; a new seed gives a new name.
-func _reroll_name(_dir: int) -> void:
-	_nw.seed = randi()
-	_nw.name = game.make_world_name(_nw.seed)
+func _start_typing() -> void:
+	_typing = true
+	game.sfx("menu_ok", -6.0)
+
+
+func _create_world() -> void:
+	var n: String = _nw.name.strip_edges()
+	if n == "":
+		game.sfx("error", -6.0)
+		_message(game.L("world_name_empty"))
+		sel = 0
+		_typing = true
+		return
+	_typing = false
+	game.create_world(n, _nw.difficulty, _nw.seed)
+
+
+## Keys typed into the world name: letters are added, Backspace removes one,
+## Enter, Tab, Esc or a click elsewhere finish. Returns true when the event was used.
+func _type(event: InputEvent) -> bool:
+	if event is InputEventMouseButton and event.pressed:
+		_typing = false
+		return false
+	if not (event is InputEventKey and event.pressed):
+		return event is InputEventKey
+	var k: int = event.keycode if event.keycode != 0 else event.physical_keycode
+	if k in [KEY_ENTER, KEY_KP_ENTER, KEY_ESCAPE, KEY_TAB, KEY_UP, KEY_DOWN]:
+		_typing = false
+		if k != KEY_ESCAPE:
+			_move(1)
+		return true
+	if k == KEY_BACKSPACE:
+		if _nw.name != "":
+			_nw.name = _nw.name.left(-1)
+			game.sfx("menu_move", -14.0)
+		return true
+	var ch: int = event.unicode
+	if ch >= 32 and ch != 127 and _nw.name.length() < NAME_MAX:
+		_nw.name += String.chr(ch)
+		game.sfx("menu_move", -14.0)
+	return true
 
 
 func _cycle_diff(dir: int) -> void:
@@ -547,12 +587,15 @@ func _hover(pos: Vector2) -> int:
 	return -1
 
 
-## Called from main._input while waiting for a new binding.
-func capture(event: InputEvent) -> void:
+## Called from main._input while waiting for a new binding or typing a name;
+## returns true when the event was used.
+func capture(event: InputEvent) -> bool:
+	if _typing:
+		return _type(event)
 	if not (event is InputEventKey or event is InputEventMouseButton) or not event.is_pressed():
-		return
+		return true
 	if event is InputEventKey and event.is_echo():
-		return
+		return true
 	var a: String = _capture.action
 	var slot: int = _capture.slot
 	if event is InputEventKey:
@@ -560,15 +603,16 @@ func capture(event: InputEvent) -> void:
 		if k == KEY_ESCAPE:
 			_capture = {}
 			game.sfx("menu_back", -6.0)
-			return
+			return true
 		if k == KEY_BACKSPACE or k == KEY_DELETE:
 			game.ctl.rebind(a, slot, "")
 			_finish_capture()
-			return
+			return true
 	var b := Controls.encode(event)
 	if b != "":
 		game.ctl.rebind(a, slot, b)
 		_finish_capture()
+	return true
 
 
 func _finish_capture() -> void:
@@ -765,6 +809,21 @@ func _draw_rows(x: float, y: float, w: float, row_h: float, from: int = 0) -> fl
 				var vw := _w(v, vs, bold)
 				_text(Vector2(x + w - 20 * u - vw, y + row_h * 0.68), v, vs, Color(1.0, 0.85, 0.5) if on else lc, bold)
 				_text_fit(Vector2(x + 30 * u, y + row_h * 0.68), it.label, size, w - 66 * u - vw, lc)
+			"text":
+				var typing := on and _typing
+				var tv: String = it.value
+				var tc := Color(1.0, 0.85, 0.5) if on else lc
+				if tv == "" and not typing:
+					tv = game.L("world_name_ph")
+					tc = Color(0.5, 0.52, 0.5)
+				var shown := tv + ("_" if typing and int(t * 2.0) % 2 == 0 else " ") if typing else tv
+				var ts := _fit(shown, size, w * 0.55, bold)
+				var tw := _w(shown, ts, bold)
+				var box := Rect2(x + w - 30 * u - maxf(tw, w * 0.4), y + row_h * 0.12, maxf(tw, w * 0.4) + 16 * u, row_h * 0.76)
+				draw_rect(box, Color(1, 1, 1, 0.08 if typing else 0.04))
+				draw_rect(box, Color(1.0, 0.85, 0.5, 0.6) if typing else Color(1, 1, 1, 0.15), false, maxf(1.0, u))
+				_text(Vector2(x + w - 22 * u - tw, y + row_h * 0.68), shown, ts, tc, bold)
+				_text_fit(Vector2(x + 30 * u, y + row_h * 0.68), it.label, size, box.position.x - x - 40 * u, lc)
 			"slider":
 				var bw := w * 0.32
 				_text_fit(Vector2(x + 30 * u, y + row_h * 0.68), it.label, size, w - 130 * u - bw, lc)

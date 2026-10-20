@@ -11,6 +11,9 @@ const Hero := preload("res://scripts/hero.gd")
 const Foes := preload("res://scripts/foes.gd")
 
 const INK_PER_HIT := 11.0
+## How long a staggered boss stands dazed, and how much more damage it takes meanwhile.
+const STAGGER_TIME := 1.8
+const STAGGER_DMG := 1.5
 
 const SHOT_LOOK := {
 	"orb": ["o", Color(0.7, 0.85, 1.0)], "arrow": ["-", Color(0.9, 0.8, 0.6)], "spore": ["@", Color(0.6, 1.0, 0.4)],
@@ -117,7 +120,11 @@ static func hurt_enemy(g, e: Dictionary, dmg: float, kdir: Vector2, melee: bool 
 		dmg *= 2.0
 		crit = true
 		g.on_crit(Physics.center(e))
+	if e.get("stagger", 0.0) > 0.0:
+		dmg *= STAGGER_DMG
 	e.hp -= dmg
+	if e.boss and e.hp > 0:
+		_check_stagger(g, e)
 	e.flash = 0.12
 	e.aggro = true
 	if not e.boss:
@@ -140,6 +147,25 @@ static func hurt_enemy(g, e: Dictionary, dmg: float, kdir: Vector2, melee: bool 
 	burst(g, Physics.center(e), ["*", "+", "x", "·"], Color(1, 1, 1), 7, 150.0)
 	if e.hp <= 0:
 		kill_enemy(g, e)
+
+
+## A boss loses its footing each time a quarter of its health is gone: it
+## stands dazed for a moment, takes more damage and sheds a health orb.
+static func _check_stagger(g, e: Dictionary) -> void:
+	var marks: int = e.get("marks", 0)
+	if marks >= 3 or e.hp > e.max_hp * (0.75 - 0.25 * marks):
+		return
+	e.marks = marks + 1
+	e.stagger = STAGGER_TIME
+	e.vel.x = 0.0
+	if e.fly:
+		e.vel = Vector2.ZERO
+	g.pickups.append({"kind": "orb", "pos": Physics.center(e) + Vector2(0, -10)})
+	g.sfx("slam", -2.0, 1.3)
+	g.shake_add(6.0)
+	g.popups.append({"pos": Physics.center(e) + Vector2(0, -e.size.y * 0.7), "text": g.L("stagger"),
+		"color": Color(1.0, 0.85, 0.3), "life": 1.2, "big": true})
+	burst(g, Physics.center(e), ["*", "+", "x"], Color(1.0, 0.85, 0.4), 14, 170.0)
 
 
 static func kill_enemy(g, e: Dictionary) -> void:
@@ -291,7 +317,7 @@ static func update_projectiles(g, dt: float) -> void:
 		pr.pos += pr.vel * dt
 		pr.life -= dt
 		var col: Color = SHOT_LOOK.get(pr.kind, SHOT_LOOK.shot)[1]
-		if g.rng.randf() < 0.5:
+		if g.rng.randf() < 30.0 * dt:
 			g.particles.append({"p": pr.pos, "v": Vector2.ZERO, "g": "·", "c": col,
 				"life": 0.3, "max": 0.3, "grav": 0.0, "drag": 0.0, "s": 0.8})
 		var tx := int(floor(pr.pos.x / D.TILE))
@@ -337,7 +363,7 @@ static func update_hazards(g, dt: float) -> void:
 			var r := Rect2(hz.x - 10.0, hz.y - 110.0, 20.0, 110.0)
 			if not p.dead and r.intersects(Physics.rect(p)):
 				hurt_player(g, 1, hz.x)
-			if g.rng.randf() < 0.6:
+			if g.rng.randf() < 36.0 * dt:
 				g.particles.append({"p": Vector2(hz.x + g.rng.randf_range(-8, 8), hz.y - g.rng.randf_range(0, 100)),
 					"v": Vector2(0, -120), "g": "*", "c": Color(1.0, 0.6, 0.2), "life": 0.4, "max": 0.4,
 					"grav": -100.0, "drag": 0.0, "s": 1.0})
