@@ -141,7 +141,10 @@ var _ui_wait := 0
 var _ui_issues := {}
 var _zoo := false
 var _dts: Array = []
-var _crosshair_px := 0
+## The game's own cursor while the mouse is captured (see _update_cursor).
+var cursor := Vector2.ZERO
+var _mouse_k := 1.0
+var _mouse_last := Vector2.ZERO
 
 
 func _process(delta: float) -> void:
@@ -773,6 +776,8 @@ func on_boss_killed(e: Dictionary) -> void:
 
 func _input(event: InputEvent) -> void:
 	ctl.note_event(event)
+	if event is InputEventMouseMotion:
+		_track_mouse(event)
 	if menu.capturing() and menu.capture(event):
 		get_viewport().set_input_as_handled()
 
@@ -805,65 +810,53 @@ func aiming_with_mouse() -> bool:
 
 
 func aim_vector(p: Dictionary) -> Vector2:
-	var m := world.screen_to_world(get_viewport().get_mouse_position())
+	var m := world.screen_to_world(mouse_point())
 	var d := m - Physics.center(p)
 	return d.normalized() if d.length() > 1.0 else Vector2(p.facing, 0)
 
 
-## While playing, the cursor is kept inside the window (and hidden when it
-## aims), so a click never lands on another app; menus set it free.
+## While playing, the mouse is captured and the game moves its own cursor,
+## kept inside the window: a click never lands on another app, and the
+## crosshair moves every frame. Menus give the system cursor back where the
+## crosshair was.
 func _update_cursor() -> void:
 	var playing: bool = state == State.PLAY and not menu.active() and not player.dead and get_window().has_focus()
-	var want := Input.MOUSE_MODE_VISIBLE
-	if playing and _shot_path == "":
-		want = Input.MOUSE_MODE_CONFINED
-	if Input.mouse_mode != want:
-		Input.mouse_mode = want
-	_set_crosshair(playing and aiming_with_mouse())
-
-
-## The aiming crosshair is the system cursor, so the OS draws it at the
-## display's refresh rate with no lag, whatever the game's frame rate. Its
-## picture is the same glyph crosshair as always, drawn once per size.
-func _set_crosshair(on: bool) -> void:
-	# macOS sizes cursors in points, so the picture is drawn at points, not pixels
-	var fs := int(round(18.0 * hud.u / maxf(1.0, DisplayServer.screen_get_scale()))) if on else 0
-	if fs == _crosshair_px:
+	var want := Input.MOUSE_MODE_CAPTURED if playing and _shot_path == "" else Input.MOUSE_MODE_VISIBLE
+	if Input.mouse_mode == want:
 		return
-	_crosshair_px = fs
-	if on:
-		_bake_crosshair(fs)
+	if want == Input.MOUSE_MODE_CAPTURED:
+		cursor = get_viewport().get_mouse_position()
+		Input.mouse_mode = want
 	else:
-		Input.set_custom_mouse_cursor(null)
+		_release_mouse()
 
 
-func _bake_crosshair(fs: int) -> void:
-	var k := fs / 18.0
-	var n := mini(256, int(ceil(56.0 * k)))
-	var vp := SubViewport.new()
-	vp.size = Vector2i(n, n)
-	vp.transparent_bg = true
-	vp.render_target_update_mode = SubViewport.UPDATE_ONCE
-	var painter := Node2D.new()
-	painter.draw.connect(func() -> void: _draw_crosshair(painter, Vector2(n, n) * 0.5, k))
-	vp.add_child(painter)
-	add_child(vp)
-	await RenderingServer.frame_post_draw
-	if _crosshair_px == fs:
-		var tex := ImageTexture.create_from_image(vp.get_texture().get_image())
-		Input.set_custom_mouse_cursor(tex, Input.CURSOR_ARROW, Vector2(n, n) * 0.5)
-	vp.queue_free()
+func _release_mouse() -> void:
+	if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		Input.warp_mouse(cursor)
+	else:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
-## Four glyph arms and a dot around [m]; [k] is the interface scale.
-func _draw_crosshair(ci: CanvasItem, m: Vector2, k: float) -> void:
-	var c := Color(1.0, 0.92, 0.7, 0.9)
-	var fs := int(18 * k)
-	for d in [Vector2(-1, 0), Vector2(1, 0), Vector2(0, -1), Vector2(0, 1)]:
-		var g := "-" if d.y == 0.0 else "|"
-		var w := font_bold.get_string_size(g, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-		ci.draw_string(font_bold, m + d * 9.0 * k - Vector2(w * 0.5, -fs * 0.35), g, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, c)
-	ci.draw_circle(m, 1.5 * k, c)
+## Moves the game's cursor while captured. Outside play the system cursor's
+## real movement is compared with the reported motion, so the captured cursor
+## moves at the same speed on any display scale.
+func _track_mouse(ev: InputEventMouseMotion) -> void:
+	if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		cursor = (cursor + ev.relative * _mouse_k).clamp(Vector2.ZERO, get_viewport().get_visible_rect().size - Vector2.ONE)
+		return
+	var moved := ev.position - _mouse_last
+	_mouse_last = ev.position
+	if ev.relative.length() > 3.0 and moved.length() > 3.0:
+		var r := moved.length() / ev.relative.length()
+		if r > 0.2 and r < 5.0:
+			_mouse_k = lerpf(_mouse_k, r, 0.25)
+
+
+## Where the mouse points on screen: the game's own cursor while captured.
+func mouse_point() -> Vector2:
+	return cursor if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED else get_viewport().get_mouse_position()
 
 
 ## Switching to another app pauses the game and frees the cursor.
@@ -871,7 +864,7 @@ func _on_focus_lost() -> void:
 	audio.set_muted(cfg.get_v("mute_unfocused"))
 	if state == State.PLAY and not menu.active() and not player.dead and _shot_path == "" and not _bot:
 		menu.open("pause")
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_release_mouse()
 
 
 # ---------------------------------------------------------------- frame

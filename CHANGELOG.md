@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-20
+
+### Changed
+
+- **Mouse while playing.** The mouse is captured and the game moves its own
+  cursor, kept inside the window, so a click can't leave the game. The
+  crosshair is drawn every frame again (at 180 FPS it moves 180 times a
+  second) and follows the mouse at the same speed as the desktop cursor on
+  any display scale. Menus give the cursor back where the crosshair was.
+  This replaces 0.6's cursor confinement, which on macOS made the crosshair
+  stutter and could show it at the wrong size.
+- **Gothic HUD.** The crosshair is a reticle of four bone thorns, a broken
+  ring of blood that turns (and tightens and reddens during combos) and a
+  bone diamond. The health blade wears cemetery-fence spikes and bleeds from
+  its underside below half health; ink charges are small hanging daggers;
+  equipment slots are lancet arches with crosses; the experience line ends in
+  gold diamonds; the arrow that shows the way is a bone dagger over an ember
+  glow.
+- Menus sit in wrought-iron frames with a crown of spikes and crosses on the
+  corners, under headings flanked by iron lines and blood diamonds; the
+  selected inventory item is marked in blood.
+
 ## [0.6.3] - 2026-10-20
 
 ### Changed
@@ -272,7 +294,8 @@ First public release.
 - Bundled DejaVu Sans Mono font, used in the Web build (where system fonts are
   unavailable) and as a fallback for glyphs missing from the system font.
 
-[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.6.3...HEAD
+[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/drugdamage/glyphwood/compare/v0.6.3...v0.7.0
 [0.6.3]: https://github.com/drugdamage/glyphwood/compare/v0.6.1...v0.6.3
 [0.6.1]: https://github.com/drugdamage/glyphwood/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/drugdamage/glyphwood/compare/v0.5.0...v0.6.0

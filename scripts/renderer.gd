@@ -1104,7 +1104,6 @@ func _draw_hero() -> void:
 			_glyph(Physics.foot(p) + Vector2(p.facing * (D.GW * (3.3 + i * 0.75)), -D.GH * 2.17), "=" if i < 2 else "-", wc, 0.8)
 
 
-const ARROWS := ["→", "↘", "↓", "↙", "←", "↖", "↑", "↗"]
 
 
 ## A small arrow circling the hero that points the way to the exit.
@@ -1120,9 +1119,20 @@ func _draw_guide() -> void:
 	if d.length() < 50.0:
 		return
 	var a := d.angle()
-	var g: String = ARROWS[posmod(int(round(a / (PI / 4.0))), 8)]
-	var pos := c + Vector2(cos(a), sin(a)) * (26.0 + sin(t * 4.0) * 2.0)
-	_glyph(pos, g, Color(1.0, 0.85, 0.45, 0.6 + 0.25 * sin(t * 4.0)), 1.25)
+	var pos := sp(c + Vector2(cos(a), sin(a)) * (26.0 + sin(t * 4.0) * 2.0))
+	# a small bone dagger pointing the way, over a faint ember glow
+	var glow := 0.6 + 0.25 * sin(t * 4.0)
+	_dyn.draw_circle(pos, 5.0 * s, Color(0.9, 0.25, 0.1, 0.18 * glow))
+	_dyn.draw_set_transform(pos, a, Vector2(s, s))
+	var blade := PackedVector2Array([Vector2(8, 0), Vector2(-1.5, 1.6), Vector2(-1.5, -1.6)])
+	var edge := blade.duplicate()
+	edge.append(blade[0])
+	_dyn.draw_polyline(edge, Color(0.04, 0.0, 0.01, 0.8), 1.2, true)
+	_dyn.draw_colored_polygon(blade, Color(0.92, 0.86, 0.74, glow))
+	_dyn.draw_line(Vector2(-1.8, -3.6), Vector2(-1.8, 3.6), Color(0.55, 0.12, 0.1, glow), 1.3)
+	_dyn.draw_line(Vector2(-2.2, 0), Vector2(-5.5, 0), Color(0.3, 0.22, 0.2, glow), 1.4)
+	_dyn.draw_circle(Vector2(-6.3, 0), 1.1, Color(0.7, 0.12, 0.1, glow))
+	_dyn.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 func _neck_pos() -> Vector2:

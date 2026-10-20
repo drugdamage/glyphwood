@@ -685,23 +685,51 @@ func _center(y: float, text: String, size: int, color: Color, f: Font = null) ->
 	_text(Vector2((vw - _w(text, size, f)) * 0.5, y), text, size, color, f)
 
 
-## A panel with a glyph frame.
+## A panel in a wrought-iron frame: a double rim, a crown of fence spikes
+## along the top, crosses on the corners and a faint glow of the accent
+## colour seeping down from the top.
 func _panel(r: Rect2, accent: Color) -> void:
 	_bounds = Rect2()
-	draw_rect(r, Color(0.015, 0.02, 0.022, 0.9))
-	var fs := int(14 * u)
-	var c := Color(accent.r, accent.g, accent.b, 0.55)
-	draw_rect(r.grow(-4 * u), Color(accent.r, accent.g, accent.b, 0.18), false, maxf(1.0, u))
+	draw_rect(r, Color(0.012, 0.01, 0.014, 0.93))
+	for k in 8:
+		draw_rect(Rect2(r.position.x, r.position.y + k * 6 * u, r.size.x, 6 * u), Color(accent.r, accent.g, accent.b, 0.05 * (1.0 - k / 8.0)))
+	var iron := Color(0.4, 0.35, 0.33)
+	var w := maxf(1.0, 1.4 * u)
+	draw_rect(r, iron, false, w)
+	draw_rect(r.grow(-5 * u), Color(accent.r, accent.g, accent.b, 0.3), false, maxf(1.0, u))
+	var n := maxi(2, int(r.size.x / (26.0 * u)))
+	for k in range(1, n):
+		var x := r.position.x + r.size.x * k / n
+		var h := (8.0 if k % 4 == 0 else 5.0) * u
+		draw_colored_polygon(PackedVector2Array([Vector2(x - 2.4 * u, r.position.y), Vector2(x, r.position.y - h),
+			Vector2(x + 2.4 * u, r.position.y)]), iron)
 	for corner in [r.position, Vector2(r.end.x, r.position.y), Vector2(r.position.x, r.end.y), r.end]:
-		var g := "+"
-		_text(corner + Vector2(-_w(g, fs, bold) * 0.5, fs * 0.35), g, fs, c, bold)
-	var step := 14.0 * u
-	var x := r.position.x + step
-	while x < r.end.x - step * 0.5:
-		_text(Vector2(x - 3 * u, r.position.y + fs * 0.35), "-", fs, c * 0.8, font)
-		_text(Vector2(x - 3 * u, r.end.y + fs * 0.35), "-", fs, c * 0.8, font)
-		x += step
+		_cross(corner, 7.0 * u, iron, Color(accent.r, accent.g, accent.b, 0.8))
 	_bounds = r
+
+
+## A small cross with a diamond at its heart.
+func _cross(c: Vector2, size: float, col: Color, heart: Color) -> void:
+	var w := maxf(1.0, 1.6 * u)
+	draw_line(c - Vector2(0, size), c + Vector2(0, size * 1.3), col, w)
+	draw_line(c - Vector2(size * 0.75, 0), c + Vector2(size * 0.75, 0), col, w)
+	draw_colored_polygon(PackedVector2Array([c + Vector2(0, -2.5) * u, c + Vector2(2.5, 0) * u, c + Vector2(0, 2.5) * u,
+		c + Vector2(-2.5, 0) * u]), heart)
+
+
+## A menu heading between two thin iron lines that end in diamonds.
+func _heading(y: float, text: String, size: int) -> void:
+	_center(y, text, size, Color(0.95, 0.92, 0.86), bold)
+	var vw := get_viewport_rect().size.x
+	var tw := _w(text, _fit(text, size, (_bounds.size.x if _bounds.has_area() else vw) - 40 * u, bold), bold)
+	var cy := y - size * 0.32
+	var iron := Color(0.45, 0.38, 0.35)
+	for side in [-1.0, 1.0]:
+		var a: float = vw * 0.5 + side * (tw * 0.5 + 14 * u)
+		var b: float = vw * 0.5 + side * (tw * 0.5 + 70 * u)
+		draw_line(Vector2(a, cy), Vector2(b, cy), iron, maxf(1.0, u))
+		draw_colored_polygon(PackedVector2Array([Vector2(b, cy - 3 * u), Vector2(b + side * 4 * u, cy), Vector2(b, cy + 3 * u),
+			Vector2(b - side * 4 * u, cy)]), Color(0.6, 0.1, 0.1))
 
 
 func _draw() -> void:
@@ -894,7 +922,7 @@ func _draw_list(vp: Vector2, title: String, accent: Color, width: float, sub: St
 	var h := top_h + items.size() * row_h + 26 * u
 	var r := Rect2((vp.x - w) * 0.5, maxf(16 * u, (vp.y - 70 * u - h) * 0.5), w, h)
 	_panel(r, accent)
-	_center(r.position.y + 52 * u, title, int(34 * u), Color(0.95, 0.95, 0.9), bold)
+	_heading(r.position.y + 52 * u, title, int(34 * u))
 	if sub != "":
 		_para(Vector2(r.position.x + 30 * u, r.position.y + 84 * u), sub, w - 60 * u, fs, Color(0.65, 0.72, 0.68),
 			HORIZONTAL_ALIGNMENT_CENTER)
@@ -945,7 +973,7 @@ func _draw_settings(vp: Vector2, accent: Color) -> void:
 	var h := 120.0 * u + n * row_h + (40.0 * u if tab == 3 else 0.0)
 	var r := Rect2((vp.x - w) * 0.5, maxf(16 * u, (vp.y - 90 * u - h) * 0.5), w, h)
 	_panel(r, accent)
-	_center(r.position.y + 50 * u, game.L("m_settings"), int(30 * u), Color(0.95, 0.95, 0.9), bold)
+	_heading(r.position.y + 50 * u, game.L("m_settings"), int(30 * u))
 	var y := _draw_rows(r.position.x + 20 * u, r.position.y + 72 * u, w - 40 * u, row_h)
 	if tab == 3:
 		var note: String = game.L("press_key") if capturing() else game.L("pad_note")
@@ -1006,7 +1034,7 @@ func _draw_inventory(vp: Vector2, accent: Color) -> void:
 	var h := minf(vp.y - 60 * u, 680.0 * u)
 	var r := Rect2((vp.x - w) * 0.5, (vp.y - h) * 0.5, w, h)
 	_panel(r, accent)
-	_center(r.position.y + 48 * u, game.L("m_inventory"), int(30 * u), Color(0.95, 0.95, 0.9), bold)
+	_heading(r.position.y + 48 * u, game.L("m_inventory"), int(30 * u))
 	var fs := int(17 * u)
 	var row_h := 54.0 * u
 	var lx := r.position.x + 30 * u
@@ -1043,6 +1071,7 @@ func _draw_inventory(vp: Vector2, accent: Color) -> void:
 			draw_rect(rect.grow(-2 * u), Color(1, 1, 1, 0.09 if on else 0.03))
 			if on:
 				draw_rect(rect.grow(-2 * u), Color(1.0, 0.85, 0.5, 0.6), false, maxf(1.0, u))
+				draw_rect(Rect2(rect.position + Vector2(2, 2) * u, Vector2(4 * u, rect.size.y - 4 * u)), Color(0.6, 0.06, 0.08))
 		if it.type == "slot":
 			_draw_icon(Rect2(rect.position + Vector2(6, 5) * u, Vector2(row_h - 10 * u, row_h - 10 * u)), "", Color(0.3, 0.32, 0.3))
 			_text_fit(Vector2(rect.position.x + row_h + 8 * u, rect.position.y + row_h * 0.62), game.L("inv_empty"), fs, cw - row_h - 16 * u,
@@ -1172,7 +1201,7 @@ func _draw_moves(vp: Vector2, accent: Color) -> void:
 		h += 34 * u + _para_h(game.L(m[0] + "_d"), dw, ds)
 	var r := Rect2((vp.x - w) * 0.5, maxf(10 * u, (vp.y - 40 * u - h) * 0.5), w, h)
 	_panel(r, accent)
-	_center(r.position.y + 48 * u, game.L("m_moves"), int(30 * u), Color(0.95, 0.95, 0.9), bold)
+	_heading(r.position.y + 48 * u, game.L("m_moves"), int(30 * u))
 	var y := r.position.y + 90 * u
 	for m in moves:
 		var kw := 0.0
@@ -1203,7 +1232,7 @@ func _draw_worlds(vp: Vector2, accent: Color) -> void:
 	var h := 120.0 * u + n * row_h + (items.size() - n) * 40.0 * u
 	var r := Rect2((vp.x - w) * 0.5, maxf(16 * u, (vp.y - 40 * u - h) * 0.5), w, h)
 	_panel(r, accent)
-	_center(r.position.y + 50 * u, game.L("m_worlds"), int(30 * u), Color(0.95, 0.95, 0.9), bold)
+	_heading(r.position.y + 50 * u, game.L("m_worlds"), int(30 * u))
 	var y := r.position.y + 80 * u
 	var fs := int(18 * u)
 	for i in n:

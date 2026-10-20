@@ -192,6 +192,43 @@ func _draw_play(vp: Vector2) -> void:
 	_draw_hint(vp)
 	_draw_boss(vp)
 	_draw_toasts(vp)
+	if game.aiming_with_mouse() and game.is_playing() and not game.menu.active() and not game.ui_check:
+		_draw_crosshair(game.mouse_point())
+
+
+## A gothic reticle: four thorns nailed toward the point, a broken ring of
+## blood turning slowly around them and a bone diamond in the middle. The ring
+## tightens and reddens while a combo is running.
+func _draw_crosshair(m: Vector2) -> void:
+	var bone := Color(0.9, 0.84, 0.72, 0.95)
+	var ink := Color(0.03, 0.0, 0.01, 0.85)
+	var heat := clampf(game.hit_combo / 8.0, 0.0, 1.0)
+	var blood := Color(0.55, 0.05, 0.07, 0.85).lerp(Color(0.95, 0.15, 0.1, 0.95), heat)
+	var rr := (13.0 - 2.0 * heat) * u
+	var spin := t * (0.5 + heat * 2.0)
+	for k in 4:
+		var a0 := spin + k * TAU / 4.0 + 0.32
+		draw_arc(m, rr, a0, a0 + TAU / 4.0 - 0.64, 8, ink, 3.2 * u, true)
+		draw_arc(m, rr, a0, a0 + TAU / 4.0 - 0.64, 8, blood, 1.5 * u, true)
+	for k in 4:
+		var d := Vector2.from_angle(k * TAU / 4.0)
+		var n := d.orthogonal()
+		var root := m + d * 23.0 * u
+		var thorn := PackedVector2Array([m + d * 4.5 * u, root + n * 3.0 * u, root - d * 3.0 * u, root - n * 3.0 * u])
+		var edge := thorn.duplicate()
+		edge.append(thorn[0])
+		draw_polyline(edge, ink, 1.6 * u, true)
+		draw_colored_polygon(thorn, bone)
+		# small bone studs on the ring between the thorns
+		var sd := Vector2.from_angle(k * TAU / 4.0 + TAU / 8.0) * rr
+		var stud := PackedVector2Array([m + sd * 1.2, m + sd + sd.orthogonal().normalized() * 1.8 * u, m + sd * 0.8,
+			m + sd - sd.orthogonal().normalized() * 1.8 * u])
+		draw_colored_polygon(stud, bone.darkened(0.15))
+	var dia := PackedVector2Array([m + Vector2(0, -2.6) * u, m + Vector2(1.9, 0) * u, m + Vector2(0, 2.6) * u, m + Vector2(-1.9, 0) * u])
+	var dedge := dia.duplicate()
+	dedge.append(dia[0])
+	draw_polyline(dedge, ink, 2.0 * u, true)
+	draw_colored_polygon(dia, blood.lerp(bone, 0.4))
 
 
 func _bar(r: Rect2, f: float, col: Color, back: Color) -> void:
@@ -260,10 +297,26 @@ func _draw_status(p: Dictionary) -> void:
 	_blade(hr, _hp_trail / p.max_hp, Color(0.72, 0.62, 0.52, 0.55), Color(0.45, 0.36, 0.3, 0.55))
 	var pulse := 0.8 + 0.2 * sin(t * 9.0) if low else 1.0
 	_blade(hr, frac, Color(0.66, 0.05, 0.07) * pulse, Color(0.24, 0.0, 0.03))
-	# rivets every tenth, and a tarnished iron rim
+	# notches every tenth, crowned by the iron spikes of a cemetery fence
+	var iron := Color(0.5, 0.44, 0.41)
 	for k in range(1, 10):
 		var rx := hr.position.x + hr.size.x * k / 10.0
-		draw_line(Vector2(rx, hr.position.y + 2 * u), Vector2(rx, hr.end.y - 2 * u), Color(0, 0, 0, 0.45), maxf(1.0, u))
+		draw_line(Vector2(rx, hr.position.y + 2 * u), Vector2(rx, hr.end.y - 2 * u), Color(0, 0, 0, 0.5), maxf(1.0, u))
+		var sh := (9.0 if k % 5 == 0 else 6.0) * u
+		var sy := hr.position.y
+		var spike := PackedVector2Array([Vector2(rx - 2.4 * u, sy + u), Vector2(rx, sy - sh), Vector2(rx + 2.4 * u, sy + u)])
+		draw_colored_polygon(spike, iron)
+		draw_polyline(spike, Color(0, 0, 0, 0.7), maxf(1.0, 0.8 * u), true)
+	# below half health the blade bleeds from its underside
+	if frac < 0.5:
+		for k in 3:
+			var ph := fposmod(t * (0.7 + k * 0.13) + k * 0.37, 1.0)
+			var dx := hr.position.x + hr.size.x * frac * (0.2 + 0.3 * k)
+			var top := hr.end.y - 2 * u
+			draw_line(Vector2(dx, top), Vector2(dx, top + 4 * u * minf(ph * 3.0, 1.0)), Color(0.45, 0.02, 0.04, 0.9), maxf(1.0, 1.4 * u))
+			if ph > 0.33:
+				var f := (ph - 0.33) * 1.5
+				draw_circle(Vector2(dx, top + 4 * u + f * f * 22 * u), 1.4 * u, Color(0.55, 0.03, 0.05, 1.0 - f))
 	var rim := Color(0.75, 0.15, 0.12) if low and int(t * 4.0) % 2 == 0 else Color(0.42, 0.36, 0.33)
 	var outline := shape.duplicate()
 	outline.append(shape[0])
@@ -282,6 +335,10 @@ func _draw_status(p: Dictionary) -> void:
 	var lw := _text(Vector2(x, y + 9 * u), lvl, int(13 * u), Color(0.82, 0.72, 0.5), bold)
 	var xr := Rect2(x + lw + 8 * u, y + 3 * u, bw + 26 * u - lw - 8 * u, 5 * u)
 	_bar(xr, float(p.xp) / need, Color(0.7, 0.55, 0.25), Color(0.06, 0.04, 0.03, 0.9))
+	for ex in [xr.position.x, xr.end.x]:
+		var dc := Vector2(ex, xr.get_center().y)
+		draw_colored_polygon(PackedVector2Array([dc + Vector2(0, -4) * u, dc + Vector2(3, 0) * u, dc + Vector2(0, 4) * u,
+			dc + Vector2(-3, 0) * u]), Color(0.62, 0.5, 0.3))
 	var xt := "%d/%d %s" % [p.xp, need, game.L("xp")]
 	_text(Vector2(xr.end.x + 8 * u, y + 9 * u), xt, int(11 * u), Color(0.6, 0.54, 0.42))
 	# ink (for knives), labelled with its key: one slanted blade per sixth of a knife
@@ -294,16 +351,13 @@ func _draw_status(p: Dictionary) -> void:
 	var bars := 18
 	for i in bars:
 		var filled: bool = (i + 1) * Hero.MAX_INK / bars <= p.ink + 0.01
-		var bx := x + 2 * u
-		var poly := PackedVector2Array([Vector2(bx + 3 * u, y - 11 * u), Vector2(bx + 6 * u, y - 11 * u), Vector2(bx + 3 * u, y + 1 * u),
-			Vector2(bx, y + 1 * u)])
-		draw_colored_polygon(poly, ink_col if filled else Color(0.12, 0.1, 0.17))
+		_dagger(Vector2(x + 3 * u, y), ink_col if filled else Color(0.12, 0.1, 0.17), filled)
 		x += 6.5 * u + (7.0 * u if (i + 1) % 6 == 0 else 0.0)
 	x += 8.0 * u
 	x += _text(Vector2(x, y), "◆ ", fs, Color(0.85, 0.68, 0.32), bold)
 	_text(Vector2(x, y), str(p.shards), fs, Color(0.88, 0.82, 0.72), bold)
-	# equipment
-	y += 26.0 * u
+	# equipment, under lancet arches that need room for their points
+	y += 38.0 * u
 	x = 26.0 * u
 	var wd: Dictionary = Items.def(p.weapon)
 	x += _icon(Vector2(x, y), wd.glyph, wd.color, fs) + 10.0 * u
@@ -315,15 +369,49 @@ func _draw_status(p: Dictionary) -> void:
 			x += _icon(Vector2(x, y), "·", Color(0.3, 0.32, 0.3), fs) + 4.0 * u
 
 
+## One ink charge: a small dagger hanging point down, its tip at [base].
+func _dagger(base: Vector2, c: Color, lit: bool) -> void:
+	var blade := PackedVector2Array([base + Vector2(-1.6, -7) * u, base + Vector2(1.6, -7) * u, base + Vector2(0, 1) * u])
+	if lit:
+		draw_circle(base + Vector2(0, -4) * u, 4.5 * u, Color(c.r, c.g, c.b, 0.12))
+	draw_colored_polygon(blade, c)
+	draw_line(base + Vector2(-2.3, -7.5) * u, base + Vector2(2.3, -7.5) * u, c.darkened(0.25), maxf(1.0, 1.3 * u))
+	draw_line(base + Vector2(0, -8) * u, base + Vector2(0, -11) * u, c.darkened(0.45), maxf(1.0, 1.3 * u))
+	draw_circle(base + Vector2(0, -11.5) * u, 1.1 * u, c.darkened(0.3))
+
+
+## An equipment slot framed like a lancet window, with a small cross on its point.
 func _icon(pos: Vector2, g: String, c: Color, fs: int) -> float:
 	var w := fs * 1.6
 	var r := Rect2(pos.x, pos.y - fs * 1.05, w, fs * 1.45)
-	draw_rect(r, Color(0, 0, 0, 0.55))
-	draw_rect(Rect2(r.position, Vector2(r.size.x, r.size.y * 0.4)), Color(c.r, c.g, c.b, 0.08))
-	draw_rect(r, Color(c.r, c.g, c.b, 0.5), false, maxf(1.0, u))
+	var arch := _arch(r)
+	draw_colored_polygon(arch, Color(0.02, 0.01, 0.015, 0.75))
+	draw_colored_polygon(_arch(Rect2(r.position + Vector2(2, 2) * u, r.size - Vector2(4, 4) * u)), Color(c.r, c.g, c.b, 0.07))
+	var edge := arch.duplicate()
+	edge.append(arch[0])
+	draw_polyline(edge, Color(0.42, 0.36, 0.33).lerp(c, 0.3), maxf(1.0, 1.3 * u), true)
+	var apex := Vector2(r.get_center().x, r.position.y - r.size.x * 0.42 * 0.866)
+	draw_line(apex - Vector2(0, 5 * u), apex + Vector2(0, u), Color(0.42, 0.36, 0.33), maxf(1.0, u))
+	draw_line(apex - Vector2(2.2 * u, 3.2 * u), apex + Vector2(2.2 * u, -3.2 * u), Color(0.42, 0.36, 0.33), maxf(1.0, u))
 	var gw := _width(g, fs, bold)
 	_text(Vector2(pos.x + (w - gw) * 0.5, pos.y), g, fs, c, bold)
 	return w
+
+
+## A pointed (lancet) arch over [r]: straight sides and two arcs, each centred
+## on the opposite side, meeting in a point above the top.
+func _arch(r: Rect2) -> PackedVector2Array:
+	var w := r.size.x
+	var k := 0.42
+	var pts := PackedVector2Array([Vector2(r.position.x, r.end.y)])
+	for i in 7:
+		var a := lerpf(PI, PI * 2.0 / 3.0, i / 6.0)
+		pts.append(Vector2(r.end.x + cos(a) * w, r.position.y - sin(a) * w * k))
+	for i in range(1, 7):
+		var a := lerpf(PI / 3.0, 0.0, i / 6.0)
+		pts.append(Vector2(r.position.x + cos(a) * w, r.position.y - sin(a) * w * k))
+	pts.append(r.end)
+	return pts
 
 
 func _draw_minimap(vp: Vector2) -> void:
