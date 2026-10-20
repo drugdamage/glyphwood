@@ -1,7 +1,9 @@
 ## Builds a level as a grid of rooms. A path runs from the start room in the top
 ## row to the exit (or boss) room in the bottom row, moving sideways and down
-## through shafts. Rooms next to the path become side rooms: shop, shrine,
-## treasure rooms and hand-made vaults. Tiles live in a flat byte array.
+## through shafts. Rooms next to the path become side rooms: shop, treasure
+## rooms and hand-made vaults. Lanterns (checkpoints) stand in the start room,
+## halfway along the path and right before the exit or boss.
+## Tiles live in a flat byte array.
 extends RefCounted
 
 const D := preload("res://scripts/data.gd")
@@ -58,6 +60,11 @@ func build(level_num: int, b: Dictionary, rng: RandomNumberGenerator, with_boss:
 	rooms.resize(gw * gh)
 	_make_path()
 	_make_side_rooms()
+	path[0].lantern = true
+	if path.size() >= 4:
+		path[path.size() / 2].lantern = true
+	if path.size() >= 3:
+		path[-2].lantern = true
 	for r in rooms:
 		if r != null:
 			_gen_room(r)
@@ -68,7 +75,7 @@ func build(level_num: int, b: Dictionary, rng: RandomNumberGenerator, with_boss:
 func _room(gx: int, gy: int) -> Dictionary:
 	var r := {
 		"gx": gx, "gy": gy, "kind": "normal", "l": false, "r": false, "u": -1, "d": -1,
-		"x0": gx * RW, "y0": gy * RH, "seen": false, "floor": [], "ceil": [], "protect": [],
+		"x0": gx * RW, "y0": gy * RH, "seen": false, "floor": [], "ceil": [], "protect": [], "lantern": false,
 	}
 	rooms[gy * gw + gx] = r
 	return r
@@ -126,8 +133,8 @@ func _make_path() -> void:
 
 
 func _make_side_rooms() -> void:
-	var wanted := ["shrine", "shop"]
-	var extra := ["treasure", "vault", "treasure", "vault"]
+	var wanted := ["shop"]
+	var extra := ["treasure", "vault", "treasure", "vault", "treasure"]
 	extra.shuffle()
 	wanted.append_array(extra)
 	var cells: Array = []
@@ -198,7 +205,7 @@ func _gen_room(r: Dictionary) -> void:
 		r.kind = "treasure"
 	if r.kind == "vault":
 		return
-	var flat: bool = r.kind in ["boss", "shop", "shrine", "arena"]
+	var flat: bool = r.kind in ["boss", "shop", "arena"]
 	var f := _floor_line(r, flat)
 	var c := _ceil_line(r, f)
 	r.floor = f
@@ -238,6 +245,9 @@ func _gen_room(r: Dictionary) -> void:
 			start = _foot(x0 + sx, y0 + f[sx])
 			if _level == 1 or _rng.randf() < 0.5:
 				_add_prop("sign", x0 + sx + 4, y0 + f[sx + 4], {"text": "sign_start" if _level == 1 else _lore()})
+			if f[sx - 3] == f[sx]:
+				_add_prop("lantern", x0 + sx - 3, y0 + f[sx], {"lit": true, "start": true})
+			r.lantern = false
 		"boss":
 			_arena(r, true)
 		"arena":
@@ -246,10 +256,8 @@ func _gen_room(r: Dictionary) -> void:
 			_add_prop("shop", x0 + RW / 2, y0 + f[RW / 2], {"stock": []})
 			_torch(x0 + RW / 2 - 6, y0 + f[RW / 2] - 3)
 			_torch(x0 + RW / 2 + 6, y0 + f[RW / 2] - 3)
-		"shrine":
-			_add_prop("shrine", x0 + RW / 2, y0 + f[RW / 2], {"used": false})
-			_torch(x0 + RW / 2 - 5, y0 + f[RW / 2] - 3)
-			_torch(x0 + RW / 2 + 5, y0 + f[RW / 2] - 3)
+	if r.lantern and r.kind != "boss" and r.kind != "arena":
+		_lantern(r)
 	if r.kind in ["normal", "treasure", "start", "exit"]:
 		_pits(r)
 		_platforms(r)
@@ -537,6 +545,20 @@ func _add_prop(kind: String, tx: int, row: int, extra: Dictionary) -> void:
 	var p := {"kind": kind, "pos": _foot(tx, row)}
 	p.merge(extra)
 	props.append(p)
+
+
+func _lantern(r: Dictionary) -> void:
+	var f: Array = r.floor
+	for x in [RW / 2, RW / 2 - 6, RW / 2 + 6, 9, RW - 10, 14, RW - 15]:
+		var ok: bool = f[x - 1] == f[x] and f[x + 1] == f[x]
+		for k in range(x - 2, x + 3):
+			if r.protect.has(k):
+				ok = false
+		if ok:
+			for k in range(x - 3, x + 4):
+				r.protect.append(k)
+			_add_prop("lantern", r.x0 + x, r.y0 + f[x], {"lit": false})
+			return
 
 
 func _torch(tx: int, ty: int) -> void:

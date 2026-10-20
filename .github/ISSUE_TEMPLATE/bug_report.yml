@@ -31,7 +31,6 @@ body:
     attributes:
       label: How do you play?
       options:
-        - Browser (GitHub Pages)
         - Windows build
         - Linux build
         - macOS build
@@ -48,8 +47,8 @@ body:
   - type: input
     id: environment
     attributes:
-      label: OS, browser and Godot version (if relevant)
-      placeholder: Windows 11, Firefox 140 / Godot 4.5.1
+      label: OS and Godot version (if relevant)
+      placeholder: Windows 11 / Godot 4.5.1
   - type: textarea
     id: media
     attributes:

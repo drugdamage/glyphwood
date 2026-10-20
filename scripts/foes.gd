@@ -25,7 +25,7 @@ static func create(kind: String, foot: Vector2, level_num: int, rng: RandomNumbe
 	var def: Dictionary = D.ENEMIES[kind]
 	var size: Vector2 = def.size
 	var boss := D.BOSSES.has(kind)
-	var scale := 1.0 + 0.28 * (level_num - 1)
+	var scale := 1.0 + 0.22 * (level_num - 1)
 	if boss:
 		scale = 1.0 + 0.15 * maxf(0.0, level_num - D.FINAL_LEVEL)
 	var hp := int(ceil(def.hp * scale * (2.0 if elite else 1.0)))

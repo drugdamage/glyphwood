@@ -1,6 +1,6 @@
 ## Draws the world with glyphs on a fine text grid (4 x 3 glyphs per tile).
 ## Static terrain is painted once into cached chunks; the parallax layers are
-## cached too. Everything that moves (grass, water, entities, effects) is drawn
+## cached too, split into buckets so only the ones on screen are drawn. Everything that moves (grass, water, entities, effects) is drawn
 ## every frame. Also collects light sources for the post-process shader.
 extends Node2D
 
@@ -17,6 +17,8 @@ const Items := preload("res://scripts/items.gd")
 ## Tiles visible vertically at each zoom level.
 const ZOOMS := [30.0, 24.0, 19.0]
 const CHUNK := 16
+## Size of a parallax bucket, in layer units.
+const BG_CELL := 320.0
 const MAX_LIGHTS := 32
 const GRASS := ["'", ",", "\"", "`", "'", ";"]
 
@@ -50,6 +52,7 @@ var _title_t := 0.0
 var _neck: Array = []
 var _depth := PackedByteArray()
 var _chunks := {}
+var _bg_buckets: Array = []
 var _far: Painter
 var _mid: Painter
 var _terrain: Node2D
@@ -64,6 +67,7 @@ var _deferred: Array = []
 var _defer_ci: CanvasItem = null
 var _last_key := ""
 var lights: Array = []
+var _low := false
 
 
 func setup(g, f: Font, b: Font) -> void:
@@ -94,6 +98,8 @@ func title_cam_reset() -> void:
 func redraw_all() -> void:
 	_far.queue_redraw()
 	_mid.queue_redraw()
+	for bk in _bg_buckets:
+		bk[0].queue_redraw()
 	for k in _chunks:
 		_chunks[k].queue_redraw()
 
@@ -106,6 +112,7 @@ func on_level_built() -> void:
 	_index_dynamic_tiles()
 	var lv = game.lv
 	_bd.generate(game.biome, lv.pixel_size(), game.level_num * 7919 + game.run_seed % 1000)
+	_build_bg_buckets()
 	_lava_lights.clear()
 	for y in lv.h:
 		var run := 0
@@ -176,6 +183,7 @@ func _process(delta: float) -> void:
 		_neck.push_front(_neck_pos())
 		if _neck.size() > 16:
 			_neck.pop_back()
+	_low = game.cfg.get_v("quality") == "low"
 	_place_layers()
 	queue_redraw()
 	_dyn.queue_redraw()
@@ -186,6 +194,11 @@ func _place_layers() -> void:
 	var cam: Vector2 = game.cam
 	_far.position = (vp * 0.5 - cam * Backdrop.FAR * s + off * 0.3).round()
 	_mid.position = (vp * 0.5 - cam * Backdrop.MID * s + off * 0.5).round()
+	var screen := Rect2(Vector2.ZERO, vp)
+	for bk in _bg_buckets:
+		var r: Rect2 = bk[2]
+		var layer: Node2D = bk[1]
+		bk[0].visible = screen.intersects(Rect2(r.position * s + layer.position, r.size * s))
 	var lv = game.lv
 	var tl := screen_to_world(Vector2.ZERO)
 	var br := screen_to_world(vp)
@@ -327,17 +340,45 @@ func _paint_far(ci: CanvasItem, _arg: Variant) -> void:
 		poly.append(Vector2(ridge[0].x, 4000.0) * s)
 		var c: Color = _mul(game.biome.far, 0.55)
 		ci.draw_colored_polygon(poly, c)
-	_paint_list(ci, _bd.far_pos, _bd.far_g, _bd.far_c, fs_far)
 
 
-func _paint_mid(ci: CanvasItem, _arg: Variant) -> void:
-	_paint_list(ci, _bd.mid_pos, _bd.mid_g, _bd.mid_c, fs)
+func _paint_mid(_ci: CanvasItem, _arg: Variant) -> void:
+	pass
 
 
-func _paint_list(ci: CanvasItem, pos: PackedVector2Array, gl: PackedStringArray, cols: PackedColorArray, size: int) -> void:
+## Splits both parallax layers into buckets: a canvas item submits all of its
+## glyphs every frame, so one item per layer would draw the whole level.
+func _build_bg_buckets() -> void:
+	for bk in _bg_buckets:
+		bk[0].queue_free()
+	_bg_buckets.clear()
+	_bucket_layer(_far, _bd.far_pos, _bd.far_g, _bd.far_c, true)
+	_bucket_layer(_mid, _bd.mid_pos, _bd.mid_g, _bd.mid_c, false)
+
+
+func _bucket_layer(layer: Node2D, pos: PackedVector2Array, gl: PackedStringArray, cols: PackedColorArray, far: bool) -> void:
+	var cells := {}
+	for i in pos.size():
+		var k := Vector2i(floori(pos[i].x / BG_CELL), floori(pos[i].y / BG_CELL))
+		if not cells.has(k):
+			cells[k] = []
+		cells[k].append(i)
+	for k in cells:
+		var p := Painter.new()
+		p.fn = _paint_bucket
+		p.arg = [pos, gl, cols, cells[k], far]
+		layer.add_child(p)
+		_bg_buckets.append([p, layer, Rect2(Vector2(k) * BG_CELL - Vector2(24, 24), Vector2(BG_CELL + 48, BG_CELL + 48))])
+
+
+func _paint_bucket(ci: CanvasItem, arg: Array) -> void:
 	if game == null or game.lv == null:
 		return
-	for i in pos.size():
+	var pos: PackedVector2Array = arg[0]
+	var gl: PackedStringArray = arg[1]
+	var cols: PackedColorArray = arg[2]
+	var size := fs_far if arg[4] else fs
+	for i in arg[3]:
 		var c := cols[i]
 		c.a = 1.0
 		_gc(ci, pos[i] * s, gl[i], c, size, font)
@@ -379,12 +420,13 @@ func _paint_chunk_inner(ci: CanvasItem, k: Vector2i) -> void:
 			var tt: int = lv.tiles[ty * lv.w + tx]
 			var o := (Vector2(tx, ty) * T - origin) * s
 			if tt == Level.SOLID or tt == Level.CRACKED:
-				ci.draw_rect(Rect2(o, Vector2(tile_px + 1, tile_px + 1)), fill)
+				var depth := _dget(tx, ty)
+				# rock gets darker away from open air
+				ci.draw_rect(Rect2(o, Vector2(tile_px + 1, tile_px + 1)), _mul(fill, 1.3 - minf(depth, 6) * 0.07))
 				var up_air: bool = not lv.solid(tx, ty - 1)
 				var dn_air: bool = not lv.solid(tx, ty + 1)
 				var l_air: bool = not lv.solid(tx - 1, ty)
 				var r_air: bool = not lv.solid(tx + 1, ty)
-				var depth := _dget(tx, ty)
 				for j in 3:
 					for i in 4:
 						var gx := tx * 4 + i
@@ -417,11 +459,23 @@ func _paint_chunk_inner(ci: CanvasItem, k: Vector2i) -> void:
 								g = ":"
 							col = _mul(inner, 1.25 - minf(depth, 6) * 0.1)
 						else:
-							var chance := 0.9 if depth <= 1 else (0.7 if depth == 2 else (0.5 if depth == 3 else 0.32))
+							var chance := 0.9 if depth <= 1 else (0.6 if depth == 2 else (0.3 if depth == 3 else 0.13))
 							if hv < chance:
 								var set_g := edge_g if depth <= 1 else deep_g
 								g = set_g[int(hv * 97.0) % set_g.length()]
 								col = _mul(b.edge if depth <= 1 else inner, (0.8 if depth <= 1 else 1.2) - minf(depth, 6) * 0.08)
+							elif depth >= 3 and hv > 0.988:
+								# something buried in the rock
+								match b.id:
+									"wood":
+										g = ["(", ")", "~", "j"][int(hv * 9000.0) % 4]
+										col = Color(0.3, 0.2, 0.14)
+									"ember":
+										g = ["*", "'", "·"][int(hv * 9000.0) % 3]
+										col = Color(0.75, 0.25, 0.08)
+									_:
+										g = ["°", "=", "o"][int(hv * 9000.0) % 3]
+										col = Color(0.4, 0.37, 0.32)
 						if g != "":
 							_gc(ci, p, g, col, fs, font)
 			elif tt == Level.AIR or tt == Level.WATER or tt == Level.GATE:
@@ -583,6 +637,7 @@ func _paint_dynamic(_ci: CanvasItem, _arg: Variant) -> void:
 			_sprite(gh.frame, gh.foot, gh.facing, S.HERO_PAL, {}, S.HERO.a, Color(0.75, 0.12, 0.16, a), true, false, S.HERO.scale)
 		_draw_hero()
 		_draw_slashes()
+		_draw_guide()
 	for pt in game.particles:
 		var c: Color = pt.c
 		c.a = clampf(pt.life / pt.max, 0.0, 1.0)
@@ -591,7 +646,7 @@ func _paint_dynamic(_ci: CanvasItem, _arg: Variant) -> void:
 		var pc: Color = pu.color
 		pc.a = clampf(pu.life * 2.0, 0.0, 1.0)
 		var sp_p := sp(pu.pos)
-		var fsz := int(fs * 1.05)
+		var fsz := int(fs * (1.6 + maxf(0.0, pu.life - 0.8) * 2.0 if pu.get("big", false) else 1.05))
 		var w := bold.get_string_size(pu.text, HORIZONTAL_ALIGNMENT_LEFT, -1, fsz).x
 		_dyn.draw_string(bold, sp_p - Vector2(w * 0.5, 0), pu.text, HORIZONTAL_ALIGNMENT_LEFT, -1, fsz, pc)
 	if not game.near.is_empty() and game.is_playing():
@@ -672,7 +727,7 @@ func _draw_dyn_tile(b: Dictionary, lv, x: int, y: int, pc: Vector2, wc: Color) -
 func _draw_grass(b: Dictionary, x: int, y: int, pc: Vector2) -> void:
 	var T := D.TILE
 	var h := _hash01(x, y)
-	if h < 0.25 or b.id == "hollow" and h < 0.6:
+	if h < 0.25 or b.id == "hollow" and h < 0.6 or (_low and h < 0.6):
 		return
 	for k in 4:
 		var hk := _hash01(x * 4 + k, y + 77)
@@ -790,19 +845,24 @@ func _draw_props() -> void:
 		match pr.kind:
 			"chest":
 				fr = def.open[0] if pr.open else def.closed[0]
-			"shrine":
-				fr = def.used[0] if pr.used else def.lit[0]
+			"lantern":
+				fr = def.lit[0] if pr.lit else def.unlit[0]
 			_:
 				fr = def.idle[0]
 		var foot: Vector2 = pr.pos
 		if pr.kind == "chest" and not pr.open:
 			foot += Vector2(0, 0)
 		_sprite(fr, foot, 1, def.pal, def.cmap, def.a, Color(1, 1, 1), false, false, def.get("scale", 1.0))
-		if pr.kind == "shrine" and not pr.used:
-			for i in 3:
-				var ph := fmod(t * 0.4 + i * 0.33, 1.0)
-				var c := Color(0.55, 1.0, 0.75, 1.0 - ph)
-				_glyph(foot + Vector2(sin(t + i * 2.0) * 10.0, -30.0 - ph * 30.0), "+", c, 0.9, font)
+		if pr.kind == "lantern":
+			var top := foot + Vector2(0, -D.GH * 4.5)
+			if pr.lit:
+				var fl := 0.8 + 0.2 * sin(t * 12.0 + foot.x)
+				_glyph(top + Vector2(sin(t * 9.0) * 0.6, -D.GH * 0.2), "'", Color(1.0, 0.95, 0.7) * fl, 0.9)
+				for i in 2:
+					var ph := fmod(t * 0.6 + i * 0.5, 1.0)
+					_glyph(top + Vector2(sin(t * 2.0 + i * 3.0) * 4.0, -8.0 - ph * 22.0), "·", Color(1.0, 0.7, 0.3, 1.0 - ph), 0.9, font)
+			if game.checkpoint_prop == pr:
+				_glyph(foot + Vector2(0, -D.GH * 7.2), "v", Color(1.0, 0.85, 0.45, 0.5 + 0.3 * sin(t * 3.0)), 0.9)
 
 
 func _draw_prompt(pr: Dictionary) -> void:
@@ -820,6 +880,10 @@ func _draw_items() -> void:
 		var p: Vector2 = pk.pos + Vector2(0, sin(t * 3.0 + pk.pos.x) * 2.0)
 		if pk.kind == "heart":
 			_glyph(p, "♥", Color(1.0, 0.35, 0.45), 1.3)
+		elif pk.kind == "orb":
+			var pulse := 0.8 + 0.2 * sin(t * 8.0 + pk.pos.x)
+			_glyph(p, "o", Color(1.0, 0.3, 0.35) * pulse, 1.0)
+			_glyph(p, "·", Color(1.0, 0.85, 0.85), 0.8)
 		else:
 			for i in 3:
 				var a := t * 2.0 + i * TAU / 3.0
@@ -926,6 +990,8 @@ func _draw_hero() -> void:
 	var tint := Color(1, 1, 1)
 	if p.heal_t > 0.0:
 		tint = Color(0.6, 1.0, 0.7)
+	if game.level_up_t > 2.0:
+		tint = Color(0.7, 0.9, 1.0)
 	_sprite(Hero.frame(p), Physics.foot(p), p.facing, S.HERO_PAL, {}, S.HERO.a, tint, false, false, S.HERO.scale)
 	if p.atk_t > p.atk_len - 0.16 and p.atk_kind == "side":
 		var wid: String = game.player.weapon
@@ -933,6 +999,27 @@ func _draw_hero() -> void:
 		var reach: float = p.st.reach
 		for i in int(2 + reach * 2.0):
 			_glyph(Physics.foot(p) + Vector2(p.facing * (D.GW * (3.3 + i * 0.75)), -D.GH * 2.17), "=" if i < 2 else "-", wc, 0.8)
+
+
+const ARROWS := ["→", "↘", "↓", "↙", "←", "↖", "↑", "↗"]
+
+
+## A small arrow circling the hero that points the way to the exit.
+func _draw_guide() -> void:
+	var p: Dictionary = game.player
+	if not game.cfg.get_v("guide") or p.is_empty() or p.dead or not game.is_playing():
+		return
+	var target: Vector2 = game.guide_target()
+	if target == Vector2.ZERO:
+		return
+	var c := Physics.center(p)
+	var d := target - c
+	if d.length() < 50.0:
+		return
+	var a := d.angle()
+	var g: String = ARROWS[posmod(int(round(a / (PI / 4.0))), 8)]
+	var pos := c + Vector2(cos(a), sin(a)) * (26.0 + sin(t * 4.0) * 2.0)
+	_glyph(pos, g, Color(1.0, 0.85, 0.45, 0.6 + 0.25 * sin(t * 4.0)), 1.25)
 
 
 func _neck_pos() -> Vector2:
@@ -957,10 +1044,16 @@ func _draw_slashes() -> void:
 			"down":
 				base_a = PI * 0.5
 				center = c + Vector2(0, 10)
-		var big: bool = sl.combo == 2
-		var radius: float = (24.0 if big else 20.0) * sl.reach
-		var spread := deg_to_rad(80.0)
-		var n := 12
+			"lunge":
+				_draw_lunge(sl, c, wcol, alpha)
+				continue
+			"rise":
+				base_a = -PI * 0.5 + sl.facing * 0.5
+				center = c + Vector2(sl.facing * 6.0, -6)
+		var big: bool = sl.combo == 2 or sl.kind == "rise"
+		var radius: float = (27.0 if big else 20.0) * sl.reach
+		var spread := deg_to_rad(95.0 if big else 80.0)
+		var n := 16 if big else 12
 		var col: Color = Color(1.0, 0.88, 0.5) if big else wcol.lerp(Color(1, 1, 1), 0.4)
 		var sweep_down: bool = sl.combo != 1
 		for k in n:
@@ -976,6 +1069,26 @@ func _draw_slashes() -> void:
 			var inner := center + Vector2(cos(a), sin(a)) * radius * 0.7
 			cc.a *= 0.45
 			_glyph(inner, _tangent_glyph(a) if k % 2 == 0 else "·", cc, 0.9)
+			if big and k % 2 == 0:
+				var outer := center + Vector2(cos(a), sin(a)) * radius * 1.22
+				cc.a *= 0.6
+				_glyph(outer, "·", cc, 0.8)
+
+
+## The Dash Lunge: a long streak of glyphs in front of the hero.
+func _draw_lunge(sl: Dictionary, c: Vector2, wcol: Color, alpha: float) -> void:
+	var col := wcol.lerp(Color(1, 1, 1), 0.5)
+	var n := int(9 * sl.reach)
+	for k in n:
+		var f := float(k) / float(n - 1)
+		var cc := col
+		cc.a = alpha * (0.3 + 0.7 * f)
+		var x: float = c.x + sl.facing * (-14.0 + f * 52.0 * sl.reach)
+		_glyph(Vector2(x, c.y - 1), "=" if k < n - 1 else (">" if sl.facing > 0 else "<"), cc, 1.15)
+		if k % 2 == 0:
+			cc.a *= 0.5
+			_glyph(Vector2(x, c.y - 7), "-", cc, 0.8)
+			_glyph(Vector2(x, c.y + 5), "-", cc, 0.8)
 
 
 static func _tangent_glyph(a: float) -> String:
@@ -1054,9 +1167,11 @@ func _collect_lights() -> void:
 		if not view.has_point(pr.pos):
 			continue
 		match pr.kind:
-			"shrine":
-				if not pr.used:
-					_light(pr.pos - Vector2(0, 20), 120.0, Color(0.55, 1.0, 0.75), 0.9)
+			"lantern":
+				if pr.lit:
+					_light(pr.pos - Vector2(0, 26), 130.0 + sin(t * 8.0 + pr.pos.x) * 5.0, Color(1.0, 0.72, 0.35), 1.0)
+				else:
+					_light(pr.pos - Vector2(0, 26), 40.0, Color(0.5, 0.45, 0.4), 0.4)
 			"chest":
 				if not pr.open:
 					_light(pr.pos - Vector2(0, 6), 60.0, Color(1.0, 0.8, 0.4), 0.6)
@@ -1064,6 +1179,15 @@ func _collect_lights() -> void:
 				_light(pr.pos - Vector2(-12, 30), 120.0, Color(1.0, 0.8, 0.5), 0.9)
 	if game.lv.door_open and game.lv.door.size != Vector2.ZERO:
 		_light(game.lv.door.get_center(), 100.0, b.top, 0.8)
+	# a faint glow around nearby enemies' eyes
+	var eyes := 0
+	for e in game.enemies:
+		if eyes >= 8:
+			break
+		if view.has_point(Physics.center(e)) and e.kind != "wisp":
+			eyes += 1
+			var ec: Color = S.FOES[e.kind].pal[1]
+			_light(Physics.center(e) + Vector2(e.dir * e.size.x * 0.25, -e.size.y * 0.2), 46.0 if not e.boss else 120.0, ec, 0.45)
 	for pr in game.projectiles:
 		if pr.delay <= 0.0 and lights.size() < MAX_LIGHTS - 4:
 			_light(pr.pos, 40.0, Combat.SHOT_LOOK.get(pr.kind, Combat.SHOT_LOOK.shot)[1], 0.6)
@@ -1075,7 +1199,9 @@ func _collect_lights() -> void:
 		var pos := PackedVector4Array()
 		var cols := PackedVector4Array()
 		lights.sort_custom(func(a, c2): return a[3] > c2[3])
-		for i in mini(lights.size(), MAX_LIGHTS):
+		var cap: int = {"low": 12, "medium": 20}.get(game.cfg.get_v("quality"), MAX_LIGHTS)
+		lights.resize(mini(lights.size(), cap))
+		for i in lights.size():
 			var l: Array = lights[i]
 			pos.append(Vector4(l[0].x, l[0].y, l[1], 0.0))
 			cols.append(Vector4(l[2].r, l[2].g, l[2].b, 0.0))
@@ -1084,8 +1210,9 @@ func _collect_lights() -> void:
 			cols.append(Vector4(0, 0, 0, 0))
 		mat.set_shader_parameter("light_pos", pos)
 		mat.set_shader_parameter("light_col", cols)
-		mat.set_shader_parameter("light_count", mini(lights.size(), MAX_LIGHTS))
+		mat.set_shader_parameter("light_count", lights.size())
 		mat.set_shader_parameter("ambient", b.ambient if not game.is_title() else b.ambient + 0.15)
+		mat.set_shader_parameter("flash", game.crit_flash)
 
 
 func _light(w: Vector2, radius: float, c: Color, intensity: float) -> void:

@@ -30,21 +30,42 @@ static func attack_hits(g, p: Dictionary, box: Rect2) -> void:
 	elif p.atk_kind == "down":
 		kdir = Vector2(0, 1)
 	var st: Dictionary = p.st
+	var finisher: bool = p.atk_kind == "side" and p.combo == 2
+	var mult := 1.0
+	var crit_bonus := 0.0
+	match p.atk_kind:
+		"side":
+			if finisher:
+				mult = 2.2
+				crit_bonus = 0.15
+		"lunge":
+			mult = 1.8
+			crit_bonus = 0.1
+		"rise":
+			mult = 1.5
 	for e in g.enemies.duplicate():
 		if p.atk_hit.has(e.id) or (e.kind == "wisp" and _wisp_hidden(e)):
 			continue
 		if box.intersects(Physics.rect(e)):
 			p.atk_hit[e.id] = true
-			if Foes.blocks(e, Physics.center(p).x, p.atk_kind):
+			# the lunge and the finisher break through shields
+			if Foes.blocks(e, Physics.center(p).x, p.atk_kind) and not (finisher or p.atk_kind == "lunge"):
 				blocked = true
 				e.flash = 0.05
 				continue
-			var dmg: float = st.dmg * st.dmg_mult * (2.0 if (p.atk_kind == "side" and p.combo == 2) else 1.0)
-			hurt_enemy(g, e, dmg, kdir, true)
+			hurt_enemy(g, e, st.dmg * st.dmg_mult * mult, kdir, true, crit_bonus)
+			if g.enemies.has(e) and not e.boss:
+				if p.atk_kind == "rise" and not e.fly:
+					e.vel.y = -380.0
+					e.stun = 0.6
+				elif finisher or p.atk_kind == "lunge":
+					e.vel.x = p.facing * 320.0
+					e.stun = 0.45
 			p.ink = minf(Hero.MAX_INK, p.ink + INK_PER_HIT * st.ink_gain)
 			if st.burn:
 				e.burn = 2.1
 			hit_any = true
+			g.combo_hit()
 	for pr in g.projectiles.duplicate():
 		if pr.owner == "enemy" and pr.delay <= 0.0 and pr.kind != "wave" and box.has_point(pr.pos):
 			g.projectiles.erase(pr)
@@ -65,8 +86,8 @@ static func attack_hits(g, p: Dictionary, box: Rect2) -> void:
 		p.vel.x = -p.facing * 160.0
 		g.hitstop = maxf(g.hitstop, 0.04)
 	if hit_any:
-		g.hitstop = maxf(g.hitstop, 0.05)
-		g.shake_add(2.5)
+		g.hitstop = maxf(g.hitstop, 0.08 if (finisher or p.atk_kind == "lunge") else 0.05)
+		g.shake_add(5.0 if finisher else 2.5)
 		if p.atk_kind == "down":
 			p.vel.y = -Hero.POGO
 			p.air_dash = true
@@ -84,16 +105,18 @@ static func break_tiles(g, list: Array) -> void:
 		burst(g, c, ["%", "#", ".", ","], g.biome.edge, 6, 110.0)
 	g.sfx("crumble")
 	g.shake_add(3.0)
+	g.lv_changes += 1
 	g.world.tiles_changed(list)
 
 
-static func hurt_enemy(g, e: Dictionary, dmg: float, kdir: Vector2, melee: bool = false) -> void:
+static func hurt_enemy(g, e: Dictionary, dmg: float, kdir: Vector2, melee: bool = false, crit_bonus: float = 0.0) -> void:
 	if not g.enemies.has(e):
 		return
 	var crit := false
-	if melee and g.rng.randf() < g.player.st.crit:
+	if melee and g.rng.randf() < g.player.st.crit + crit_bonus:
 		dmg *= 2.0
 		crit = true
+		g.on_crit(Physics.center(e))
 	e.hp -= dmg
 	e.flash = 0.12
 	e.aggro = true
@@ -110,7 +133,8 @@ static func hurt_enemy(g, e: Dictionary, dmg: float, kdir: Vector2, melee: bool 
 	if g.cfg.get_v("damage_numbers"):
 		var col := Color(1.0, 0.85, 0.3) if crit else (Color(1.0, 0.6, 0.3) if not melee else Color(1, 1, 1))
 		g.popups.append({"pos": Physics.center(e) + Vector2(g.rng.randf_range(-6, 6), -e.size.y * 0.5),
-			"text": str(int(round(dmg))) + ("!" if crit else ""), "color": col, "life": 0.8})
+			"text": (g.L("crit") + " " if crit else "") + str(int(round(dmg))), "color": col, "life": 1.0 if crit else 0.8,
+			"big": crit})
 	if melee:
 		g.sfx("hit", -2.0)
 	burst(g, Physics.center(e), ["*", "+", "x", "·"], Color(1, 1, 1), 7, 150.0)
@@ -143,13 +167,14 @@ static func kill_enemy(g, e: Dictionary) -> void:
 			g.particles.append({"p": pp, "v": Vector2(g.rng.randf_range(-140, 140), g.rng.randf_range(-260, -80)),
 				"g": ch, "c": pal[0], "life": 1.1, "max": 1.1, "grav": 900.0, "drag": 0.5, "s": 1.0})
 	var st: Dictionary = g.player.st
-	var n := int(round(D.ENEMIES[e.kind].shards * (2.5 if e.elite else 1.0) * st.shard_mult))
+	var base: int = D.ENEMIES[e.kind].shards
+	var n := int(round(base * (2.5 if e.elite else 1.0) * st.shard_mult))
 	drop_shards(g, Physics.center(e), n)
-	if g.rng.randf() < st.lifesteal and g.player.hp < g.player.max_hp:
-		g.player.hp += 1
-		burst(g, Physics.center(g.player), ["+", "♥"], Color(1.0, 0.4, 0.5), 6, 80.0, -60.0)
-	if not e.boss and g.rng.randf() < 0.07:
-		g.pickups.append({"kind": "heart", "pos": Physics.center(e)})
+	g.gain_xp(base * 4.0 * (2.5 if e.elite else 1.0) * (1.0 + 0.1 * (g.level_num - 1)), Physics.center(e))
+	if g.rng.randf() < st.lifesteal:
+		heal_player(g, 0.08)
+	if not e.boss and g.rng.randf() < 0.2:
+		g.pickups.append({"kind": "orb", "pos": Physics.center(e)})
 	if e.kind == "bomber":
 		explode(g, Physics.center(e), 48.0, false)
 	if e.boss:
@@ -169,7 +194,18 @@ static func _wisp_hidden(e: Dictionary) -> bool:
 
 # ---------------------------------------------------------------- player damage
 
-static func hurt_player(g, dmg: int, src_x: float, spikes: bool = false) -> void:
+## Heals a share of max health, with a small effect.
+static func heal_player(g, share: float) -> void:
+	var p: Dictionary = g.player
+	if p.dead or p.hp >= p.max_hp:
+		return
+	p.hp = mini(p.max_hp, p.hp + maxi(1, int(round(p.max_hp * share))))
+	p.heal_t = 0.2
+	burst(g, Physics.center(p), ["+", "·"], Color(0.55, 1.0, 0.6), 8, 80.0, -60.0)
+
+
+## units is the size of the hit: 1 is a normal blow. Damage grows with depth.
+static func hurt_player(g, units: float, src_x: float, spikes: bool = false) -> void:
 	var p: Dictionary = g.player
 	if p.dead or p.respawn_t > 0.0:
 		return
@@ -181,7 +217,10 @@ static func hurt_player(g, dmg: int, src_x: float, spikes: bool = false) -> void
 		if spikes:
 			p.respawn_t = 0.45
 		return
+	var dmg := int(round(units * g.hit_damage()))
 	p.hp -= dmg
+	p.calm = 0.0
+	p.regen = 0.0
 	p.inv = 1.1 * p.st.inv_time
 	p.blink = p.inv
 	p.hurt_t = 0.22
@@ -193,6 +232,8 @@ static func hurt_player(g, dmg: int, src_x: float, spikes: bool = false) -> void
 	g.hurt_flash = 1.0
 	g.sfx("hurt")
 	burst(g, Physics.center(p), ["*", "x", "·", "+"], Color(1.0, 0.35, 0.3), 12, 170.0)
+	g.popups.append({"pos": Physics.center(p) + Vector2(0, -18), "text": "-%d" % dmg, "color": Color(1.0, 0.35, 0.3), "life": 0.9,
+		"big": false})
 	if p.hp <= 0:
 		p.hp = 0
 		p.dead = true
@@ -224,7 +265,7 @@ static func check_contacts(g) -> void:
 			if thorns > 0 and e.thorn_t <= 0.0 and p.inv <= 0.0:
 				e.thorn_t = 0.6
 				hurt_enemy(g, e, thorns, Vector2.ZERO)
-			hurt_player(g, 1, Physics.center(e).x)
+			hurt_player(g, 1.5 if e.boss else 1.0, Physics.center(e).x)
 
 
 # ---------------------------------------------------------------- projectiles and hazards
@@ -268,7 +309,7 @@ static func update_projectiles(g, dt: float) -> void:
 		if pr.owner == "enemy":
 			if not p.dead and Physics.rect(p).grow(2.0).has_point(pr.pos):
 				g.projectiles.erase(pr)
-				hurt_player(g, int(pr.dmg), pr.pos.x)
+				hurt_player(g, pr.dmg, pr.pos.x)
 		else:
 			for e in g.enemies:
 				if Physics.rect(e).grow(2.0).has_point(pr.pos):
@@ -311,7 +352,7 @@ static func explode(g, at: Vector2, radius: float, hurts_player: bool) -> void:
 	burst(g, at, ["·", "."], Color(1.0, 0.9, 0.5), 12, 120.0)
 	var p: Dictionary = g.player
 	if hurts_player and not p.dead and Physics.center(p).distance_to(at) < radius:
-		hurt_player(g, 1, at.x)
+		hurt_player(g, 1.6, at.x)
 	for e in g.enemies.duplicate():
 		if Physics.center(e).distance_to(at) < radius:
 			hurt_enemy(g, e, 30.0, (Physics.center(e) - at).normalized())
@@ -354,13 +395,17 @@ static func update_pickups(g) -> void:
 	if p.dead:
 		return
 	var pr := Physics.rect(p).grow(4.0)
+	var pc := Physics.center(p)
 	for pk in g.pickups.duplicate():
+		# health orbs drift toward a wounded hero
+		if pk.kind == "orb" and p.hp < p.max_hp and pk.pos.distance_to(pc) < 70.0:
+			pk.pos = pk.pos.move_toward(pc, 3.0)
 		if not pr.has_point(pk.pos):
 			continue
-		if pk.kind == "heart" and p.hp < p.max_hp:
-			p.hp += 1
+		if (pk.kind == "heart" or pk.kind == "orb") and p.hp < p.max_hp:
+			heal_player(g, 0.25 if pk.kind == "heart" else 0.12)
 			g.pickups.erase(pk)
-			g.sfx("heart")
+			g.sfx("heart", -4.0 if pk.kind == "orb" else 0.0, 1.2 if pk.kind == "orb" else 1.0)
 			burst(g, pk.pos, ["+", "·"], Color(1.0, 0.4, 0.5), 10, 90.0, -60.0)
 		elif pk.kind == "cache":
 			g.pickups.erase(pk)
@@ -389,8 +434,9 @@ static func update_particles(g, dt: float) -> void:
 		pt.v *= maxf(0.0, 1.0 - pt.drag * dt)
 		pt.p += pt.v * dt
 		keep.append(pt)
-	if keep.size() > 700:
-		keep = keep.slice(keep.size() - 700)
+	var cap: int = g.particle_cap()
+	if keep.size() > cap:
+		keep = keep.slice(keep.size() - cap)
 	g.particles = keep
 	var keep2: Array = []
 	for pu in g.popups:

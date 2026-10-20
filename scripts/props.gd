@@ -1,5 +1,6 @@
-## Interactive objects and arena rooms: chests, shrines, the merchant, signs,
-## and arenas whose gates close until every wave (or the boss) is defeated.
+## Interactive objects and arena rooms: chests, lanterns (checkpoints that light
+## up as the hero walks past), the merchant, signs, and arenas whose gates
+## close until every wave (or the boss) is defeated.
 extends RefCounted
 
 const D := preload("res://scripts/data.gd")
@@ -24,7 +25,7 @@ static func nearest(g) -> Dictionary:
 	for pr in g.props:
 		if pr.kind == "chest" and pr.open:
 			continue
-		if pr.kind == "shrine" and pr.used:
+		if pr.kind == "lantern":
 			continue
 		var d: Vector2 = pr.pos - c
 		if absf(d.x) < REACH.x and absf(d.y) < REACH.y and absf(d.x) < best_d:
@@ -37,15 +38,6 @@ static func interact(g, pr: Dictionary) -> void:
 	match pr.kind:
 		"chest":
 			open_chest(g, pr)
-		"shrine":
-			var p: Dictionary = g.player
-			pr.used = true
-			p.hp = p.max_hp
-			p.flasks = p.max_flasks
-			p.ink = Hero.MAX_INK
-			g.sfx("shrine")
-			g.toast(g.L("toast_shrine"), Color(0.55, 1.0, 0.75))
-			Combat.burst(g, pr.pos - Vector2(0, 20), ["+", "*", "·"], Color(0.55, 1.0, 0.75), 30, 140.0, -80.0)
 		"shop":
 			if pr.stock.is_empty():
 				var ex: Array = []
@@ -78,7 +70,49 @@ static func open_chest(g, pr: Dictionary) -> void:
 			g.pickups.append({"kind": "heart", "pos": at})
 
 
+# ---------------------------------------------------------------- lanterns
+
+## Walking past a lantern lights it and makes it the checkpoint: the hero
+## comes back here after falling, with full health.
+static func update_lanterns(g) -> void:
+	var p: Dictionary = g.player
+	if p.dead:
+		return
+	var c := Physics.foot(p)
+	for pr in g.props:
+		if pr.kind != "lantern" or g.checkpoint_prop == pr:
+			continue
+		var d: Vector2 = pr.pos - c
+		if absf(d.x) > 20.0 or absf(d.y) > 40.0:
+			continue
+		g.checkpoint_prop = pr
+		g.checkpoint = pr.pos
+		p.hp = p.max_hp
+		p.ink = Hero.MAX_INK
+		p.heal_t = 0.3
+		if not pr.lit:
+			pr.lit = true
+			g.sfx("shrine")
+			g.toast(g.L("toast_lantern"), Color(1.0, 0.8, 0.45))
+			Combat.burst(g, pr.pos - Vector2(0, 30), ["*", "'", "·"], Color(1.0, 0.75, 0.35), 24, 120.0, -60.0)
+		g.save_run()
+
+
 # ---------------------------------------------------------------- arenas
+
+## Puts an arena back to its starting state (used when the hero falls in it).
+static func reset_arena(g, ar: Dictionary) -> void:
+	for e in g.enemies.duplicate():
+		if ar.alive.has(e.id):
+			g.enemies.erase(e)
+	ar.alive = []
+	ar.wave = 0
+	ar.state = "idle"
+	if ar.get("closed", false):
+		_gates(g, ar, false)
+	if ar.boss:
+		g.boss = {}
+
 
 static func update_arenas(g) -> void:
 	var p: Dictionary = g.player
@@ -122,6 +156,7 @@ static func _gates(g, ar: Dictionary, close: bool) -> void:
 		g.lv.set_t(t.x, t.y, Level.GATE if close else Level.AIR)
 	g.sfx("gate")
 	g.shake_add(4.0)
+	g.lv_changes += 1
 	ar.closed = close
 
 

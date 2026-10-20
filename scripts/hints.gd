@@ -21,14 +21,16 @@ static func update(g, dt: float) -> String:
 	_done_if(g, "attack", just.attack)
 	_done_if(g, "dash", just.dash)
 	_done_if(g, "wall", p.sliding and just.jump)
-	_done_if(g, "heal", just.heal)
+	_done_if(g, "combo", p.atk_kind == "side" and p.combo == 2 and p.atk_t > 0.0)
+	_done_if(g, "lunge", p.atk_kind == "lunge" and p.atk_t > 0.0)
+	_done_if(g, "rise", p.atk_kind == "rise" and p.atk_t > 0.0)
 	_done_if(g, "throw", just.throw)
 	_done_if(g, "interact", just.interact)
 	_done_if(g, "inventory", g.menu.is_open("inventory"))
 	_done_if(g, "map", g.menu.is_open("map"))
 	_done_if(g, "drop", just.jump and g.ctl.held.down)
 	# timed hints disappear after a few seconds
-	for id in ["down", "shield", "drop", "map", "elite"]:
+	for id in ["down", "shield", "drop", "map", "elite", "guide", "lantern", "xp", "regen"]:
 		if h.get("since_" + id, -1.0) >= 0.0:
 			h["since_" + id] += dt
 			if h["since_" + id] > 7.0:
@@ -47,10 +49,20 @@ static func update(g, dt: float) -> String:
 		_start(h, "drop")
 	if g.rooms_seen >= 2:
 		_start(h, "map")
+	if h.t > 6.0 and g.cfg.get_v("guide"):
+		_start(h, "guide")
+	if g.checkpoint_prop.has("lit") and not g.checkpoint_prop.get("start", false):
+		_start(h, "lantern")
+	if g.kills >= 2:
+		_start(h, "xp")
+	if p.hp < p.max_hp * 0.7 and p.calm > 2.0:
+		_start(h, "regen")
 	var order := [
 		["move", true], ["jump", h.t > 3.0], ["attack", near_enemy], ["wall", p.sliding],
-		["heal", p.hp < p.max_hp and p.flasks > 0], ["interact", not g.near.is_empty()],
+		["interact", not g.near.is_empty()], ["guide", h.has("since_guide")], ["lantern", h.has("since_lantern")],
+		["combo", g.kills >= 1], ["regen", h.has("since_regen")], ["xp", h.has("since_xp")],
 		["inventory", g.items_found > 0], ["throw", p.ink >= 33.0], ["dash", h.t > 14.0],
+		["lunge", g.cfg.hint_seen("dash") and g.kills >= 3], ["rise", g.kills >= 5],
 		["shield", h.has("since_shield")], ["elite", h.has("since_elite")], ["down", h.has("since_down")],
 		["drop", h.has("since_drop")], ["map", h.has("since_map")],
 	]

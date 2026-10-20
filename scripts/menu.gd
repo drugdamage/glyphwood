@@ -1,5 +1,6 @@
 ## Menus drawn with glyphs: title, pause, settings (game, video, audio,
-## controls with rebinding), inventory, merchant, map, sign, death and victory.
+## controls with rebinding; every option has a short explanation), inventory,
+## merchant, map, moves and sign.
 ## Every screen works with the keyboard, the mouse (hover, click, wheel) and a
 ## gamepad. Items are rebuilt every frame from the game state.
 extends Node2D
@@ -11,6 +12,8 @@ const Hero := preload("res://scripts/hero.gd")
 const Physics := preload("res://scripts/physics.gd")
 const Settings := preload("res://scripts/settings.gd")
 const Controls := preload("res://scripts/controls.gd")
+const S := preload("res://scripts/sprites.gd")
+const Hud := preload("res://scripts/hud.gd")
 
 const LOGO := [
 	"  ▄████  ██▓   ▓██   ██▓ ██▓███   ██░ ██  █     █░ ▒█████   ▒█████  ▓█████▄",
@@ -40,12 +43,18 @@ var _capture := {}
 var _msg := ""
 var _msg_t := 0.0
 var _mouse := Vector2.ZERO
+var _map_ci: Node2D
+var _map_rect := Rect2()
 
 
 func setup(g, f: Font, b: Font) -> void:
 	game = g
 	font = f
 	bold = b
+	_map_ci = Node2D.new()
+	_map_ci.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_map_ci.draw.connect(_draw_map_content)
+	add_child(_map_ci)
 
 
 func open(name: String) -> void:
@@ -101,6 +110,7 @@ func _process(delta: float) -> void:
 		if not items.is_empty() and not _selectable(items[sel]):
 			_move(1, false)
 	queue_redraw()
+	_map_ci.queue_redraw()
 
 
 func _message(text: String) -> void:
@@ -116,14 +126,19 @@ func _btn(label: String, act: Callable, extra: Dictionary = {}) -> Dictionary:
 	return d
 
 
+## Every setting has an explanation under "tip_<label>" shown while it is selected.
+func _tip(label: String) -> String:
+	return game.L("tip_" + label.substr(2))
+
+
 func _toggle(label: String, key: String) -> Dictionary:
 	var v: bool = game.cfg.get_v(key)
 	var flip := func(_dir: int = 0) -> void: game.set_setting(key, not game.cfg.get_v(key))
-	return {"type": "value", "label": game.L(label), "value": game.L("on" if v else "off"), "act": flip, "adj": flip}
+	return {"type": "value", "label": game.L(label), "value": game.L("on" if v else "off"), "act": flip, "adj": flip, "tip": _tip(label)}
 
 
 func _choice(label: String, value: String, adj: Callable) -> Dictionary:
-	return {"type": "value", "label": game.L(label), "value": value, "act": adj.bind(1), "adj": adj}
+	return {"type": "value", "label": game.L(label), "value": value, "act": adj.bind(1), "adj": adj, "tip": _tip(label)}
 
 
 func _slider(label: String, key: String, lo: float, hi: float, step: float) -> Dictionary:
@@ -131,7 +146,7 @@ func _slider(label: String, key: String, lo: float, hi: float, step: float) -> D
 	var adj := func(dir: int) -> void: game.set_setting(key, clampf(snappedf(game.cfg.get_v(key) + dir * step, step), lo, hi))
 	var setf := func(f: float) -> void: game.set_setting(key, clampf(snappedf(lerpf(lo, hi, f), step), lo, hi))
 	return {"type": "slider", "label": game.L(label), "frac": (v - lo) / (hi - lo), "value": "%d%%" % int(round(v * 100.0)),
-		"act": adj.bind(1), "adj": adj, "setf": setf}
+		"act": adj.bind(1), "adj": adj, "setf": setf, "tip": _tip(label)}
 
 
 ## Bound as _cycle.bind(key, choices); Callable.bind appends, so dir comes first.
@@ -154,6 +169,7 @@ func _build(name: String) -> Array:
 			out.append(_btn(game.L("m_resume"), close))
 			out.append(_btn(game.L("m_inventory"), open.bind("inventory")))
 			out.append(_btn(game.L("m_map"), open.bind("map")))
+			out.append(_btn(game.L("m_moves"), open.bind("moves")))
 			out.append(_btn(game.L("m_settings"), open.bind("settings")))
 			out.append(_btn(game.L("m_quit_title"), game.show_title))
 		"settings":
@@ -163,13 +179,7 @@ func _build(name: String) -> Array:
 		"confirm_new":
 			out.append(_btn(game.L("m_yes"), game.new_run))
 			out.append(_btn(game.L("m_no"), close))
-		"dead":
-			out.append(_btn(game.L("m_try_again"), game.new_run))
-			out.append(_btn(game.L("m_title"), game.show_title))
-		"victory":
-			out.append(_btn(game.L("m_deeper"), game.continue_deeper))
-			out.append(_btn(game.L("m_title"), game.show_title))
-		"sign", "map":
+		"sign", "map", "moves":
 			out.append(_btn(game.L("m_ok") if name == "sign" else game.L("m_back"), close))
 		"inventory":
 			out = _inventory_items()
@@ -195,11 +205,13 @@ func _settings_tab() -> Array:
 			out.append(_toggle("s_hints", "hints"))
 			out.append(_btn(game.L("m_reset_hints"), func() -> void:
 				cfg.reset_hints()
-				_message(game.L("hints_reset_done")), {"small": true}))
+				_message(game.L("hints_reset_done")), {"small": true, "tip": game.L("tip_reset_hints")}))
+			out.append(_toggle("s_guide", "guide"))
 			out.append(_toggle("s_damage_numbers", "damage_numbers"))
 			out.append(_slider("s_shake", "shake", 0.0, 1.0, 0.1))
 			out.append(_toggle("s_mouse_aim", "mouse_aim"))
 		1:
+			out.append(_choice("s_quality", game.L("q_" + cfg.get_v("quality")), _cycle.bind("quality", Settings.QUALITY_CHOICES)))
 			var modes: Array = Settings.WINDOW_CHOICES if not OS.has_feature("web") else ["windowed", "borderless"]
 			out.append(_choice("s_window", game.L("w_" + cfg.get_v("window")), _cycle.bind("window", modes)))
 			out.append(_toggle("s_vsync", "vsync"))
@@ -220,10 +232,10 @@ func _settings_tab() -> Array:
 			out.append(_toggle("s_mute_unfocused", "mute_unfocused"))
 		3:
 			for a in Controls.ACTIONS:
-				out.append({"type": "bind", "label": game.L("a_" + a), "action": a})
+				out.append({"type": "bind", "label": game.L("a_" + a), "action": a, "tip": game.L("tip_bind")})
 			out.append(_btn(game.L("m_reset"), func() -> void:
 				game.ctl.reset()
-				game.cfg.set_v("binds", {}), {"small": true}))
+				game.cfg.set_v("binds", {}), {"small": true, "tip": game.L("tip_reset_binds")}))
 	return out
 
 
@@ -231,7 +243,7 @@ func _inventory_items() -> Array:
 	var p: Dictionary = game.player
 	var out: Array = []
 	out.append({"type": "item", "id": p.weapon, "group": "weapon"})
-	for i in Items.CHARM_SLOTS:
+	for i in Items.charm_slots(p):
 		if i < p.charms.size():
 			out.append({"type": "item", "id": p.charms[i], "group": "charm"})
 		else:
@@ -261,19 +273,22 @@ func _shop_items() -> Array:
 	var out: Array = []
 	for id in pr.get("stock", []):
 		out.append({"type": "buy", "id": id, "price": Items.def(id).price, "act": _buy.bind(id)})
-	out.append({"type": "buy", "id": "flask", "price": Items.FLASK_PRICE, "act": _buy.bind("flask"),
-		"label": game.L("shop_flask"), "glyph": "[+]", "color": Color(0.5, 1.0, 0.6),
-		"note": "%d/%d" % [p.flasks, p.max_flasks]})
-	out.append({"type": "buy", "id": "heart", "price": Items.HEART_PRICE, "act": _buy.bind("heart"),
-		"label": game.L("shop_heart"), "glyph": "♥", "color": Color(1.0, 0.35, 0.45), "note": "%d/%d" % [p.hp, p.max_hp]})
+	var lvl: int = game.level_num
+	out.append({"type": "buy", "id": "mend", "price": Items.service_price(p, "mend", lvl), "act": _buy.bind("mend"),
+		"label": game.L("shop_mend"), "color": Color(0.5, 1.0, 0.6), "note": "%d / %d" % [p.hp, p.max_hp]})
+	out.append({"type": "buy", "id": "vigor", "price": Items.service_price(p, "vigor", lvl), "act": _buy.bind("vigor"),
+		"label": game.L("shop_vigor"), "color": Color(1.0, 0.35, 0.45), "note": game.L("shop_vigor_d") % p.up_hp})
+	out.append({"type": "buy", "id": "whet", "price": Items.service_price(p, "whet", lvl), "act": _buy.bind("whet"),
+		"label": game.L("shop_whet"), "color": Color(0.8, 0.85, 0.95), "note": game.L("shop_whet_d") % p.up_dmg})
 	out.append(_btn(game.L("m_leave"), close))
 	return out
 
 
 func _buy(id: String) -> void:
 	var p: Dictionary = game.player
-	var price: int = Items.FLASK_PRICE if id == "flask" else (Items.HEART_PRICE if id == "heart" else Items.def(id).price)
-	if (id == "flask" and p.flasks >= p.max_flasks) or (id == "heart" and p.hp >= p.max_hp):
+	var service: bool = id in ["mend", "vigor", "whet"]
+	var price: int = Items.service_price(p, id, game.level_num) if service else Items.def(id).price
+	if id == "mend" and p.hp >= p.max_hp:
 		game.sfx("error", -6.0)
 		_message(game.L("shop_full"))
 		return
@@ -284,10 +299,15 @@ func _buy(id: String) -> void:
 	p.shards -= price
 	game.sfx("buy")
 	match id:
-		"flask":
-			p.flasks += 1
-		"heart":
-			p.hp += 1
+		"mend":
+			p.hp = p.max_hp
+		"vigor":
+			p.up_hp += 1
+			Hero.refresh(p)
+			p.hp = mini(p.max_hp, p.hp + 10)
+		"whet":
+			p.up_dmg += 1
+			Hero.refresh(p)
 		_:
 			game.shop_prop.stock.erase(id)
 			var equipped := Items.give(p, id)
@@ -351,8 +371,6 @@ func _back() -> void:
 	match top():
 		"title":
 			return
-		"dead", "victory":
-			return
 	close()
 
 
@@ -371,7 +389,7 @@ func _handle_mouse(event: InputEventMouse) -> void:
 		return
 	match mb.button_index:
 		MOUSE_BUTTON_LEFT:
-			if top() == "map" and i < 0:
+			if (top() == "map" or top() == "moves") and i < 0:
 				close()
 			elif i >= 0:
 				_click(items[i], mb.position)
@@ -520,10 +538,8 @@ func _draw() -> void:
 			_draw_list(vp, game.L("m_new"), accent, 520.0, game.L("confirm_new"))
 		"settings":
 			_draw_settings(vp, accent)
-		"dead":
-			_draw_end(vp, game.L("died"), Color(1.0, 0.32, 0.28), game.L("died_sub") % [game.biome_name(), game.level_num])
-		"victory":
-			_draw_end(vp, game.L("victory"), Color(1.0, 0.85, 0.4), game.L("victory_sub"))
+		"moves":
+			_draw_moves(vp, accent)
 		"sign":
 			_draw_sign(vp, accent)
 		"inventory":
@@ -537,6 +553,32 @@ func _draw() -> void:
 		_center(vp.y - 70 * u, _msg, int(16 * u), Color(1.0, 0.85, 0.5, a), bold)
 	if name != "map":
 		_center(vp.y - 22 * u, game.L("menu_hint"), int(12 * u), Color(0.5, 0.56, 0.54))
+	_draw_tip(vp)
+
+
+## The explanation of the selected option, in a box under the menu.
+func _draw_tip(vp: Vector2) -> void:
+	if items.is_empty() or sel >= items.size() or capturing():
+		return
+	var tip: String = items[sel].get("tip", "")
+	if tip == "":
+		return
+	var fs := int(14 * u)
+	var mouse: bool = game.ctl.device == "mouse" and items[sel].has("rect") and items[sel].rect.has_point(_mouse)
+	var w := minf(vp.x - 60 * u, (440 if mouse else 760) * u)
+	var h := font.get_multiline_string_size(tip, HORIZONTAL_ALIGNMENT_LEFT, w - 44 * u, fs).y + 22 * u
+	var r := Rect2((vp.x - w) * 0.5, vp.y - 44 * u - h, w, h)
+	if mouse:
+		# a tooltip next to the cursor, kept on screen
+		r.position = _mouse + Vector2(18, 22) * u
+		r.position.x = clampf(r.position.x, 8 * u, vp.x - w - 8 * u)
+		if r.end.y > vp.y - 8 * u:
+			r.position.y = _mouse.y - h - 12 * u
+	draw_rect(r, Color(0.03, 0.035, 0.04, 0.96))
+	draw_rect(r, Color(1.0, 0.85, 0.5, 0.45), false, maxf(1.0, u))
+	_text(Vector2(r.position.x + 12 * u, r.position.y + 21 * u), "?", fs, Color(1.0, 0.85, 0.45), bold)
+	draw_multiline_string(font, r.position + Vector2(32 * u, 21 * u), tip, HORIZONTAL_ALIGNMENT_LEFT, w - 44 * u, fs, -1,
+		Color(0.88, 0.9, 0.86))
 
 
 func _run_line() -> String:
@@ -661,7 +703,8 @@ func _draw_title(vp: Vector2, accent: Color) -> void:
 	_draw_rows((vp.x - w) * 0.5, y + 40 * u, w, 42.0 * u)
 	var pr: Dictionary = game.cfg.profile
 	if pr.runs > 0:
-		_center(vp.y - 56 * u, game.L("best") % [pr.runs, pr.wins, pr.best_level], int(13 * u), Color(0.55, 0.62, 0.58))
+		var best: String = game.L("best") % [pr.best_level, pr.get("best_xp", 1), pr.get("best_combo", 0)]
+		_center(vp.y - 56 * u, best, int(13 * u), Color(0.55, 0.62, 0.58))
 	var ver := "v" + str(ProjectSettings.get_setting("application/config/version", ""))
 	_text(Vector2(vp.x - _w(ver, int(12 * u)) - 16 * u, vp.y - 22 * u), ver, int(12 * u), Color(0.4, 0.45, 0.43))
 
@@ -680,15 +723,6 @@ func _draw_settings(vp: Vector2, accent: Color) -> void:
 		_center(y + 26 * u, note, int(12 * u), Color(1.0, 0.85, 0.5) if capturing() else Color(0.55, 0.62, 0.58))
 
 
-func _draw_end(vp: Vector2, title: String, color: Color, sub: String) -> void:
-	var y := vp.y * 0.36
-	_center(y, title, int(62 * u), color, bold)
-	_center(y + 48 * u, sub, int(18 * u), Color(0.88, 0.9, 0.88))
-	_center(y + 80 * u, _run_line(), int(16 * u), Color(0.62, 0.7, 0.66))
-	var w := 380.0 * u
-	_draw_rows((vp.x - w) * 0.5, y + 120 * u, w, 42.0 * u)
-
-
 func _draw_sign(vp: Vector2, _accent: Color) -> void:
 	var w := minf(vp.x - 60 * u, 640.0 * u)
 	var h := 230.0 * u
@@ -704,15 +738,49 @@ func _item_name(id: String) -> String:
 	return game.L("item_" + id)
 
 
+## A framed item picture made of glyphs (sprites.gd ICONS), centred in r.
+func _draw_icon(r: Rect2, id: String, c: Color, on: bool = false) -> void:
+	draw_rect(r, Color(0, 0, 0, 0.5))
+	draw_rect(Rect2(r.position, Vector2(r.size.x, r.size.y * 0.45)), Color(c.r, c.g, c.b, 0.07 if not on else 0.14))
+	draw_rect(r, Color(c.r, c.g, c.b, 0.55 if on else 0.3), false, maxf(1.0, u))
+	var icon: Dictionary = S.ICONS.get(id, {})
+	if id == "":
+		return
+	if icon.is_empty():
+		var g: String = Items.def(id).get("glyph", "?")
+		var fs0 := int(r.size.y * 0.55)
+		_text(Vector2(r.get_center().x - _w(g, fs0, bold) * 0.5, r.get_center().y + fs0 * 0.35), g, fs0, c, bold)
+		return
+	var rows: Array = icon.g
+	var masks: Array = icon.m
+	var fs := int(r.size.y / (rows.size() + 0.15))
+	var adv := bold.get_char_size("M".unicode_at(0), fs).x
+	var cols := 0
+	for row in rows:
+		cols = maxi(cols, row.length())
+	var x0 := r.get_center().x - cols * adv * 0.5
+	var y0 := r.get_center().y - rows.size() * fs * 0.5 + fs * 0.78
+	for i in rows.size():
+		var row: String = rows[i]
+		for j in row.length():
+			if row[j] == " ":
+				continue
+			var k := int(masks[i][j])
+			var col: Color = c if k == 0 else S.ICON_PAL[k]
+			if k == 3:
+				col = c.lerp(Color(1, 1, 1), 0.6)
+			draw_char(bold, Vector2(x0 + j * adv, y0 + i * fs), row[j], fs, col)
+
+
 func _draw_inventory(vp: Vector2, accent: Color) -> void:
 	var p: Dictionary = game.player
-	var w := minf(vp.x - 40 * u, 980.0 * u)
-	var h := minf(vp.y - 60 * u, 640.0 * u)
+	var w := minf(vp.x - 40 * u, 1000.0 * u)
+	var h := minf(vp.y - 60 * u, 680.0 * u)
 	var r := Rect2((vp.x - w) * 0.5, (vp.y - h) * 0.5, w, h)
 	_panel(r, accent)
 	_center(r.position.y + 48 * u, game.L("m_inventory"), int(30 * u), Color(0.95, 0.95, 0.9), bold)
 	var fs := int(17 * u)
-	var row_h := 36.0 * u
+	var row_h := 54.0 * u
 	var lx := r.position.x + 30 * u
 	var cw := w * 0.46
 	var rx := r.position.x + w * 0.52
@@ -722,34 +790,46 @@ func _draw_inventory(vp: Vector2, accent: Color) -> void:
 	var ly := y + 10 * u
 	var by := y + 10 * u
 	var charm_header := false
+	var bag_col := 0
 	for i in items.size():
 		var it: Dictionary = items[i]
 		var rect: Rect2
 		if it.group == "bag":
-			rect = Rect2(rx, by, cw, row_h)
-			by += row_h
+			# the bag is a grid of icons
+			var cell := 62.0 * u
+			var per_row := maxi(1, int(cw / cell))
+			rect = Rect2(rx + (bag_col % per_row) * cell, by + int(bag_col / per_row) * cell, cell - 6 * u, cell - 6 * u)
+			bag_col += 1
 		else:
 			if it.group == "charm" and not charm_header:
 				charm_header = true
-				ly += 24 * u
-				_text(Vector2(lx, ly), game.L("inv_charms").to_upper(), int(13 * u), Color(0.6, 0.66, 0.63), bold)
-				ly += 10 * u
+				ly += 22 * u
+				_text(Vector2(lx, ly), (game.L("inv_charms") + "  %d/%d" % [p.charms.size(), Items.charm_slots(p)]).to_upper(), int(13 * u),
+					Color(0.6, 0.66, 0.63), bold)
+				ly += 8 * u
 			rect = Rect2(lx, ly, cw, row_h)
 			ly += row_h
 		it.rect = rect
 		var on := i == sel
-		draw_rect(rect.grow(-2 * u), Color(1, 1, 1, 0.09 if on else 0.03))
-		if on:
-			draw_rect(rect.grow(-2 * u), Color(1.0, 0.85, 0.5, 0.6), false, maxf(1.0, u))
+		if it.group != "bag":
+			draw_rect(rect.grow(-2 * u), Color(1, 1, 1, 0.09 if on else 0.03))
+			if on:
+				draw_rect(rect.grow(-2 * u), Color(1.0, 0.85, 0.5, 0.6), false, maxf(1.0, u))
 		if it.type == "slot":
-			_text(Vector2(rect.position.x + 50 * u, rect.position.y + row_h * 0.66), game.L("inv_empty"), fs, Color(0.4, 0.43, 0.42))
+			_draw_icon(Rect2(rect.position + Vector2(6, 5) * u, Vector2(row_h - 10 * u, row_h - 10 * u)), "", Color(0.3, 0.32, 0.3))
+			_text(Vector2(rect.position.x + row_h + 8 * u, rect.position.y + row_h * 0.62), game.L("inv_empty"), fs, Color(0.4, 0.43, 0.42))
 			continue
 		var d: Dictionary = Items.def(it.id)
-		_text(Vector2(rect.position.x + 14 * u, rect.position.y + row_h * 0.68), d.glyph, int(fs * 1.2), d.color, bold)
-		_text(Vector2(rect.position.x + 50 * u, rect.position.y + row_h * 0.66), _item_name(it.id), fs,
+		if it.group == "bag":
+			_draw_icon(rect, it.id, d.color, on)
+			if on:
+				draw_rect(rect.grow(2 * u), Color(1.0, 0.85, 0.5, 0.8), false, maxf(1.0, u * 1.5))
+			continue
+		_draw_icon(Rect2(rect.position + Vector2(6, 5) * u, Vector2(row_h * 1.25, row_h - 10 * u)), it.id, d.color, on)
+		_text(Vector2(rect.position.x + row_h * 1.25 + 16 * u, rect.position.y + row_h * 0.62), _item_name(it.id), fs,
 			Color(1, 0.96, 0.88) if on else Color(0.8, 0.84, 0.82), bold if on else font)
 	if p.bag.is_empty():
-		_text(Vector2(rx + 20 * u, by + row_h * 0.66), game.L("inv_empty"), fs, Color(0.4, 0.43, 0.42))
+		_text(Vector2(rx + 4 * u, by + 30 * u), game.L("inv_empty"), fs, Color(0.4, 0.43, 0.42))
 	# details of the selected item
 	var dy := r.end.y - 150 * u
 	draw_line(Vector2(r.position.x + 24 * u, dy - 14 * u), Vector2(r.end.x - 24 * u, dy - 14 * u), Color(1, 1, 1, 0.1), maxf(1.0, u))
@@ -770,18 +850,18 @@ func _draw_inventory(vp: Vector2, accent: Color) -> void:
 			var hint := "[Enter] " + action
 			_text(Vector2(r.end.x - 30 * u - _w(hint, int(14 * u), bold), dy + 10 * u), hint, int(14 * u), Color(1.0, 0.85, 0.5), bold)
 	var st: Dictionary = p.st
-	var summary := "%s %d/%d    %s %d    %s ×%.2f    %s %d/%d    ◆ %d" % [
-		game.L("stat_hp"), p.hp, p.max_hp, game.L("stat_dmg"), int(st.dmg * st.dmg_mult), game.L("stat_speed"), st.speed,
-		game.L("stat_flasks"), p.flasks, p.max_flasks, p.shards]
+	var summary := "%s    %s %d/%d    %s %d    %s ×%.2f    %s %d%%    ◆ %d" % [
+		game.L("lv") % p.xp_level, game.L("stat_hp"), p.hp, p.max_hp, game.L("stat_dmg"), int(st.dmg * st.dmg_mult),
+		game.L("stat_speed"), st.speed, game.L("stat_crit"), int(st.crit * 100.0), p.shards]
 	_text(Vector2(lx, r.end.y - 30 * u), summary, int(14 * u), Color(0.7, 0.76, 0.73))
 
 
 func _draw_shop(vp: Vector2, _accent: Color) -> void:
 	var p: Dictionary = game.player
-	var w := minf(vp.x - 40 * u, 760.0 * u)
-	var row_h := 44.0 * u
+	var w := minf(vp.x - 40 * u, 780.0 * u)
+	var row_h := 50.0 * u
 	var h := 190.0 * u + items.size() * row_h
-	var r := Rect2((vp.x - w) * 0.5, (vp.y - h) * 0.5, w, h)
+	var r := Rect2((vp.x - w) * 0.5, maxf(10 * u, (vp.y - h) * 0.5), w, h)
 	_panel(r, Color(0.85, 0.7, 0.95))
 	_center(r.position.y + 46 * u, game.L("act_shop"), int(28 * u), Color(0.95, 0.95, 0.9), bold)
 	_center(r.position.y + 76 * u, game.L("shop_greet"), int(15 * u), Color(0.75, 0.7, 0.85))
@@ -798,68 +878,69 @@ func _draw_shop(vp: Vector2, _accent: Color) -> void:
 		if on:
 			draw_rect(rect.grow(-2 * u), Color(1.0, 0.85, 0.5, 0.6), false, maxf(1.0, u))
 		if it.type == "button":
-			_text(Vector2(rect.get_center().x - _w(it.label, fs, bold) * 0.5, y + row_h * 0.64), it.label, fs, Color(0.9, 0.92, 0.9), bold)
+			_text(Vector2(rect.get_center().x - _w(it.label, fs, bold) * 0.5, y + row_h * 0.62), it.label, fs, Color(0.9, 0.92, 0.9), bold)
 		else:
-			var glyph: String = it.get("glyph", Items.def(it.id).get("glyph", "?"))
 			var gc: Color = it.get("color", Items.def(it.id).get("color", Color.WHITE))
 			var label: String = it.get("label", _item_name(it.id))
-			_text(Vector2(rect.position.x + 14 * u, y + row_h * 0.66), glyph, int(fs * 1.1), gc, bold)
-			_text(Vector2(rect.position.x + 60 * u, y + row_h * 0.45), label, fs, Color(1, 0.96, 0.88) if on else Color(0.82, 0.85, 0.83), bold)
+			_draw_icon(Rect2(rect.position + Vector2(6, 5) * u, Vector2(row_h * 1.2, row_h - 10 * u)), it.id, gc, on)
+			var tx := rect.position.x + row_h * 1.2 + 18 * u
+			_text(Vector2(tx, y + row_h * 0.44), label, fs, Color(1, 0.96, 0.88) if on else Color(0.82, 0.85, 0.83), bold)
 			var desc: String = it.get("note", "")
-			if it.has("label") == false:
+			if not it.has("label"):
 				desc = game.L("item_" + it.id + "_d")
-			_text(Vector2(rect.position.x + 60 * u, y + row_h * 0.85), desc, int(12 * u), Color(0.6, 0.65, 0.63))
+			_text(Vector2(tx, y + row_h * 0.82), desc, int(12 * u), Color(0.6, 0.65, 0.63))
 			var price := "◆ %d" % it.price
 			var pc := Color(1.0, 0.85, 0.35) if p.shards >= it.price else Color(0.6, 0.35, 0.3)
-			_text(Vector2(rect.end.x - 16 * u - _w(price, fs, bold), y + row_h * 0.64), price, fs, pc, bold)
+			_text(Vector2(rect.end.x - 16 * u - _w(price, fs, bold), y + row_h * 0.62), price, fs, pc, bold)
 		y += row_h
 
 
 func _draw_map(vp: Vector2, accent: Color) -> void:
 	var lv = game.lv
-	var w := minf(vp.x - 60 * u, 980.0 * u)
-	var h := minf(vp.y - 80 * u, 600.0 * u)
+	var w := minf(vp.x - 60 * u, 1040.0 * u)
+	var h := minf(vp.y - 80 * u, 640.0 * u)
 	var r := Rect2((vp.x - w) * 0.5, (vp.y - h) * 0.5, w, h)
 	_panel(r, accent)
 	_center(r.position.y + 44 * u, "%s · %s" % [game.biome_name(), game.L("level") % game.level_num], int(24 * u), accent, bold)
-	var cell := minf((w - 80 * u) / lv.gw, (h - 150 * u) / lv.gh * D.ROOM_W / D.ROOM_H)
-	var cw := cell
-	var ch := cell * D.ROOM_H / D.ROOM_W
-	var ox: float = r.position.x + (w - cw * lv.gw) * 0.5
-	var oy: float = r.position.y + 70 * u + (h - 150 * u - ch * lv.gh) * 0.5
-	var p: Dictionary = game.player
-	var pc := Physics.center(p)
-	for room in lv.rooms:
-		if room == null or not room.seen:
-			continue
-		var rr := Rect2(ox + room.gx * cw + 4 * u, oy + room.gy * ch + 4 * u, cw - 8 * u, ch - 8 * u)
-		draw_rect(rr, Color(accent.r, accent.g, accent.b, 0.12))
-		draw_rect(rr, Color(accent.r, accent.g, accent.b, 0.7), false, maxf(1.0, 1.5 * u))
-		var link := Color(accent.r, accent.g, accent.b, 0.8)
-		if room.r:
-			draw_line(Vector2(rr.end.x, rr.get_center().y + ch * 0.18), Vector2(rr.end.x + 8 * u, rr.get_center().y + ch * 0.18), link, 3 * u)
-		if room.l:
-			draw_line(Vector2(rr.position.x, rr.get_center().y + ch * 0.18), Vector2(rr.position.x - 8 * u, rr.get_center().y + ch * 0.18),
-				link, 3 * u)
-		if room.d >= 0:
-			var dx: float = rr.position.x + (room.d + 2.0) / D.ROOM_W * rr.size.x
-			draw_line(Vector2(dx, rr.end.y), Vector2(dx, rr.end.y + 8 * u), link, 3 * u)
-		var mark: String = game.hud._room_mark(room)
-		if room.kind == "treasure" or room.kind == "vault":
-			mark = "C"
-			for prp in game.props:
-				if prp.kind == "chest" and not prp.open and rr.grow(8 * u).has_point(_map_pt(prp.pos, ox, oy, cw, ch)):
-					mark = "C"
-		if mark != "":
-			var fs := int(22 * u)
-			_text(Vector2(rr.get_center().x - _w(mark, fs, bold) * 0.5, rr.get_center().y + fs * 0.35), mark, fs, Color(1.0, 0.9, 0.6), bold)
-	var me := _map_pt(pc, ox, oy, cw, ch)
-	if int(t * 3.0) % 2 == 0:
-		_text(me - Vector2(_w("@", int(20 * u), bold) * 0.5, -7 * u), "@", int(20 * u), Color(1, 1, 1), bold)
+	var k := minf((w - 80 * u) / lv.w, (h - 150 * u) / lv.h)
+	var size := Vector2(lv.w, lv.h) * k
+	_map_rect = Rect2(r.position.x + (w - size.x) * 0.5, r.position.y + 70 * u + (h - 150 * u - size.y) * 0.5, size.x, size.y)
+	draw_rect(_map_rect.grow(4 * u), Color(0, 0, 0, 0.5))
 	_center(r.end.y - 30 * u, game.L("map_legend"), int(13 * u), Color(0.6, 0.66, 0.63))
 	if not items.is_empty():
 		items[0].rect = Rect2()
 
 
-func _map_pt(wp: Vector2, ox: float, oy: float, cw: float, ch: float) -> Vector2:
-	return Vector2(ox + wp.x / D.TILE / D.ROOM_W * cw, oy + wp.y / D.TILE / D.ROOM_H * ch)
+func _draw_map_content() -> void:
+	if top() != "map" or game.lv == null:
+		return
+	var tex: ImageTexture = game.hud.map_texture()
+	if tex == null:
+		return
+	_map_ci.draw_texture_rect(tex, _map_rect, false)
+	Hud.draw_map_marks(_map_ci, _map_rect, u * 1.6, t, bold, game)
+
+
+func _draw_moves(vp: Vector2, accent: Color) -> void:
+	var w := minf(vp.x - 60 * u, 760.0 * u)
+	var moves := [
+		["move_triple", "%s %s %s" % [game.key("attack"), game.key("attack"), game.key("attack")]],
+		["move_lunge", "%s → %s" % [game.key("dash"), game.key("attack")]],
+		["move_rise", "%s + %s" % [game.key("up"), game.key("attack")]],
+		["move_pogo", "%s + %s" % [game.key("down"), game.key("attack")]],
+		["move_knife", game.key("throw")],
+		["move_crit", ""],
+	]
+	var row_h := 64.0 * u
+	var h := 150.0 * u + moves.size() * row_h
+	var r := Rect2((vp.x - w) * 0.5, (vp.y - h) * 0.5, w, h)
+	_panel(r, accent)
+	_center(r.position.y + 48 * u, game.L("m_moves"), int(30 * u), Color(0.95, 0.95, 0.9), bold)
+	var y := r.position.y + 90 * u
+	for m in moves:
+		_text(Vector2(r.position.x + 36 * u, y), game.L(m[0]), int(18 * u), Color(1.0, 0.85, 0.45), bold)
+		if m[1] != "":
+			_text(Vector2(r.end.x - 36 * u - _w(m[1], int(16 * u), bold), y), m[1], int(16 * u), Color(0.95, 0.92, 0.8), bold)
+		_text(Vector2(r.position.x + 36 * u, y + 24 * u), game.L(m[0] + "_d"), int(14 * u), Color(0.72, 0.77, 0.74))
+		y += row_h
+	_draw_rows(r.position.x + w * 0.3, r.end.y - 58 * u, w * 0.4, 40.0 * u)

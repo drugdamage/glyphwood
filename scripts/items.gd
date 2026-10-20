@@ -1,5 +1,6 @@
 ## Items, equipment and the stats they give. The hero has one weapon slot and
-## CHARM_SLOTS charm slots; everything else found during a run sits in the bag.
+## CHARM_SLOTS charm slots (one more at levels 10 and 20); everything else found
+## during a run sits in the bag.
 ## Names and descriptions are in strings.gd as "item_<id>" and "item_<id>_d".
 extends RefCounted
 
@@ -19,7 +20,7 @@ const ITEMS := {
 		"dmg": 12, "speed": 1.0, "reach": 1.55},
 	"ember_brand": {"slot": "weapon", "glyph": "/", "color": Color(1.0, 0.55, 0.25), "price": 190,
 		"dmg": 12, "speed": 1.05, "reach": 1.05, "burn": true},
-	"heart_glyph": {"slot": "charm", "glyph": "♥", "color": Color(1.0, 0.35, 0.45), "price": 110, "max_hp": 2},
+	"heart_glyph": {"slot": "charm", "glyph": "♥", "color": Color(1.0, 0.35, 0.45), "price": 110, "max_hp": 30},
 	"phantom_step": {"slot": "charm", "glyph": "»", "color": Color(0.6, 0.85, 1.0), "price": 150, "dash_inv": true},
 	"feather": {"slot": "charm", "glyph": "∫", "color": Color(0.95, 0.95, 0.8), "price": 160, "double_jump": true},
 	"lodestone": {"slot": "charm", "glyph": "◊", "color": Color(0.75, 0.75, 0.85), "price": 60, "magnet": 3.0},
@@ -31,15 +32,35 @@ const ITEMS := {
 	"stone_skin": {"slot": "charm", "glyph": "□", "color": Color(0.7, 0.7, 0.65), "price": 100, "inv_time": 1.6},
 	"ember_heart": {"slot": "charm", "glyph": "*", "color": Color(1.0, 0.5, 0.2), "price": 0, "dmg_mult": 1.25},
 	"moon_lens": {"slot": "charm", "glyph": "(", "color": Color(0.75, 0.85, 1.0), "price": 0, "crit": 0.2},
-	"root_crown": {"slot": "charm", "glyph": "w", "color": Color(0.5, 0.9, 0.5), "price": 0, "max_hp": 1, "flasks": 1},
+	"root_crown": {"slot": "charm", "glyph": "w", "color": Color(0.5, 0.9, 0.5), "price": 0, "max_hp": 20, "regen": 1.8},
 }
 
 ## Charms dropped by bosses (never in shops or chests).
 const BOSS_DROPS := {"warden": "root_crown", "wraith": "moon_lens", "colossus": "ember_heart"}
 
-## Shop services that are not items.
-const FLASK_PRICE := 40
-const HEART_PRICE := 25
+## Hero levels that add a charm slot.
+const SLOT_LEVELS := [10, 20]
+
+
+static func charm_slots(p: Dictionary) -> int:
+	var n := CHARM_SLOTS
+	for lv in SLOT_LEVELS:
+		if p.get("xp_level", 1) >= lv:
+			n += 1
+	return n
+
+
+## Shop services that are not items: mend (full health) and two upgrades that
+## get more expensive each time they are bought.
+static func service_price(p: Dictionary, id: String, level_num: int) -> int:
+	match id:
+		"mend":
+			return 8 + 2 * level_num
+		"vigor":
+			return int(50.0 * pow(1.4, p.up_hp))
+		"whet":
+			return int(60.0 * pow(1.4, p.up_dmg))
+	return 0
 
 
 static func def(id: String) -> Dictionary:
@@ -51,14 +72,14 @@ static func stats(p: Dictionary) -> Dictionary:
 	var w: Dictionary = def(p.weapon)
 	var st := {
 		"dmg": float(w.get("dmg", 10)), "speed": float(w.get("speed", 1.0)), "reach": float(w.get("reach", 1.0)),
-		"burn": w.get("burn", false), "max_hp": 0, "flasks": 0, "dash_inv": false, "double_jump": false,
+		"burn": w.get("burn", false), "max_hp": 0, "regen": 1.0, "dash_inv": false, "double_jump": false,
 		"magnet": 1.0, "lifesteal": 0.0, "thorns": 0, "shard_mult": 1.0, "ink_gain": 1.0, "inv_time": 1.0,
 		"dmg_mult": 1.0, "crit": 0.0,
 	}
 	for id in p.charms:
 		var c: Dictionary = def(id)
 		st.max_hp += int(c.get("max_hp", 0))
-		st.flasks += int(c.get("flasks", 0))
+		st.regen *= float(c.get("regen", 1.0))
 		st.speed *= float(c.get("speed", 1.0))
 		st.magnet = maxf(st.magnet, float(c.get("magnet", 1.0)))
 		st.lifesteal += float(c.get("lifesteal", 0.0))
@@ -85,7 +106,7 @@ static func give(p: Dictionary, id: String) -> bool:
 	var d := def(id)
 	if d.is_empty() or owns(p, id):
 		return false
-	if d.slot == "charm" and p.charms.size() < CHARM_SLOTS:
+	if d.slot == "charm" and p.charms.size() < charm_slots(p):
 		p.charms.append(id)
 		return true
 	if d.slot == "weapon" and p.weapon == START_WEAPON:
@@ -112,7 +133,7 @@ static func toggle(p: Dictionary, id: String) -> bool:
 		p.charms.erase(id)
 		p.bag.append(id)
 		return true
-	if p.charms.size() >= CHARM_SLOTS or not p.bag.has(id):
+	if p.charms.size() >= charm_slots(p) or not p.bag.has(id):
 		return false
 	p.bag.erase(id)
 	p.charms.append(id)

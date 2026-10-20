@@ -82,8 +82,8 @@ enforced by `gdlint` with the settings in [`.gdlintrc`](.gdlintrc).
 - Static data lives in its own scripts: world constants, biomes, enemy stats and
   hand-made rooms in `scripts/data.gd`, ASCII art in `scripts/sprites.gd`, items
   in `scripts/items.gd`. Behaviour lives in the other scripts.
-- Any user-visible text goes into `scripts/strings.gd` with **all six**
-  translations (English, Russian, Ukrainian, German, Spanish, French) and is read
+- Any user-visible text goes into `scripts/strings.gd` with **all seven**
+  translations (English, German, Russian, Chinese, Spanish, French, Japanese) and is read
   with `L("key")`. If you can't translate, copy the English text and say so in
   the PR.
 

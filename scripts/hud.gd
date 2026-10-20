@@ -1,9 +1,11 @@
-## In-game interface: health, flasks, ink, shards, equipment, minimap, level
-## banner, tutorial hints with key caps, boss health bar, toasts and the
-## mouse crosshair. Menus are drawn by menu.gd on top of this.
+## In-game interface: health and experience bars, ink, shards, equipment,
+## minimap (a small picture of the explored terrain), current goal, combo
+## counter, level banner, tutorial hints with key caps, boss health bar, toasts
+## and the mouse crosshair. Menus are drawn by menu.gd on top of this.
 extends Node2D
 
 const D := preload("res://scripts/data.gd")
+const Level := preload("res://scripts/level.gd")
 const Items := preload("res://scripts/items.gd")
 const Hero := preload("res://scripts/hero.gd")
 const Physics := preload("res://scripts/physics.gd")
@@ -19,18 +21,88 @@ var _hint_shown := ""
 var _hint_a := 0.0
 var _boss_name_t := 0.0
 var _had_boss := false
+var _hp_trail := 0.0
+var _combo_pop := 0.0
+var _combo_seen := 0
+var _map_img: Image
+var _map_tex: ImageTexture
+var _map_lv = null
+var _map_seen := -1
+var _map_rect := Rect2()
+var _map_ci: Node2D
+
+
+## Paints the tiles of explored rooms into a small image, one pixel per tile.
+## Rebuilt only when a new room is seen or a wall breaks.
+static func paint_map(img: Image, lv, b: Dictionary) -> void:
+	img.fill(Color(0, 0, 0, 0))
+	var air: Color = b.top
+	air = Color(air.r, air.g, air.b, 0.16)
+	var edge: Color = b.top
+	for r in lv.rooms:
+		if r == null or not r.seen:
+			continue
+		for y in range(r.y0, r.y0 + D.ROOM_H):
+			for x in range(r.x0, r.x0 + D.ROOM_W):
+				var tt: int = lv.tiles[y * lv.w + x]
+				var c := Color(0, 0, 0, 0)
+				match tt:
+					Level.AIR:
+						c = air
+					Level.WATER:
+						c = Color(0.3, 0.45, 0.9, 0.8)
+					Level.LAVA:
+						c = Color(1.0, 0.45, 0.15, 0.95)
+					Level.SPIKES:
+						c = Color(0.95, 0.3, 0.25, 0.9)
+					Level.ONEWAY:
+						c = Color(edge.r, edge.g, edge.b, 0.55)
+					Level.GATE:
+						c = Color(0.9, 0.88, 0.8, 0.9)
+					_:
+						if not lv.solid(x, y - 1) or not lv.solid(x, y + 1) or not lv.solid(x - 1, y) or not lv.solid(x + 1, y):
+							c = Color(edge.r, edge.g, edge.b, 0.85)
+						else:
+							c = Color(0.0, 0.0, 0.0, 0.35)
+				img.set_pixel(x, y, c)
+
+
+func map_texture() -> ImageTexture:
+	var lv = game.lv
+	if lv == null:
+		return null
+	if _map_lv != lv or _map_img == null:
+		_map_lv = lv
+		_map_img = Image.create(lv.w, lv.h, false, Image.FORMAT_RGBA8)
+		_map_tex = null
+		_map_seen = -1
+	var key: int = game.rooms_seen * 1000 + game.lv_changes
+	if key != _map_seen:
+		_map_seen = key
+		paint_map(_map_img, lv, game.biome)
+		if _map_tex == null:
+			_map_tex = ImageTexture.create_from_image(_map_img)
+		else:
+			_map_tex.update(_map_img)
+	return _map_tex
 
 
 func setup(g, f: Font, b: Font) -> void:
 	game = g
 	font = f
 	bold = b
+	_map_ci = Node2D.new()
+	_map_ci.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_map_ci.draw.connect(_draw_map_content)
+	add_child(_map_ci)
 
 
 func _process(delta: float) -> void:
 	t += delta
 	_banner_t += delta
+	_combo_pop = maxf(0.0, _combo_pop - delta * 4.0)
 	queue_redraw()
+	_map_ci.queue_redraw()
 
 
 func _draw() -> void:
@@ -110,6 +182,8 @@ func _draw_play(vp: Vector2) -> void:
 		draw_rect(Rect2(0, i * 10.0 * u, vp.x, 10.0 * u), Color(0, 0, 0, 0.5 * (1.0 - i / 10.0)))
 	_draw_status(p)
 	_draw_minimap(vp)
+	_draw_combo(vp)
+	_draw_level_up(vp)
 	if not game.menu.active():
 		_draw_banner(vp)
 	_draw_hint(vp)
@@ -126,36 +200,55 @@ func _draw_play(vp: Vector2) -> void:
 		draw_circle(m, 1.5 * u, c)
 
 
+func _bar(r: Rect2, f: float, col: Color, back: Color) -> void:
+	draw_rect(r, back)
+	draw_rect(Rect2(r.position, Vector2(r.size.x * clampf(f, 0.0, 1.0), r.size.y)), col)
+	draw_rect(Rect2(r.position, Vector2(r.size.x * clampf(f, 0.0, 1.0), maxf(1.0, r.size.y * 0.3))), Color(1, 1, 1, 0.18))
+	draw_rect(r, Color(col.r, col.g, col.b, 0.5), false, maxf(1.0, u))
+
+
 func _draw_status(p: Dictionary) -> void:
 	var x := 26.0 * u
-	var y := 42.0 * u
-	var hs := int(26 * u)
-	for i in p.max_hp:
-		var full: bool = i < p.hp
-		var c := Color(1.0, 0.32, 0.38) if full else Color(0.32, 0.12, 0.14)
-		if full and p.hp <= 1:
-			c = c * (0.7 + 0.3 * sin(t * 10.0))
-			c.a = 1.0
-		x += _text(Vector2(x, y), "♥", hs, c, bold) + 5.0 * u
-	y += 30.0 * u
-	x = 26.0 * u
-	var fs := int(16 * u)
-	for i in p.max_flasks:
-		var on: bool = i < p.flasks
-		x += _text(Vector2(x, y), "[+]", fs, Color(0.5, 1.0, 0.6) if on else Color(0.2, 0.3, 0.22), bold) + 6.0 * u
-	x += 12.0 * u
-	# ink bar: three knives' worth
-	var bars := 18
-	var ink: float = p.ink
+	var y := 30.0 * u
+	var fs := int(15 * u)
+	var bw := 250.0 * u
+	# health, with a pale trail that catches up after a hit
+	_hp_trail = maxf(_hp_trail - get_process_delta_time() * p.max_hp * 0.6, float(p.hp)) if _hp_trail > p.hp else float(p.hp)
+	var low: bool = p.hp <= p.max_hp * 0.25
+	var hc := Color(0.9, 0.2, 0.25)
+	if low:
+		hc = hc * (0.75 + 0.25 * sin(t * 10.0))
+		hc.a = 1.0
+	_text(Vector2(x, y + 13 * u), "♥", int(20 * u), hc, bold)
+	var hr := Rect2(x + 24 * u, y, bw, 16 * u)
+	draw_rect(hr, Color(0.16, 0.04, 0.05, 0.9))
+	draw_rect(Rect2(hr.position, Vector2(hr.size.x * clampf(_hp_trail / p.max_hp, 0.0, 1.0), hr.size.y)), Color(1.0, 0.85, 0.75, 0.7))
+	_bar(hr, float(p.hp) / p.max_hp, hc, Color(0, 0, 0, 0))
+	var ht := "%d / %d" % [p.hp, p.max_hp]
+	_text(Vector2(hr.get_center().x - _width(ht, fs, bold) * 0.5, hr.position.y + 13 * u), ht, fs, Color(1, 0.97, 0.94), bold)
+	if p.calm > Hero.REGEN_DELAY and p.hp < p.max_hp and game.boss.is_empty():
+		_text(Vector2(hr.end.x + 8 * u, y + 13 * u), "+", fs, Color(0.55, 1.0, 0.6, 0.6 + 0.4 * sin(t * 6.0)), bold)
+	# level and experience
+	y += 24 * u
+	var need := Hero.xp_need(p.xp_level)
+	var lvl: String = game.L("lv") % p.xp_level
+	var lw := _text(Vector2(x, y + 9 * u), lvl, int(14 * u), Color(0.6, 0.85, 1.0), bold)
+	var xr := Rect2(x + lw + 8 * u, y + 2 * u, bw + 24 * u - lw - 8 * u, 7 * u)
+	_bar(xr, float(p.xp) / need, Color(0.45, 0.75, 1.0), Color(0.06, 0.1, 0.18, 0.9))
+	var xt := "%d/%d %s" % [p.xp, need, game.L("xp")]
+	_text(Vector2(xr.end.x + 8 * u, y + 9 * u), xt, int(12 * u), Color(0.55, 0.7, 0.85))
+	# ink (for knives), labelled with its key
+	y += 24 * u
 	var ink_col := Color(0.55, 0.65, 1.0)
 	if game.ink_flash > 0.0 and int(t * 16.0) % 2 == 0:
 		ink_col = Color(1.0, 0.4, 0.4)
-	x += _text(Vector2(x, y), "~", fs, ink_col, bold) + 4.0 * u
+	x += _text(Vector2(x, y), game.L("ink").to_upper() + " ", int(12 * u), ink_col, bold)
+	x += _text(Vector2(x, y), game.key("throw") + " ", int(12 * u), Color(0.7, 0.72, 0.8), bold)
+	var bars := 18
 	for i in bars:
-		var filled := (i + 1) * Hero.MAX_INK / bars <= ink + 0.01
-		var c2 := ink_col if filled else Color(0.16, 0.18, 0.3)
-		x += _text(Vector2(x, y), "|", fs, c2, bold) + (5.0 * u if (i + 1) % 6 == 0 else 0.0)
-	x += 14.0 * u
+		var filled: bool = (i + 1) * Hero.MAX_INK / bars <= p.ink + 0.01
+		x += _text(Vector2(x, y), "|", fs, ink_col if filled else Color(0.16, 0.18, 0.3), bold) + (5.0 * u if (i + 1) % 6 == 0 else 0.0)
+	x += 12.0 * u
 	x += _text(Vector2(x, y), "◆ ", fs, Color(1.0, 0.85, 0.35), bold)
 	_text(Vector2(x, y), str(p.shards), fs, Color(0.95, 0.92, 0.85), bold)
 	# equipment
@@ -163,7 +256,7 @@ func _draw_status(p: Dictionary) -> void:
 	x = 26.0 * u
 	var wd: Dictionary = Items.def(p.weapon)
 	x += _icon(Vector2(x, y), wd.glyph, wd.color, fs) + 10.0 * u
-	for i in Items.CHARM_SLOTS:
+	for i in Items.charm_slots(p):
 		if i < p.charms.size():
 			var cd: Dictionary = Items.def(p.charms[i])
 			x += _icon(Vector2(x, y), cd.glyph, cd.color, fs) + 4.0 * u
@@ -172,10 +265,11 @@ func _draw_status(p: Dictionary) -> void:
 
 
 func _icon(pos: Vector2, g: String, c: Color, fs: int) -> float:
-	var w := fs * 1.5
-	var r := Rect2(pos.x, pos.y - fs * 1.05, w, fs * 1.4)
-	draw_rect(r, Color(0, 0, 0, 0.45))
-	draw_rect(r, Color(c.r, c.g, c.b, 0.45), false, maxf(1.0, u))
+	var w := fs * 1.6
+	var r := Rect2(pos.x, pos.y - fs * 1.05, w, fs * 1.45)
+	draw_rect(r, Color(0, 0, 0, 0.55))
+	draw_rect(Rect2(r.position, Vector2(r.size.x, r.size.y * 0.4)), Color(c.r, c.g, c.b, 0.08))
+	draw_rect(r, Color(c.r, c.g, c.b, 0.5), false, maxf(1.0, u))
 	var gw := _width(g, fs, bold)
 	_text(Vector2(pos.x + (w - gw) * 0.5, pos.y), g, fs, c, bold)
 	return w
@@ -183,37 +277,114 @@ func _icon(pos: Vector2, g: String, c: Color, fs: int) -> float:
 
 func _draw_minimap(vp: Vector2) -> void:
 	var lv = game.lv
-	var cw := 34.0 * u
-	var ch := 20.0 * u
-	var x0: float = vp.x - 26.0 * u - lv.gw * cw
-	var y0 := 22.0 * u
-	draw_rect(Rect2(x0 - 6 * u, y0 - 6 * u, lv.gw * cw + 12 * u, lv.gh * ch + 12 * u), Color(0, 0, 0, 0.45))
-	var pc := Physics.center(game.player)
-	var cur = lv.room_at_tile(int(pc.x / D.TILE), int(pc.y / D.TILE))
-	for r in lv.rooms:
-		if r == null or not r.seen:
-			continue
-		var rect := Rect2(x0 + r.gx * cw + 1, y0 + r.gy * ch + 1, cw - 2, ch - 2)
-		var col: Color = game.biome.top
-		draw_rect(rect, Color(col.r, col.g, col.b, 0.22 if r != cur else 0.5))
-		draw_rect(rect, Color(col.r, col.g, col.b, 0.7), false, maxf(1.0, u))
-		var mark := _room_mark(r)
-		if mark != "":
-			var fs := int(11 * u)
-			_text(Vector2(rect.get_center().x - _width(mark, fs, bold) * 0.5, rect.get_center().y + fs * 0.35), mark, fs,
-				Color(1.0, 0.9, 0.6), bold)
-	if cur != null:
-		var fx: float = (pc.x / D.TILE - cur.x0) / D.ROOM_W
-		var fy: float = (pc.y / D.TILE - cur.y0) / D.ROOM_H
-		var dot := Vector2(x0 + (cur.gx + fx) * cw, y0 + (cur.gy + fy) * ch)
-		if int(t * 4.0) % 2 == 0:
-			draw_circle(dot, 2.2 * u, Color(1, 1, 1))
+	var px := minf(1.25 * u, 300.0 * u / lv.w)
+	var size := Vector2(lv.w, lv.h) * px
+	var x0: float = vp.x - 26.0 * u - size.x
+	var y0 := 24.0 * u
+	_map_rect = Rect2(x0, y0, size.x, size.y)
+	var frame := _map_rect.grow(6 * u)
+	draw_rect(frame, Color(0, 0, 0, 0.55))
+	var ac: Color = game.biome.top
+	draw_rect(frame, Color(ac.r, ac.g, ac.b, 0.35), false, maxf(1.0, u))
+	for corner in [frame.position, Vector2(frame.end.x, frame.position.y), Vector2(frame.position.x, frame.end.y), frame.end]:
+		_text(corner + Vector2(-_width("+", int(12 * u), bold) * 0.5, 4 * u), "+", int(12 * u), Color(ac.r, ac.g, ac.b, 0.7), bold)
 	var label := "%s · %s" % [game.biome_name(), game.L("level") % game.level_num]
 	var fs2 := int(14 * u)
-	_text(Vector2(vp.x - 26.0 * u - _width(label, fs2), y0 + lv.gh * ch + 22 * u), label, fs2, game.biome.top * 0.95)
+	var ly := frame.end.y + 20 * u
+	_text(Vector2(frame.end.x - _width(label, fs2), ly), label, fs2, game.biome.top * 0.95)
+	var goal := _goal_text()
+	if goal != "":
+		var fs3 := int(13 * u)
+		_text(Vector2(frame.end.x - _width(goal, fs3, bold), ly + 20 * u), goal, fs3, Color(1.0, 0.85, 0.45, 0.85 + 0.15 * sin(t * 3.0)), bold)
 
 
-const ROOM_MARKS := {"exit": ">", "boss": "B", "shop": "$", "shrine": "+", "arena": "!", "treasure": "C", "vault": "C"}
+func _goal_text() -> String:
+	if not game.boss.is_empty():
+		return "› " + game.L("goal_boss") % game.L("boss_" + game.boss.kind)
+	if game.lv.boss_level and not game.lv.door_open:
+		return "› " + game.L("goal_find_boss")
+	return "› " + game.L("goal_exit")
+
+
+## Drawn by the nearest-filtered child, so map pixels stay crisp.
+func _draw_map_content() -> void:
+	if game == null or game.is_title() or game.player.is_empty() or game.menu.active() or game.fade > 0.3:
+		return
+	var tex := map_texture()
+	if tex == null:
+		return
+	var ci := _map_ci
+	var r := _map_rect
+	ci.draw_texture_rect(tex, r, false)
+	draw_map_marks(ci, r, u, t, bold, game)
+
+
+## Markers on top of the terrain picture: lanterns, merchant, chests, exit, hero.
+static func draw_map_marks(ci: CanvasItem, r: Rect2, uu: float, tt: float, bf: Font, g) -> void:
+	var lv = g.lv
+	var k: float = r.size.x / (lv.w * D.TILE)
+	var fs := maxi(6, int(11 * uu * clampf(k * D.TILE / 1.25, 1.0, 2.2)))
+	var mark := func(wp: Vector2, gl: String, c: Color) -> void:
+		var p: Vector2 = r.position + wp * k
+		var w := bf.get_string_size(gl, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		ci.draw_string(bf, p + Vector2(-w * 0.5, fs * 0.35), gl, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, c)
+	for pr in g.props:
+		var room = lv.room_at_tile(int(pr.pos.x / D.TILE), int(pr.pos.y / D.TILE - 0.5))
+		if room == null or not room.seen:
+			continue
+		match pr.kind:
+			"lantern":
+				mark.call(pr.pos, "i", Color(1.0, 0.75, 0.35) if pr.lit else Color(0.5, 0.48, 0.45))
+			"shop":
+				mark.call(pr.pos, "$", Color(0.85, 0.7, 1.0))
+			"chest":
+				if not pr.open:
+					mark.call(pr.pos, "■", Color(1.0, 0.85, 0.35))
+	var last: Dictionary = lv.path[-1]
+	var exit_p: Vector2 = lv.door.get_center() if lv.door.size != Vector2.ZERO else Vector2((last.x0 + D.ROOM_W * 0.5) * D.TILE,
+		(last.y0 + D.EDGE_FLOOR) * D.TILE)
+	var ec := Color(1.0, 0.4, 0.3) if lv.boss_level and not lv.door_open else Color(0.6, 1.0, 0.7)
+	ec.a = 1.0 if last.seen else 0.45
+	mark.call(exit_p, "X" if lv.boss_level and not lv.door_open else ">", ec)
+	if int(tt * 4.0) % 4 != 0:
+		var pc := Physics.center(g.player)
+		ci.draw_circle(r.position + pc * k, maxf(2.0, 2.4 * uu), Color(1, 1, 1))
+
+
+func _draw_combo(vp: Vector2) -> void:
+	var n: int = game.hit_combo
+	if n != _combo_seen:
+		if n > _combo_seen:
+			_combo_pop = 1.0
+		_combo_seen = n
+	if n < 2:
+		return
+	var a := clampf(game.combo_t * 2.0, 0.0, 1.0)
+	var heat := clampf(n / 30.0, 0.0, 1.0)
+	var c := Color(1.0, 0.85, 0.4).lerp(Color(1.0, 0.3, 0.2), heat)
+	c.a = a
+	var fs := int((34 + _combo_pop * 12) * u)
+	var txt := str(n)
+	var x := vp.x - 60 * u
+	var y := vp.y * 0.42
+	_text(Vector2(x - _width(txt, fs, bold), y), txt, fs, c, bold)
+	var sub: String = game.L("hits")
+	_text(Vector2(x - _width(sub, int(13 * u), bold), y + 18 * u), sub, int(13 * u), Color(c.r, c.g, c.b, a * 0.8), bold)
+	if n >= 5:
+		var bonus := "+%d%% %s" % [mini(n, 30) * 2, game.L("xp")]
+		_text(Vector2(x - _width(bonus, int(11 * u)), y + 34 * u), bonus, int(11 * u), Color(0.6, 0.85, 1.0, a * 0.8))
+
+
+func _draw_level_up(vp: Vector2) -> void:
+	var lt: float = game.level_up_t
+	if lt <= 0.0:
+		return
+	var a := clampf(minf((2.6 - lt) * 4.0, lt * 1.5), 0.0, 1.0)
+	_center(vp.y * 0.26, game.L("level_up"), int((44 + (2.6 - lt) * 4.0) * u), Color(0.6, 0.85, 1.0, a), bold)
+	_center(vp.y * 0.26 + 30 * u, game.L("lv") % game.player.xp_level, int(18 * u), Color(0.85, 0.92, 1.0, a * 0.9), bold)
+
+
+const ROOM_MARKS := {"exit": ">", "boss": "B", "shop": "$", "arena": "!", "treasure": "C", "vault": "C"}
 
 
 func _room_mark(r: Dictionary) -> String:

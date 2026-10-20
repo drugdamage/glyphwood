@@ -7,6 +7,7 @@ const PROFILE_PATH := "user://profile.cfg"
 
 const FPS_CHOICES := [30, 60, 120, 144, 240, 0]
 const WINDOW_CHOICES := ["windowed", "borderless", "fullscreen"]
+const QUALITY_CHOICES := ["low", "medium", "high"]
 
 const DEFAULTS := {
 	"lang": "",
@@ -14,10 +15,12 @@ const DEFAULTS := {
 	"damage_numbers": true,
 	"shake": 1.0,
 	"mouse_aim": true,
+	"guide": true,
 	"window": "windowed",
 	"vsync": true,
 	"fps": 0,
 	"zoom": 1,
+	"quality": "high",
 	"glow": true,
 	"lighting": true,
 	"scanlines": true,
@@ -33,7 +36,7 @@ const DEFAULTS := {
 }
 
 var values := {}
-var profile := {"hints_seen": {}, "runs": 0, "wins": 0, "best_level": 0, "kills": 0, "best_time": 0.0}
+var profile := {"hints_seen": {}, "runs": 0, "wins": 0, "best_level": 0, "kills": 0, "best_time": 0.0, "best_xp": 1, "best_combo": 0}
 
 
 func load_all() -> void:

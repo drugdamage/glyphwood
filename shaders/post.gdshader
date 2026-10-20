@@ -13,24 +13,27 @@ uniform float ambient = 0.5;
 uniform int light_count = 0;
 uniform vec4 light_pos[32];
 uniform vec4 light_col[32];
+uniform float flash = 0.0;
 
 void fragment() {
 	vec2 uv = SCREEN_UV;
 	vec2 px = SCREEN_PIXEL_SIZE * radius;
 	vec3 base = texture(screen_tex, uv).rgb;
+	// 8 taps on two rings, the outer one rotated by 45 degrees
 	vec3 acc = vec3(0.0);
-	for (int i = 0; i < 8; i++) {
-		float a = float(i) * 0.7853982;
+	for (int i = 0; i < 4 && glow > 0.0; i++) {
+		float a = float(i) * 1.5707963;
 		vec2 d = vec2(cos(a), sin(a));
+		vec2 d2 = vec2(d.x - d.y, d.x + d.y) * 0.7071;
 		acc += texture(screen_tex, uv + d * px * 1.5).rgb;
-		acc += texture(screen_tex, uv + d * px * 4.0).rgb * 0.6;
+		acc += texture(screen_tex, uv + d2 * px * 4.0).rgb * 0.6;
 	}
-	vec3 blur = acc / 12.8;
+	vec3 blur = acc / 6.4;
 
 	vec2 frag = uv / SCREEN_PIXEL_SIZE;
 	vec3 light = vec3(ambient);
 	for (int i = 0; i < 32; i++) {
-		if (i >= light_count) {
+		if (i >= light_count || lighting <= 0.0) {
 			break;
 		}
 		float d = distance(frag, light_pos[i].xy) / max(light_pos[i].z, 1.0);
@@ -48,5 +51,6 @@ void fragment() {
 	c *= 1.0 - scanlines * s;
 	vec2 v = uv - 0.5;
 	c *= clamp(1.0 - dot(v, v) * vignette * 1.6, 0.0, 1.0);
+	c = mix(c, vec3(1.0, 0.92, 0.75), flash);
 	COLOR = vec4(c, 1.0);
 }

@@ -1,6 +1,9 @@
 ## Player controller: run, variable jump, coyote time, jump buffer, dash,
-## wall slide and wall jump, double jump (Feather charm), swimming, three-hit
-## combo, up/down slashes with pogo, ink knives and healing flasks.
+## wall slide and wall jump, double jump (Feather charm), swimming, ink knives
+## and the moves: Triple Cut (attack x3), Dash Lunge (attack during a dash),
+## Rising Crescent (up + attack on the ground) and the pogo down-slash.
+## Health slowly comes back once the hero has not been hit for a while.
+## Experience from kills raises the hero's level for good (until a new game).
 ## The dash only makes the hero invulnerable with the Phantom Step charm.
 extends RefCounted
 
@@ -23,26 +26,42 @@ const POGO := 370.0
 const MAX_INK := 99.0
 const KNIFE_COST := 33.0
 const KNIFE_SPEED := 460.0
+const LUNGE_SPEED := 430.0
+const LUNGE_TIME := 0.17
+## Seconds without taking damage before health starts to come back.
+const REGEN_DELAY := 4.0
+## Share of max health regained per second while regenerating.
+const REGEN_RATE := 0.05
+const BASE_HP := 100
+const HP_PER_LEVEL := 6
+const DMG_PER_LEVEL := 0.04
+const BASE_CRIT := 0.08
 
 
 ## A fresh hero for a new run.
 static func create() -> Dictionary:
 	var p := {
-		"hp": 5, "base_hp": 5, "max_hp": 5, "flasks": 2, "base_flasks": 2, "max_flasks": 2,
-		"ink": 0.0, "shards": 0, "weapon": Items.START_WEAPON, "charms": [], "bag": [], "st": {},
+		"hp": BASE_HP, "base_hp": BASE_HP, "max_hp": BASE_HP, "ink": 0.0, "shards": 0,
+		"weapon": Items.START_WEAPON, "charms": [], "bag": [], "st": {},
+		"xp": 0, "xp_level": 1, "up_hp": 0, "up_dmg": 0,
 	}
 	refresh(p)
 	place(p, Vector2.ZERO)
 	return p
 
 
-## Recomputes stats after equipment changes.
+## Recomputes stats after equipment, level or upgrade changes.
 static func refresh(p: Dictionary) -> void:
 	p.st = Items.stats(p)
-	p.max_hp = p.base_hp + p.st.max_hp
-	p.max_flasks = p.base_flasks + p.st.flasks
+	p.st.dmg_mult *= (1.0 + DMG_PER_LEVEL * (p.xp_level - 1)) * (1.0 + 0.05 * p.up_dmg)
+	p.st.crit += BASE_CRIT
+	p.max_hp = p.base_hp + HP_PER_LEVEL * (p.xp_level - 1) + 10 * p.up_hp + p.st.max_hp
 	p.hp = mini(p.hp, p.max_hp)
-	p.flasks = mini(p.flasks, p.max_flasks)
+
+
+## Experience needed to go from this level to the next.
+static func xp_need(level: int) -> int:
+	return int(40.0 * pow(level, 1.4))
 
 
 ## Resets position and per-level state.
@@ -57,6 +76,7 @@ static func place(p: Dictionary, foot: Vector2) -> void:
 		"throw_t": 0.0, "inv": 0.0, "blink": 0.0, "hurt_t": 0.0, "heal_t": 0.0,
 		"respawn_t": 0.0, "safe": foot - Vector2(size.x * 0.5, size.y), "swim": false,
 		"anim": 0.0, "dead": false, "was_floor": false, "fall_speed": 0.0, "step_t": 0.0,
+		"calm": 0.0, "regen": 0.0, "dash_end": 0.0, "lunge_t": 0.0,
 	}, true)
 
 
@@ -65,7 +85,8 @@ static func update(g, p: Dictionary, dt: float) -> void:
 	var just: Dictionary = g.ctl.just
 	var st: Dictionary = p.st
 	p.anim += dt
-	for k in ["coyote", "jump_buf", "drop_t", "wall_lock", "dash_cd", "atk_t", "combo_t", "inv", "blink", "hurt_t", "heal_t", "throw_t"]:
+	for k in ["coyote", "jump_buf", "drop_t", "wall_lock", "dash_cd", "atk_t", "combo_t", "inv", "blink", "hurt_t", "heal_t", "throw_t",
+			"dash_end"]:
 		p[k] = maxf(0.0, p[k] - dt)
 
 	if p.dead:
@@ -88,16 +109,34 @@ static func update(g, p: Dictionary, dt: float) -> void:
 		g.sfx("splash", -6.0)
 		g.burst(Physics.center(p), ["~", "'", "."], g.biome.water, 8, 90.0, -80.0)
 
-	# healing
-	if just.heal:
-		if p.flasks > 0 and p.hp < p.max_hp and p.dash_t <= 0.0:
-			p.hp = mini(p.max_hp, p.hp + 2)
-			p.flasks -= 1
-			p.heal_t = 0.35
-			g.sfx("heal")
-			g.burst(Physics.center(p), ["+", "·", "+"], Color(0.5, 1.0, 0.6), 16, 110.0, -120.0)
-		else:
-			g.sfx("error", -8.0)
+	# health comes back out of combat (not during a boss fight)
+	p.calm += dt
+	if p.calm > REGEN_DELAY and p.hp < p.max_hp and g.boss.is_empty():
+		p.regen += p.max_hp * REGEN_RATE * st.regen * dt
+		if p.regen >= 1.0:
+			var n := int(p.regen)
+			p.hp = mini(p.max_hp, p.hp + n)
+			p.regen -= n
+			if int(p.anim * 6.0) % 3 == 0:
+				g.burst(Physics.center(p) + Vector2(randf_range(-6, 6), 4), ["+", "·"], Color(0.55, 1.0, 0.6), 1, 20.0, -50.0)
+
+	# Dash Lunge: attacking during (or right after) a dash turns it into a piercing thrust
+	if just.attack and (p.dash_t > 0.0 or p.dash_end > 0.0) and p.atk_t <= 0.0 and p.lunge_t <= 0.0:
+		p.dash_t = 0.0
+		p.dash_end = 0.0
+		p.lunge_t = LUNGE_TIME
+		p.inv = maxf(p.inv, LUNGE_TIME)
+		_start_attack(g, p, "lunge")
+		g.shake_add(2.5)
+	if p.lunge_t > 0.0:
+		p.lunge_t = maxf(0.0, p.lunge_t - dt)
+		p.vel = Vector2(p.facing * LUNGE_SPEED, 0.0)
+		Physics.move(p, g.lv, dt)
+		g.add_ghost(p)
+		if p.lunge_t <= 0.0:
+			p.vel.x *= 0.3
+		_after_move(g, p)
+		return
 
 	# dash
 	if just.dash and p.dash_cd <= 0.0 and (p.on_floor or p.air_dash or p.swim) and p.hurt_t <= 0.0:
@@ -126,6 +165,7 @@ static func update(g, p: Dictionary, dt: float) -> void:
 		g.add_ghost(p)
 		if p.dash_t <= 0.0:
 			p.vel.x *= 0.35
+			p.dash_end = 0.2
 		_after_move(g, p)
 		return
 
@@ -202,7 +242,7 @@ static func update(g, p: Dictionary, dt: float) -> void:
 		g.burst(Physics.center(p) + Vector2(wall * 7, -6), ["'", "."], g.biome.edge, 1, 20.0)
 
 	# attack
-	if just.attack and p.atk_t <= 0.0 and p.heal_t <= 0.0:
+	if just.attack and p.atk_t <= 0.0:
 		var kind := "side"
 		if g.aiming_with_mouse():
 			var a: Vector2 = g.aim_vector(p)
@@ -216,15 +256,9 @@ static func update(g, p: Dictionary, dt: float) -> void:
 			kind = "up"
 		elif held.down and not p.on_floor:
 			kind = "down"
-		if kind == "side":
-			p.combo = (p.combo + 1) % 3 if p.combo_t > 0.0 else 0
-			p.combo_t = 0.5
-		p.atk_len = ATTACK_TIME / st.speed
-		p.atk_t = p.atk_len
-		p.atk_kind = kind
-		p.atk_hit = {}
-		g.add_slash(kind, p.combo if kind == "side" else 0, p.facing, st.reach)
-		g.sfx("swing", -3.0, [1.0, 1.12, 0.85][p.combo] if kind == "side" else 1.2)
+		if kind == "up" and p.on_floor:
+			kind = "rise"
+		_start_attack(g, p, kind)
 
 	# ink knife
 	if just.throw and p.throw_t <= 0.0:
@@ -249,6 +283,39 @@ static func update(g, p: Dictionary, dt: float) -> void:
 	_after_move(g, p)
 
 
+static func _start_attack(g, p: Dictionary, kind: String) -> void:
+	var st: Dictionary = p.st
+	if kind == "side":
+		p.combo = (p.combo + 1) % 3 if p.combo_t > 0.0 else 0
+		p.combo_t = 0.55
+		# each cut steps forward a little; the finisher lunges
+		if p.on_floor:
+			p.vel.x += p.facing * (190.0 if p.combo == 2 else 60.0)
+	p.atk_len = ATTACK_TIME / st.speed
+	match kind:
+		"lunge":
+			p.atk_len = LUNGE_TIME + 0.06
+		"rise":
+			p.atk_len = 0.3 / st.speed
+			p.vel.y = -330.0
+			p.on_floor = false
+			p.coyote = 0.0
+	p.atk_t = p.atk_len
+	p.atk_kind = kind
+	p.atk_hit = {}
+	g.add_slash(kind, p.combo if kind == "side" else 0, p.facing, st.reach)
+	var pitch := 1.2
+	if kind == "side":
+		pitch = [1.0, 1.12, 0.8][p.combo]
+	elif kind == "lunge":
+		pitch = 0.7
+	elif kind == "rise":
+		pitch = 0.9
+	g.sfx("swing", -3.0 if kind != "lunge" else 0.0, pitch)
+	if kind == "lunge" or (kind == "side" and p.combo == 2) or kind == "rise":
+		g.sfx("dash", -8.0, 0.8)
+
+
 static func _after_move(g, p: Dictionary) -> void:
 	if p.on_floor and not p.was_floor and p.fall_speed > 260.0:
 		g.burst(Physics.foot(p), [".", ",", "'"], g.biome.edge, 6, 70.0)
@@ -259,7 +326,8 @@ static func _after_move(g, p: Dictionary) -> void:
 
 	if p.atk_t > 0.0:
 		var elapsed: float = p.atk_len - p.atk_t
-		if elapsed >= 0.02 and elapsed <= p.atk_len * 0.55:
+		var active: float = 0.9 if p.atk_kind == "lunge" else 0.55
+		if elapsed >= 0.02 and elapsed <= p.atk_len * active:
 			g.attack_hits(p, hitbox(p))
 
 	if Physics.touches_spikes(Physics.rect(p), g.lv):
@@ -274,7 +342,12 @@ static func hitbox(p: Dictionary) -> Rect2:
 			return Rect2(c.x - 17, p.pos.y - 28 * reach, 34, 32 * reach)
 		"down":
 			return Rect2(c.x - 17, p.pos.y + p.size.y - 6, 34, 32 * reach)
-	var wdt := 32.0 * reach
+		"rise":
+			return Rect2(c.x - 22 + p.facing * 8, p.pos.y - 30 * reach, 44, 30 * reach + p.size.y)
+		"lunge":
+			var lw := 46.0 * reach
+			return Rect2(c.x + (-8.0 if p.facing > 0 else 8.0 - lw), p.pos.y + 2, lw, 24)
+	var wdt := (38.0 if p.combo == 2 else 32.0) * reach
 	return Rect2(c.x + (2.0 if p.facing > 0 else -2.0 - wdt), p.pos.y - 2, wdt, 30)
 
 
@@ -312,9 +385,11 @@ static func frame(p: Dictionary) -> Dictionary:
 		return hs.dash[0]
 	if p.throw_t > 0.15:
 		return hs.throw[0]
+	if p.lunge_t > 0.0:
+		return hs.dash[0]
 	if p.atk_t > p.atk_len - 0.18:
 		match p.atk_kind:
-			"up": return hs.attack_up[0]
+			"up", "rise": return hs.attack_up[0]
 			"down": return hs.attack_down[0]
 		return hs.attack[0]
 	if p.sliding:

@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-20
+
+### Added
+
+- **Endless descent.** After the third boss the biomes start over with tougher
+  enemies; there is no final screen any more.
+- **Lanterns** (checkpoints) in the start room, halfway along the level and
+  before the exit or boss. Falling sends you back to the last one you lit with
+  full health; you lose 30% of the shards you carry and keep everything else.
+  The death screen and starting over are gone.
+- **Hero levels.** Kills give experience (more during long combos); each level
+  adds 6 health and 4% damage for good, levels 10 and 20 add a charm slot.
+- **Moves:** Triple Cut (the third cut lunges, hits 2.2× and breaks shields),
+  Dash Lunge (attack during a dash, pierces a line of enemies) and Rising
+  Crescent (up + attack on the ground, launches enemies). Critical hits (8%
+  base) freeze the frame with a flash and a ring of sparks. A combo counter
+  shows chained hits. Pause → Moves lists every move with your keys.
+- **Guidance:** an arrow next to the hero points to the exit or the boss, and
+  the HUD shows the current goal.
+- Merchant upgrades: Mend (full health), Vigor (+10 max health) and Whetstone
+  (+5% damage), bought again and again at rising prices.
+- A **Graphics quality** setting (Low / Medium / High) and a **Path arrow**
+  toggle.
+- Every setting shows an explanation when hovered or selected.
+- Chinese and Japanese (system fonts are used for their glyphs).
+- `install.sh` (macOS, Linux) and `install.ps1` (Windows): one command downloads,
+  installs and starts the latest release; Godot is never needed to play.
+
+### Changed
+
+- **Health** is a number (100 to start) shown as a bar with a damage trail, and
+  it comes back by itself after a few seconds without being hit. Enemies hit
+  harder the deeper you go. Healing flasks, the heal key and shrines are gone;
+  killed enemies sometimes drop health orbs.
+- The ink bar is labelled with its key; a new experience bar sits under health.
+- Scarier enemies: corpse rats, ghouls with glowing eyes, fanged bats, a maw
+  totem, screaming skull wisps, and the first boss is now **the Gravemaw**, a
+  skull-headed beast (it replaces the antlered Wendigo). Enemies' eyes cast a
+  faint light.
+- The minimap is a picture of the explored terrain with lanterns, merchant,
+  chests, exit and boss; the full map uses it too.
+- Inventory and shop show detailed glyph icons; the bag is a grid.
+- Rock is shaded by depth with things buried in it.
+- Languages: English, German, Russian, Chinese, Spanish, French, Japanese
+  (Ukrainian was removed).
+- The macOS app icon has the standard margin, so it is no longer larger than
+  other icons in the Dock.
+
+### Performance
+
+- The parallax background is split into buckets and only the visible ones are
+  drawn (before, every background glyph of the whole level was submitted each
+  frame). Together with sparser deep rock this roughly halves the primitives per
+  frame.
+- The glow uses 8 texture reads instead of 16, and turned-off glow or lighting
+  no longer costs anything in the post-process shader.
+
 ## [0.3.1] - 2026-10-20
 
 ### Fixed
@@ -124,7 +181,8 @@ First public release.
 - Bundled DejaVu Sans Mono font, used in the Web build (where system fonts are
   unavailable) and as a fallback for glyphs missing from the system font.
 
-[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/drugdamage/glyphwood/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/drugdamage/glyphwood/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/drugdamage/glyphwood/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/drugdamage/glyphwood/releases/tag/v0.2.0

@@ -1,5 +1,8 @@
 ## Game state, level flow, saving, input routing and the shared API that the
 ## hero, enemies, combat and props scripts call back into.
+## The descent never ends: biomes repeat, deeper and harder. Falling in battle
+## sends the hero back to the last lantern with full health and a few shards
+## less; levels, gear and experience are kept.
 extends Node2D
 
 const D := preload("res://scripts/data.gd")
@@ -22,10 +25,21 @@ const PostShader := preload("res://shaders/post.gdshader")
 const FontRegular := preload("res://fonts/DejaVuSansMono.ttf")
 const FontBold := preload("res://fonts/DejaVuSansMono-Bold.ttf")
 
-enum State { TITLE, PLAY, DEAD, VICTORY }
+enum State { TITLE, PLAY }
 
 const RUN_PATH := "user://run.cfg"
-const RUN_KEYS := ["hp", "base_hp", "flasks", "base_flasks", "ink", "shards", "weapon", "charms", "bag"]
+## Bumped when the saved hero changes shape; older saves are not continued.
+const RUN_VERSION := 2
+const RUN_KEYS := ["hp", "base_hp", "ink", "shards", "weapon", "charms", "bag", "xp", "xp_level", "up_hp", "up_dmg"]
+## Share of carried shards lost when the hero falls.
+const DEATH_TOLL := 0.3
+## Glyph-level fallbacks for Chinese and Japanese text (system fonts).
+const CJK_FONTS := {
+	"zh": ["PingFang SC", "Hiragino Sans GB", "Heiti SC", "Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "Noto Sans SC",
+		"Source Han Sans SC", "WenQuanYi Micro Hei", "Droid Sans Fallback"],
+	"ja": ["Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "MS Gothic", "Noto Sans CJK JP", "Noto Sans JP",
+		"Source Han Sans JP", "TakaoGothic", "Droid Sans Fallback"],
+}
 
 var state: State = State.TITLE
 var rng := RandomNumberGenerator.new()
@@ -71,7 +85,16 @@ var ink_flash := 0.0
 var lang := "en"
 var lang_idx := 0
 var ui_scale := 1.0
-var cleared_final := false
+var checkpoint := Vector2.ZERO
+var checkpoint_prop: Dictionary = {}
+var hit_combo := 0
+var combo_t := 0.0
+var best_combo := 0
+var crit_flash := 0.0
+var level_up_t := 0.0
+var _cjk: Array = []
+## Bumped whenever tiles change after the level is built (for the minimap).
+var lv_changes := 0
 
 var cfg: Settings
 var ctl: Controls
@@ -126,6 +149,7 @@ func _ready() -> void:
 
 	font = _make_font(400)
 	font_bold = _make_font(700)
+	_cjk = [_make_cjk(400), _make_cjk(700)]
 
 	world = Renderer.new()
 	add_child(world)
@@ -228,6 +252,27 @@ func _make_font(weight: int) -> Font:
 	return f
 
 
+func _make_cjk(weight: int) -> SystemFont:
+	var f := SystemFont.new()
+	f.font_weight = weight
+	return f
+
+
+## Points the CJK fallback at fonts for the current language, so Chinese and
+## Japanese text get the right glyph shapes.
+func _apply_cjk() -> void:
+	if OS.has_feature("web"):
+		return
+	var names: Array = CJK_FONTS["ja" if lang == "ja" else "zh"]
+	for i in 2:
+		var cjk: SystemFont = _cjk[i]
+		cjk.font_names = PackedStringArray(names)
+		var main_font := font if i == 0 else font_bold
+		var fb: Array = main_font.fallbacks
+		if not fb.has(cjk):
+			fb.append(cjk)
+			main_font.fallbacks = fb
+
 # ---------------------------------------------------------------- settings
 
 func apply_settings() -> void:
@@ -238,6 +283,7 @@ func apply_settings() -> void:
 			l = "en"
 	lang = l
 	lang_idx = T.LANGS.find(l)
+	_apply_cjk()
 	if DisplayServer.get_name() != "headless" and _shot_path == "":
 		var mode: String = cfg.get_v("window")
 		var want := DisplayServer.WINDOW_MODE_WINDOWED
@@ -252,7 +298,8 @@ func apply_settings() -> void:
 	world.zoom_idx = int(cfg.get_v("zoom"))
 	world.redraw_all()
 	var mat := post.material as ShaderMaterial
-	mat.set_shader_parameter("glow", 0.75 if cfg.get_v("glow") else 0.0)
+	var q: String = cfg.get_v("quality")
+	mat.set_shader_parameter("glow", 0.75 if cfg.get_v("glow") and q != "low" else 0.0)
 	mat.set_shader_parameter("scanlines", 0.05 if cfg.get_v("scanlines") else 0.0)
 	mat.set_shader_parameter("vignette", 0.35 if cfg.get_v("vignette") else 0.0)
 	mat.set_shader_parameter("lighting", 1.0 if cfg.get_v("lighting") else 0.0)
@@ -262,6 +309,11 @@ func apply_settings() -> void:
 func set_setting(key: String, v: Variant) -> void:
 	cfg.set_v(key, v)
 	apply_settings()
+
+
+## Particles kept alive at once, by quality.
+func particle_cap() -> int:
+	return {"low": 220, "medium": 420}.get(cfg.get_v("quality"), 700)
 
 
 func L(key: String) -> String:
@@ -299,7 +351,8 @@ func show_title() -> void:
 
 
 func has_save() -> bool:
-	return FileAccess.file_exists(RUN_PATH)
+	var cf := ConfigFile.new()
+	return cf.load(RUN_PATH) == OK and cf.get_value("run", "ver", 1) == RUN_VERSION
 
 
 func new_run() -> void:
@@ -310,7 +363,6 @@ func new_run() -> void:
 	kills = 0
 	run_time = 0.0
 	items_found = 0
-	cleared_final = level_num > D.FINAL_LEVEL
 	if not _bot:
 		cfg.profile.runs += 1
 		cfg.save_profile()
@@ -319,14 +371,13 @@ func new_run() -> void:
 
 func continue_run() -> void:
 	var cf := ConfigFile.new()
-	if cf.load(RUN_PATH) != OK:
+	if cf.load(RUN_PATH) != OK or cf.get_value("run", "ver", 1) != RUN_VERSION:
 		new_run()
 		return
 	run_seed = cf.get_value("run", "seed", 0)
 	level_num = cf.get_value("run", "level", 1)
 	kills = cf.get_value("run", "kills", 0)
 	run_time = cf.get_value("run", "time", 0.0)
-	cleared_final = cf.get_value("run", "cleared", false)
 	items_found = 1
 	player = Hero.create()
 	var saved: Dictionary = cf.get_value("run", "player", {})
@@ -341,18 +392,18 @@ func _start_level_now() -> void:
 	state = State.PLAY
 	menu.close_all()
 	_build_level()
-	_save_run()
+	save_run()
 
 
-func _save_run() -> void:
+func save_run() -> void:
 	if _bot or state != State.PLAY:
 		return
 	var cf := ConfigFile.new()
+	cf.set_value("run", "ver", RUN_VERSION)
 	cf.set_value("run", "seed", run_seed)
 	cf.set_value("run", "level", level_num)
 	cf.set_value("run", "kills", kills)
 	cf.set_value("run", "time", run_time)
-	cf.set_value("run", "cleared", cleared_final)
 	var saved := {}
 	for k in RUN_KEYS:
 		saved[k] = player[k]
@@ -379,6 +430,12 @@ func _build_level() -> void:
 	if player.is_empty():
 		player = Hero.create()
 	Hero.place(player, lv.start)
+	checkpoint = lv.start
+	checkpoint_prop = {}
+	for pr in lv.props:
+		if pr.kind == "lantern" and pr.get("start", false):
+			checkpoint_prop = pr
+			checkpoint = pr.pos
 	if _to_boss and lv.boss_level:
 		var br: Dictionary = lv.path[-1]
 		Hero.place(player, Vector2((br.x0 + 6) * D.TILE, (br.y0 + D.EDGE_FLOOR) * D.TILE))
@@ -417,25 +474,17 @@ func _build_level() -> void:
 		audio.ambient(biome.id)
 
 
+## Goes one level deeper. After the last biome's boss the biomes start over,
+## with tougher enemies.
 func _next_level() -> void:
 	audio.play("door")
-	if level_num == D.FINAL_LEVEL and not cleared_final:
-		cleared_final = true
-		state = State.VICTORY
-		_record_profile(true)
-		_delete_save()
-		audio.music("title")
-		audio.play("victory")
-		menu.open("victory")
-		return
+	var cycle := level_num % D.FINAL_LEVEL == 0
 	level_num += 1
+	_record_profile(cycle)
 	_start_level_now()
-
-
-## Continues past the final boss into harder, endless levels.
-func continue_deeper() -> void:
-	level_num += 1
-	_start_level_now()
+	if cycle:
+		toast(L("toast_cycle") % (level_num / D.FINAL_LEVEL + 1), Color(1.0, 0.85, 0.4))
+		audio.play("victory", -4.0)
 
 
 func _record_profile(won: bool) -> void:
@@ -443,21 +492,120 @@ func _record_profile(won: bool) -> void:
 		return
 	var pr: Dictionary = cfg.profile
 	pr.best_level = maxi(pr.best_level, level_num)
-	pr.kills += kills
+	pr.best_xp = maxi(pr.get("best_xp", 1), player.get("xp_level", 1))
+	pr.best_combo = maxi(pr.get("best_combo", 0), best_combo)
 	if won:
 		pr.wins += 1
-		if pr.best_time <= 0.0 or run_time < pr.best_time:
-			pr.best_time = run_time
 	cfg.save_profile()
 
 
 func on_player_died() -> void:
 	slowmo = 0.35
-	dying_t = 1.4
+	dying_t = 1.6
 	audio.play("death")
 	audio.music("")
-	_delete_save()
+	hit_combo = 0
+
+
+## Brings the hero back at the last lantern after a fall.
+func _respawn() -> void:
+	var p := player
+	var lost := int(p.shards * DEATH_TOLL)
+	p.shards -= lost
+	for ar in lv.arenas:
+		if ar.state == "active":
+			Props.reset_arena(self, ar)
+	projectiles.clear()
+	hazards.clear()
+	Hero.place(p, checkpoint)
+	p.hp = p.max_hp
+	p.inv = 1.5
+	p.blink = 1.5
+	cam = Physics.center(p)
+	fade = 1.0
+	slowmo = 1.0
+	audio.music(biome.id)
+	toast(L("toast_fell") % lost if lost > 0 else L("toast_fell0"), Color(0.95, 0.75, 0.6))
 	_record_profile(false)
+	save_run()
+
+
+## Experience from a kill; levels up as often as it fills the bar.
+func gain_xp(amount: float, at: Vector2) -> void:
+	var p := player
+	var got := int(round(amount * (1.0 + minf(hit_combo, 30) * 0.02)))
+	p.xp += got
+	if cfg.get_v("damage_numbers"):
+		popups.append({"pos": at + Vector2(0, 14), "text": "+%d %s" % [got, L("xp")], "color": Color(0.6, 0.85, 1.0), "life": 0.9,
+			"big": false})
+	var up := false
+	while p.xp >= Hero.xp_need(p.xp_level):
+		p.xp -= Hero.xp_need(p.xp_level)
+		p.xp_level += 1
+		up = true
+		if Items.SLOT_LEVELS.has(p.xp_level):
+			toast(L("toast_slot"), Color(0.75, 0.9, 1.0))
+	if up:
+		Hero.refresh(p)
+		p.hp = p.max_hp
+		p.heal_t = 0.4
+		level_up_t = 2.6
+		audio.play("victory", -6.0, 1.3)
+		burst(Physics.center(p), ["+", "*", "·", "^"], Color(0.6, 0.85, 1.0), 30, 160.0, -90.0)
+		toast(L("toast_level") % [p.xp_level, Hero.HP_PER_LEVEL, int(Hero.DMG_PER_LEVEL * 100.0)], Color(0.6, 0.85, 1.0))
+		save_run()
+
+
+## Damage of one normal enemy blow at the current depth.
+func hit_damage() -> float:
+	return 14.0 * (1.0 + 0.12 * (level_num - 1))
+
+
+func combo_hit() -> void:
+	hit_combo += 1
+	combo_t = 1.8
+	best_combo = maxi(best_combo, hit_combo)
+
+
+func on_crit(at: Vector2) -> void:
+	hitstop = maxf(hitstop, 0.1)
+	slowmo = minf(slowmo, 0.6)
+	shake_add(6.0)
+	crit_flash = 0.12 if cfg.get_v("quality") != "low" else 0.0
+	sfx("kill", -5.0, 1.7)
+	for i in 14:
+		var a := i * TAU / 14.0
+		particles.append({"p": at, "v": Vector2(cos(a), sin(a)) * 240.0, "g": "*" if i % 2 == 0 else "+",
+			"c": Color(1.0, 0.85, 0.35), "life": 0.35, "max": 0.35, "grav": 0.0, "drag": 5.0, "s": 1.1})
+
+
+## Where the hero should head next: the way along the room path toward the
+## exit door or the boss. Zero when there is nothing to point at.
+func guide_target() -> Vector2:
+	if lv == null or player.is_empty() or not boss.is_empty():
+		return Vector2.ZERO
+	var c := Physics.center(player)
+	var ts := D.TILE
+	var room = lv.room_at_tile(int(c.x / ts), int(c.y / ts))
+	if room == null:
+		return Vector2.ZERO
+	var edge_y: float = (room.y0 + D.EDGE_FLOOR - 2) * ts
+	var idx := lv.path.find(room)
+	var target: Vector2
+	if idx < 0:
+		# a side room: back the way we came
+		target = Vector2((room.x0 - 1 if room.l else room.x0 + D.ROOM_W + 1) * ts, edge_y)
+	elif idx == lv.path.size() - 1:
+		target = lv.door.get_center()
+		if lv.boss_level and not lv.door_open:
+			target = Vector2((room.x0 + D.ROOM_W * 0.5) * ts, edge_y)
+	else:
+		var nxt: Dictionary = lv.path[idx + 1]
+		if nxt.gy > room.gy:
+			target = Vector2((room.x0 + room.d + D.SHAFT_W * 0.5) * ts, (room.y0 + D.ROOM_H) * ts)
+		else:
+			target = Vector2((nxt.x0 + 2 if nxt.gx > room.gx else nxt.x0 + D.ROOM_W - 2) * ts, edge_y)
+	return target
 
 
 func boss_started() -> void:
@@ -547,6 +695,11 @@ func _physics_process(dt: float) -> void:
 	hurt_flash = move_toward(hurt_flash, 0.0, dt * 2.5)
 	fade = move_toward(fade, 0.0, dt * 2.2)
 	ink_flash = maxf(0.0, ink_flash - dt)
+	crit_flash = maxf(0.0, crit_flash - dt)
+	level_up_t = maxf(0.0, level_up_t - dt)
+	combo_t -= dt
+	if combo_t <= 0.0:
+		hit_combo = 0
 	_streak_t -= dt
 	if _streak_t <= 0.0:
 		shard_streak = 0
@@ -560,9 +713,6 @@ func _physics_process(dt: float) -> void:
 	match state:
 		State.TITLE:
 			Combat.update_particles(self, dt)
-		State.DEAD, State.VICTORY:
-			Combat.update_particles(self, dt)
-			_update_effects(dt)
 		State.PLAY:
 			if menu.active():
 				return
@@ -587,6 +737,7 @@ func _step_play(dt: float) -> void:
 	Combat.update_pickups(self)
 	Combat.check_contacts(self)
 	Props.update_arenas(self)
+	Props.update_lanterns(self)
 	near = Props.nearest(self)
 	if not near.is_empty() and (ctl.just.interact or (ctl.just.up and not ctl.held.attack and near.kind != "sign")):
 		Props.interact(self, near)
@@ -598,8 +749,7 @@ func _step_play(dt: float) -> void:
 	if player.dead:
 		dying_t -= dt
 		if dying_t <= 0.0:
-			state = State.DEAD
-			menu.open("dead")
+			_respawn()
 	elif lv.door_open and lv.door.has_point(Physics.center(player)):
 		_next_level()
 
@@ -677,7 +827,7 @@ func hurt_enemy(e: Dictionary, dmg: float, kdir: Vector2, _melee: bool = false) 
 	Combat.hurt_enemy(self, e, dmg, kdir, false)
 
 
-func hurt_player(dmg: int, src_x: float, spikes: bool = false) -> void:
+func hurt_player(dmg: float, src_x: float, spikes: bool = false) -> void:
 	Combat.hurt_player(self, dmg, src_x, spikes)
 
 
@@ -797,5 +947,4 @@ func _bot_input() -> void:
 			held.down = d.y > 24.0 and not p.on_floor
 			break
 	held.dash = fmod(_bot_t, 2.3) < 0.02
-	held.heal = p.hp <= 2
 	held.interact = not near.is_empty() and near.kind == "chest" and fmod(_bot_t, 0.5) < 0.05

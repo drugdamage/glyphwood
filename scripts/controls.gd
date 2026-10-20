@@ -3,7 +3,7 @@
 ## device (so hints show the right buttons and the mouse can aim).
 extends RefCounted
 
-const ACTIONS := ["left", "right", "up", "down", "jump", "attack", "dash", "throw", "heal", "interact", "inventory", "map", "pause"]
+const ACTIONS := ["left", "right", "up", "down", "jump", "attack", "dash", "throw", "interact", "inventory", "map", "pause"]
 
 ## Two rebindable slots per action. "k:<physical keycode>" or "m:<mouse button>".
 const DEFAULTS := {
@@ -15,7 +15,6 @@ const DEFAULTS := {
 	"attack": ["k:%d" % KEY_J, "m:%d" % MOUSE_BUTTON_LEFT],
 	"dash": ["k:%d" % KEY_SHIFT, "m:%d" % MOUSE_BUTTON_RIGHT],
 	"throw": ["k:%d" % KEY_K, "k:%d" % KEY_F],
-	"heal": ["k:%d" % KEY_Q, "k:%d" % KEY_H],
 	"interact": ["k:%d" % KEY_E, ""],
 	"inventory": ["k:%d" % KEY_TAB, "k:%d" % KEY_I],
 	"map": ["k:%d" % KEY_M, ""],
@@ -32,7 +31,6 @@ const PAD := {
 	"attack": [[JOY_BUTTON_X], []],
 	"dash": [[JOY_BUTTON_RIGHT_SHOULDER], [[JOY_AXIS_TRIGGER_RIGHT, 1]]],
 	"throw": [[JOY_BUTTON_Y], []],
-	"heal": [[JOY_BUTTON_LEFT_SHOULDER], [[JOY_AXIS_TRIGGER_LEFT, 1]]],
 	"interact": [[JOY_BUTTON_B], []],
 	"inventory": [[JOY_BUTTON_BACK], []],
 	"map": [[JOY_BUTTON_RIGHT_STICK], []],
