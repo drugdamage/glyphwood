@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-10-20
+
+### Fixed
+
+- The crosshair looks as it always did again (glyph arms and a dot); 0.6.2
+  had swapped it for a new shape by mistake. It stays a system cursor, so it
+  still moves smoothly at the display's refresh rate.
+
 ## [0.6.2] - 2026-10-20
 
 ### Changed
@@ -272,7 +280,8 @@ First public release.
 - Bundled DejaVu Sans Mono font, used in the Web build (where system fonts are
   unavailable) and as a fallback for glyphs missing from the system font.
 
-[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.6.3...HEAD
+[0.6.3]: https://github.com/drugdamage/glyphwood/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/drugdamage/glyphwood/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/drugdamage/glyphwood/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/drugdamage/glyphwood/compare/v0.5.0...v0.6.0

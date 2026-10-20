@@ -823,33 +823,47 @@ func _update_cursor() -> void:
 
 
 ## The aiming crosshair is the system cursor, so the OS draws it at the
-## display's refresh rate with no lag, whatever the game's frame rate.
+## display's refresh rate with no lag, whatever the game's frame rate. Its
+## picture is the same glyph crosshair as always, drawn once per size.
 func _set_crosshair(on: bool) -> void:
-	var px := int(round(36.0 * hud.u)) if on else 0
-	if px == _crosshair_px:
+	# macOS sizes cursors in points, so the picture is drawn at points, not pixels
+	var fs := int(round(18.0 * hud.u / maxf(1.0, DisplayServer.screen_get_scale()))) if on else 0
+	if fs == _crosshair_px:
 		return
-	_crosshair_px = px
-	if not on:
+	_crosshair_px = fs
+	if on:
+		_bake_crosshair(fs)
+	else:
 		Input.set_custom_mouse_cursor(null)
-		return
-	# macOS sizes cursors in points, so the image is drawn at points, not pixels
-	var n := clampi(int(round(px / maxf(1.0, DisplayServer.screen_get_scale()))), 16, 128)
-	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
-	var c := n / 2
-	var th := maxi(1, n / 16)
-	var near := n * 5 / 32
-	var arm := n * 9 / 32
-	# four arms around a gap, and a dot in the middle
-	var arms: Array[Rect2i] = [
-		Rect2i(c - near - arm, c - th / 2, arm, th), Rect2i(c + near + 1, c - th / 2, arm, th),
-		Rect2i(c - th / 2, c - near - arm, th, arm), Rect2i(c - th / 2, c + near + 1, th, arm),
-		Rect2i(c - th / 2, c - th / 2, th, th),
-	]
-	for r in arms:
-		img.fill_rect(r.grow(1), Color(0.05, 0.02, 0.02, 0.85))
-	for r in arms:
-		img.fill_rect(r, Color(1.0, 0.92, 0.7))
-	Input.set_custom_mouse_cursor(ImageTexture.create_from_image(img), Input.CURSOR_ARROW, Vector2(c, c))
+
+
+func _bake_crosshair(fs: int) -> void:
+	var k := fs / 18.0
+	var n := mini(256, int(ceil(56.0 * k)))
+	var vp := SubViewport.new()
+	vp.size = Vector2i(n, n)
+	vp.transparent_bg = true
+	vp.render_target_update_mode = SubViewport.UPDATE_ONCE
+	var painter := Node2D.new()
+	painter.draw.connect(func() -> void: _draw_crosshair(painter, Vector2(n, n) * 0.5, k))
+	vp.add_child(painter)
+	add_child(vp)
+	await RenderingServer.frame_post_draw
+	if _crosshair_px == fs:
+		var tex := ImageTexture.create_from_image(vp.get_texture().get_image())
+		Input.set_custom_mouse_cursor(tex, Input.CURSOR_ARROW, Vector2(n, n) * 0.5)
+	vp.queue_free()
+
+
+## Four glyph arms and a dot around [m]; [k] is the interface scale.
+func _draw_crosshair(ci: CanvasItem, m: Vector2, k: float) -> void:
+	var c := Color(1.0, 0.92, 0.7, 0.9)
+	var fs := int(18 * k)
+	for d in [Vector2(-1, 0), Vector2(1, 0), Vector2(0, -1), Vector2(0, 1)]:
+		var g := "-" if d.y == 0.0 else "|"
+		var w := font_bold.get_string_size(g, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		ci.draw_string(font_bold, m + d * 9.0 * k - Vector2(w * 0.5, -fs * 0.35), g, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, c)
+	ci.draw_circle(m, 1.5 * k, c)
 
 
 ## Switching to another app pauses the game and frees the cursor.
