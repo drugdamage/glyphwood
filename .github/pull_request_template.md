@@ -12,7 +12,7 @@
 
 ## How was it tested?
 
-<!-- e.g. played levels 1–3, `--seed=7 --bot`, Web build in Firefox -->
+<!-- e.g. played levels 1–3, `--seed=7 --bot`, Windows build -->
 
 ## Screenshots / GIF
 
@@ -23,5 +23,5 @@
 - [ ] The PR title follows [Conventional Commits](https://www.conventionalcommits.org/) (`feat: ...`, `fix: ...`)
 - [ ] `gdlint scripts` passes
 - [ ] `godot --headless --path . --import` prints no `SCRIPT ERROR`
-- [ ] New UI text is added to `scripts/strings.gd` in all six languages
+- [ ] New UI text is added to `scripts/strings.gd` in all seven languages
 - [ ] `CHANGELOG.md` has an entry under **Unreleased** (for user-visible changes)

@@ -6,6 +6,6 @@ contact_links:
   - name: Report a security vulnerability
     url: https://github.com/drugdamage/glyphwood/security/advisories/new
     about: Please report security issues privately.
-  - name: Play in the browser
-    url: https://drugdamage.github.io/glyphwood/
-    about: The latest build of Glyphwood, playable on GitHub Pages.
+  - name: Download the game
+    url: https://github.com/drugdamage/glyphwood/releases/latest
+    about: The latest build for Windows, macOS and Linux.

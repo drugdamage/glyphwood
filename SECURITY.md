@@ -1,8 +1,9 @@
 # Security Policy
 
-Glyphwood is a single-player offline game: it does not use the network, accounts
-or save files. Security issues are still possible, for example in the build
-pipeline (GitHub Actions) or in the Web build hosted on GitHub Pages.
+Glyphwood is a single-player offline game: it does not use the network or
+accounts, and saves are local files. Security issues are still possible, for
+example in the build pipeline (GitHub Actions) or in the install scripts
+(`install.sh`, `install.ps1`) that download releases from GitHub.
 
 ## Supported versions
 

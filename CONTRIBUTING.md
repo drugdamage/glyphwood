@@ -40,9 +40,9 @@ godot --path . -- --play --bot --seed=42 --level=2 --time=10 --shot=out.png
 | `--level=N` | Start at level N (two levels per biome; even levels end with a boss) |
 | `--boss` | Start next to the boss arena (with an even `--level`) |
 | `--zoo` | Spawn one enemy of every type next to the start |
-| `--menu=NAME` | Open a menu: `settings`, `inventory`, `map`, `pause` |
+| `--menu=NAME` | Open a menu: `settings`, `inventory`, `map`, `pause`, `shop`, `moves` |
 | `--tab=N` | Settings tab to open (0 game, 1 video, 2 audio, 3 controls) |
-| `--lang=CODE` | Interface language: `en`, `ru`, `uk`, `de`, `es`, `fr` |
+| `--lang=CODE` | Interface language: `en`, `de`, `ru`, `zh`, `es`, `fr`, `ja` |
 | `--shot=file.png` | Save a screenshot after `--time` seconds, then quit |
 | `--time=S` | Delay for `--shot` (default 1 s) |
 | `--record=dir` | Save every third frame as PNG into `dir` |
@@ -94,8 +94,9 @@ A path runs from the start room in the top row to the exit (or boss) room in the
 bottom row, moving sideways through openings in the walls and down through
 shafts in the floor. Path rooms are generated from a floor and ceiling height
 line with pits, platforms, secret pockets and decorations; one of them becomes an
-arena. Rooms next to the path become side rooms: the merchant, a shrine, treasure
-rooms and hand-made **vaults**.
+arena. Three lanterns (checkpoints) are placed along the path: in the start room,
+halfway and in the last room. Rooms next to the path become side rooms: the
+merchant, treasure rooms and hand-made **vaults**.
 
 ## Adding a vault
 
@@ -194,7 +195,7 @@ Mark breaking changes with `!` (`feat!: ...`) or a `BREAKING CHANGE:` footer.
 
 1. Move the `Unreleased` entries in `CHANGELOG.md` into a new version section.
 2. Bump `config/version` in `project.godot`.
-3. Commit, then tag and push: `git tag v0.3.0 && git push origin v0.3.0`.
+3. Commit, then tag and push: `git tag v0.4.0 && git push origin v0.4.0`.
 4. The **Release** workflow exports all platforms and publishes the GitHub
    release with the changelog section.
 

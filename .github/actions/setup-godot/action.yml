@@ -8,7 +8,7 @@ inputs:
     description: Godot version without the "-stable" suffix
     default: "4.5.1"
   templates:
-    description: Also install export templates (Windows, Linux, macOS, Web)
+    description: Also install export templates (Windows, Linux, macOS)
     default: "false"
 
 runs:
@@ -49,7 +49,7 @@ runs:
       uses: actions/cache@v6
       with:
         path: ~/.local/share/godot/export_templates/${{ inputs.version }}.stable
-        key: godot-templates-${{ inputs.version }}-desktop-web
+        key: godot-templates-${{ inputs.version }}-desktop
 
     - name: Download export templates
       if: inputs.templates == 'true' && steps.cache-templates.outputs.cache-hit != 'true'
@@ -70,6 +70,5 @@ runs:
           'templates/linux_*.x86_64' \
           'templates/windows_*_x86_64*.exe' \
           'templates/macos.zip' \
-          'templates/web_nothreads_*.zip' \
           -d "$dest"
         ls -la "$dest"
