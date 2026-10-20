@@ -169,11 +169,18 @@ func _fps_slider() -> Dictionary:
 	var hi := Settings.FPS_MAX + 1
 	var v: int = game.cfg.get_v("fps")
 	var pos := hi if v == 0 else clampi(v, lo, Settings.FPS_MAX)
-	var put := func(n: int) -> void: game.set_setting("fps", 0 if n >= hi else clampi(n, lo, Settings.FPS_MAX))
+	var put := func(n: int) -> void:
+		var fps := 0 if n >= hi else clampi(n, lo, Settings.FPS_MAX)
+		game.set_setting("fps", fps)
+		# V-Sync caps frames at the display's refresh rate, so a higher limit would do nothing
+		var hz: int = game.refresh_rate()
+		if game.cfg.get_v("vsync") and hz > 0 and (fps == 0 or fps > hz):
+			game.set_setting("vsync", false)
+			_message(game.L("vsync_auto_off") % hz)
 	var adj := func(dir: int) -> void: put.call(clampi(pos + dir, lo, hi))
 	var setf := func(f: float) -> void: put.call(int(round(lerpf(lo, hi, f))))
 	return {"type": "slider", "label": game.L("s_fps"), "frac": float(pos - lo) / (hi - lo), "value": game.L("fps_0") if v == 0 else str(v),
-		"act": adj.bind(1), "adj": adj, "setf": setf, "tip": _tip("s_fps")}
+		"act": adj.bind(1), "adj": adj, "setf": setf, "tip": _tip("s_fps") + " " + game.L("tip_fps_vsync")}
 
 
 ## How many steps one press moves a number: more while the key is held, 10 with Shift.
@@ -781,6 +788,11 @@ func _run_line() -> String:
 ## Draws a row of buttons/values; returns the bottom y.
 func _draw_rows(x: float, y: float, w: float, row_h: float, from: int = 0) -> float:
 	var fs := int(18 * u)
+	# slider values share one column wide enough for the longest, so the bars line up
+	var vcol := 70.0 * u
+	for i in range(from, items.size()):
+		if items[i].type == "slider":
+			vcol = maxf(vcol, _w(items[i].value, int(fs * (0.85 if items[i].get("small", false) else 1.0))) + 16.0 * u)
 	for i in range(from, items.size()):
 		var it: Dictionary = items[i]
 		var small: bool = it.get("small", false)
@@ -825,12 +837,13 @@ func _draw_rows(x: float, y: float, w: float, row_h: float, from: int = 0) -> fl
 				_text(Vector2(x + w - 22 * u - tw, y + row_h * 0.68), shown, ts, tc, bold)
 				_text_fit(Vector2(x + 30 * u, y + row_h * 0.68), it.label, size, box.position.x - x - 40 * u, lc)
 			"slider":
-				var bw := w * 0.32
-				_text_fit(Vector2(x + 30 * u, y + row_h * 0.68), it.label, size, w - 130 * u - bw, lc)
-				var bar := Rect2(x + w - 90 * u - bw, y + row_h * 0.4, bw, row_h * 0.22)
+				var bw := minf(w * 0.32, w - 200.0 * u - vcol)
+				_text_fit(Vector2(x + 30 * u, y + row_h * 0.68), it.label, size, w - 60 * u - vcol - bw, lc)
+				var bar := Rect2(x + w - 20 * u - vcol - bw, y + row_h * 0.4, bw, row_h * 0.22)
 				it.bar = bar
 				draw_rect(bar, Color(1, 1, 1, 0.1))
-				draw_rect(Rect2(bar.position, Vector2(bar.size.x * it.frac, bar.size.y)), Color(1.0, 0.85, 0.5) if on else Color(0.6, 0.66, 0.62))
+				var fill := Color(1.0, 0.85, 0.5) if on else Color(0.6, 0.66, 0.62)
+				draw_rect(Rect2(bar.position, Vector2(bar.size.x * clampf(it.frac, 0.0, 1.0), bar.size.y)), fill)
 				_text(Vector2(x + w - 20 * u - _w(it.value, size), y + row_h * 0.68), it.value, size, lc)
 			"bind":
 				_draw_bind(it, r, size, on, lc)

@@ -165,6 +165,9 @@ func _ready() -> void:
 	var autostart := _parse_cmdline()
 	if _shot_path == "":
 		_fit_window()
+	elif DisplayServer.get_name() != "headless":
+		# benchmarks and recordings run as fast as they can
+		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 
 	font = _make_font(400)
 	font_bold = _make_font(700)
@@ -199,7 +202,7 @@ func _ready() -> void:
 	apply_settings()
 	post.visible = not _nopost
 	get_tree().root.focus_entered.connect(func(): audio.set_muted(false))
-	get_tree().root.focus_exited.connect(func(): audio.set_muted(cfg.get_v("mute_unfocused")))
+	get_tree().root.focus_exited.connect(_on_focus_lost)
 
 	if autostart:
 		new_run()
@@ -351,10 +354,17 @@ func _tick_rate() -> int:
 	var target := int(cfg.get_v("fps"))
 	if target <= 0:
 		target = 240
-	var hz := int(DisplayServer.screen_get_refresh_rate()) if DisplayServer.get_name() != "headless" else -1
+	var hz := refresh_rate()
 	if cfg.get_v("vsync") and hz > 0:
 		target = mini(target, hz)
 	return clampi(target, 60, 240)
+
+
+## The refresh rate of the window's display in Hz, or -1 when it is unknown.
+func refresh_rate() -> int:
+	if DisplayServer.get_name() == "headless":
+		return -1
+	return int(round(DisplayServer.screen_get_refresh_rate(DisplayServer.window_get_current_screen())))
 
 
 ## Particles kept alive at once, by quality.
@@ -799,11 +809,23 @@ func aim_vector(p: Dictionary) -> Vector2:
 	return d.normalized() if d.length() > 1.0 else Vector2(p.facing, 0)
 
 
+## While playing, the cursor is kept inside the window (and hidden when it
+## aims), so a click never lands on another app; menus set it free.
 func _update_cursor() -> void:
-	var hide: bool = state == State.PLAY and not menu.active() and aiming_with_mouse() and not player.dead
-	var want := Input.MOUSE_MODE_HIDDEN if hide else Input.MOUSE_MODE_VISIBLE
+	var playing: bool = state == State.PLAY and not menu.active() and not player.dead and get_window().has_focus()
+	var want := Input.MOUSE_MODE_VISIBLE
+	if playing and _shot_path == "":
+		want = Input.MOUSE_MODE_CONFINED_HIDDEN if aiming_with_mouse() else Input.MOUSE_MODE_CONFINED
 	if Input.mouse_mode != want:
 		Input.mouse_mode = want
+
+
+## Switching to another app pauses the game and frees the cursor.
+func _on_focus_lost() -> void:
+	audio.set_muted(cfg.get_v("mute_unfocused"))
+	if state == State.PLAY and not menu.active() and not player.dead and _shot_path == "" and not _bot:
+		menu.open("pause")
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
 # ---------------------------------------------------------------- frame

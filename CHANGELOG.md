@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-20
+
+### Changed
+
+- While you play in a window the cursor stays inside it (and stays hidden
+  when it aims), so a click can no longer land on the desktop or another app.
+  Pause and the other menus set it free.
+- Switching to another app pauses the game.
+- Raising the frame rate limit above the display's refresh rate, or to
+  Unlimited, turns V-Sync off and says so: V-Sync held frames at the refresh
+  rate, so the limit did nothing. The setting's tip explains this.
+
+### Fixed
+
+- Long slider values such as "Unlimited" no longer overlap the bar; slider
+  values share one column so the bars line up.
+
 ## [0.6.0] - 2026-10-20
 
 ### Added
@@ -245,7 +262,8 @@ First public release.
 - Bundled DejaVu Sans Mono font, used in the Web build (where system fonts are
   unavailable) and as a fallback for glyphs missing from the system font.
 
-[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/drugdamage/glyphwood/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/drugdamage/glyphwood/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/drugdamage/glyphwood/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/drugdamage/glyphwood/compare/v0.3.1...v0.4.0
