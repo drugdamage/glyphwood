@@ -19,6 +19,8 @@ const Boss := preload("res://scripts/boss.gd")
 const GRAVITY := 1300.0
 
 static var _next_id := 0
+## Enemy health multiplier of the current world's difficulty (set by main.gd).
+static var hp_mult := 1.0
 
 
 static func create(kind: String, foot: Vector2, level_num: int, rng: RandomNumberGenerator, elite: bool = false) -> Dictionary:
@@ -28,7 +30,7 @@ static func create(kind: String, foot: Vector2, level_num: int, rng: RandomNumbe
 	var scale := 1.0 + 0.22 * (level_num - 1)
 	if boss:
 		scale = 1.0 + 0.15 * maxf(0.0, level_num - D.FINAL_LEVEL)
-	var hp := int(ceil(def.hp * scale * (2.0 if elite else 1.0)))
+	var hp := int(ceil(def.hp * scale * (2.0 if elite else 1.0) * hp_mult))
 	_next_id += 1
 	return {
 		"id": _next_id, "kind": kind, "pos": foot - Vector2(size.x * 0.5, size.y), "size": size,

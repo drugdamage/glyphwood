@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-20
+
+### Added
+
+- **Worlds.** Keep up to five worlds, each with its own hero, layout and
+  difficulty. The title screen continues the last one you played; **Worlds**
+  lists them all (play or delete), and **New world** picks a name (each name is
+  a new layout) and a difficulty. Your 0.4 save becomes the first world.
+- **Difficulty:** Easy, Normal, Hard and Nightmare change enemy damage and
+  health, how many shards a fall costs (15%, 30%, 50%, all) and the experience
+  you earn (up to +50%).
+- Number settings move one unit at a time: volumes, screen shake and interface
+  size by 1%, the frame limit by 1 FPS from 30 to 360 (then no limit). Holding
+  ←/→ speeds up, Shift moves by 10, and slider bars can be dragged with the
+  mouse.
+
+### Changed
+
+- Gothic HUD: health is a blade of dark blood with iron rivets and a pale trail,
+  beside a pierced heart that beats faster and bleeds as health runs out;
+  experience is tarnished gold and ink is a row of small blades.
+- The moon is a blood moon with an eclipse shadow, craters, cracks, drifting
+  black clouds and the odd bat.
+- Menus fit their text: long labels shrink, descriptions wrap, and panels grow
+  with their content, so nothing runs past a panel or the window in any language
+  or interface size.
+- The version number on the title screen moved to the bottom left, so the FPS
+  counter no longer covers it.
+- Changing a setting only applies that setting; volume and shake no longer
+  redraw the whole level.
+
+### Fixed
+
+- Background glyphs of the previous level could be drawn once more right after
+  a new level was built.
+
 ## [0.4.0] - 2026-10-20
 
 ### Added
@@ -181,7 +217,8 @@ First public release.
 - Bundled DejaVu Sans Mono font, used in the Web build (where system fonts are
   unavailable) and as a fallback for glyphs missing from the system font.
 
-[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/drugdamage/glyphwood/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/drugdamage/glyphwood/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/drugdamage/glyphwood/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/drugdamage/glyphwood/compare/v0.2.0...v0.3.0

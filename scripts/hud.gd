@@ -123,7 +123,10 @@ func _text(pos: Vector2, text: String, size: int, color: Color, f: Font = null) 
 	var fnt := f if f != null else font
 	size = maxi(size, 4)
 	draw_string(fnt, pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, color)
-	return fnt.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, maxi(size, 4)).x
+	var w := fnt.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+	if game.ui_check and color.a > 0.05 and not get_viewport_rect().encloses(Rect2(pos.x, pos.y - size * 0.75, w, size * 0.95)):
+		game.ui_issue("hud", text)
+	return w
 
 
 func _width(text: String, size: int, f: Font = null) -> float:
@@ -203,8 +206,51 @@ func _draw_play(vp: Vector2) -> void:
 func _bar(r: Rect2, f: float, col: Color, back: Color) -> void:
 	draw_rect(r, back)
 	draw_rect(Rect2(r.position, Vector2(r.size.x * clampf(f, 0.0, 1.0), r.size.y)), col)
-	draw_rect(Rect2(r.position, Vector2(r.size.x * clampf(f, 0.0, 1.0), maxf(1.0, r.size.y * 0.3))), Color(1, 1, 1, 0.18))
-	draw_rect(r, Color(col.r, col.g, col.b, 0.5), false, maxf(1.0, u))
+	draw_rect(r, Color(0.42, 0.36, 0.33, 0.8), false, maxf(1.0, u))
+
+
+## A bar shaped like a blade (pointed at both ends), [f] full, lighter on top.
+func _blade(r: Rect2, f: float, top: Color, bottom: Color) -> void:
+	if f <= 0.0:
+		return
+	var shape := _blade_shape(r)
+	var cut := PackedVector2Array([r.position - Vector2(1, 1), Vector2(r.position.x + r.size.x * minf(f, 1.0), r.position.y - 1),
+		Vector2(r.position.x + r.size.x * minf(f, 1.0), r.end.y + 1), Vector2(r.position.x - 1, r.end.y + 1)])
+	for poly in Geometry2D.intersect_polygons(shape, cut):
+		var cols := PackedColorArray()
+		for q in poly:
+			cols.append(top.lerp(bottom, clampf((q.y - r.position.y) / r.size.y, 0.0, 1.0)))
+		draw_polygon(poly, cols)
+
+
+func _blade_shape(r: Rect2) -> PackedVector2Array:
+	var k := r.size.y * 0.7
+	var cy := r.get_center().y
+	return PackedVector2Array([Vector2(r.position.x, cy), Vector2(r.position.x + k, r.position.y), Vector2(r.end.x - k, r.position.y),
+		Vector2(r.end.x, cy), Vector2(r.end.x - k, r.end.y), Vector2(r.position.x + k, r.end.y)])
+
+
+## A dark heart pierced by a dagger; it beats faster as health runs out and bleeds when low.
+func _draw_heart(c: Vector2, frac: float) -> void:
+	var rate := 1.2 + (1.0 - frac) * 3.5
+	var beat := pow(maxf(0.0, sin(t * rate * TAU)), 8.0)
+	var fs := int(29 * u * (1.0 + 0.12 * beat))
+	var hw := _width("♥", fs, bold)
+	var blood := Color(0.42, 0.02, 0.04).lerp(Color(0.75, 0.05, 0.07), beat * 0.6 + (0.3 if frac <= 0.25 else 0.0))
+	_text(c + Vector2(-hw * 0.5 + u, fs * 0.36 + u), "♥", fs, Color(0, 0, 0, 0.8), bold)
+	_text(c + Vector2(-hw * 0.5, fs * 0.36), "♥", fs, blood, bold)
+	var fi := int(fs * 0.55)
+	_text(c + Vector2(-_width("♥", fi, bold) * 0.5 - 2 * u, fi * 0.2), "♥", fi, Color(0.2, 0.0, 0.02, 0.8), bold)
+	# the dagger, slanted through the heart
+	draw_set_transform(c, -0.6, Vector2.ONE)
+	var dfs := int(19 * u)
+	draw_string(bold, Vector2(-_width("†", dfs, bold) * 0.5, dfs * 0.32), "†", HORIZONTAL_ALIGNMENT_LEFT, -1, dfs, Color(0.7, 0.66, 0.6))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	if frac <= 0.35:
+		for k in 2:
+			var ph := fposmod(t * 0.9 + k * 0.5, 1.0)
+			draw_circle(c + Vector2((k - 0.5) * 6.0 * u, 9.0 * u + ph * 16.0 * u), 1.4 * u * (1.0 - ph * 0.5),
+				Color(0.6, 0.03, 0.05, 1.0 - ph))
 
 
 func _draw_status(p: Dictionary) -> void:
@@ -212,45 +258,59 @@ func _draw_status(p: Dictionary) -> void:
 	var y := 30.0 * u
 	var fs := int(15 * u)
 	var bw := 250.0 * u
-	# health, with a pale trail that catches up after a hit
+	var frac: float = clampf(float(p.hp) / p.max_hp, 0.0, 1.0)
+	# health: a blade of dark blood with a pale trail that catches up after a hit
 	_hp_trail = maxf(_hp_trail - get_process_delta_time() * p.max_hp * 0.6, float(p.hp)) if _hp_trail > p.hp else float(p.hp)
-	var low: bool = p.hp <= p.max_hp * 0.25
-	var hc := Color(0.9, 0.2, 0.25)
-	if low:
-		hc = hc * (0.75 + 0.25 * sin(t * 10.0))
-		hc.a = 1.0
-	_text(Vector2(x, y + 13 * u), "♥", int(20 * u), hc, bold)
-	var hr := Rect2(x + 24 * u, y, bw, 16 * u)
-	draw_rect(hr, Color(0.16, 0.04, 0.05, 0.9))
-	draw_rect(Rect2(hr.position, Vector2(hr.size.x * clampf(_hp_trail / p.max_hp, 0.0, 1.0), hr.size.y)), Color(1.0, 0.85, 0.75, 0.7))
-	_bar(hr, float(p.hp) / p.max_hp, hc, Color(0, 0, 0, 0))
+	var low: bool = frac <= 0.25
+	_draw_heart(Vector2(x + 7 * u, y + 7 * u), frac)
+	var hr := Rect2(x + 26 * u, y - 1 * u, bw, 17 * u)
+	var shape := _blade_shape(hr)
+	draw_colored_polygon(shape, Color(0.05, 0.01, 0.015, 0.92))
+	_blade(hr, _hp_trail / p.max_hp, Color(0.72, 0.62, 0.52, 0.55), Color(0.45, 0.36, 0.3, 0.55))
+	var pulse := 0.8 + 0.2 * sin(t * 9.0) if low else 1.0
+	_blade(hr, frac, Color(0.66, 0.05, 0.07) * pulse, Color(0.24, 0.0, 0.03))
+	# rivets every tenth, and a tarnished iron rim
+	for k in range(1, 10):
+		var rx := hr.position.x + hr.size.x * k / 10.0
+		draw_line(Vector2(rx, hr.position.y + 2 * u), Vector2(rx, hr.end.y - 2 * u), Color(0, 0, 0, 0.45), maxf(1.0, u))
+	var rim := Color(0.75, 0.15, 0.12) if low and int(t * 4.0) % 2 == 0 else Color(0.42, 0.36, 0.33)
+	var outline := shape.duplicate()
+	outline.append(shape[0])
+	draw_polyline(outline, rim, maxf(1.0, 1.3 * u))
 	var ht := "%d / %d" % [p.hp, p.max_hp]
-	_text(Vector2(hr.get_center().x - _width(ht, fs, bold) * 0.5, hr.position.y + 13 * u), ht, fs, Color(1, 0.97, 0.94), bold)
+	var hs := int(12 * u)
+	var tx := hr.get_center().x - _width(ht, hs, bold) * 0.5
+	_text(Vector2(tx + u, hr.position.y + 13 * u), ht, hs, Color(0, 0, 0, 0.8), bold)
+	_text(Vector2(tx, hr.position.y + 12 * u), ht, hs, Color(0.88, 0.82, 0.72), bold)
 	if p.calm > Hero.REGEN_DELAY and p.hp < p.max_hp and game.boss.is_empty():
-		_text(Vector2(hr.end.x + 8 * u, y + 13 * u), "+", fs, Color(0.55, 1.0, 0.6, 0.6 + 0.4 * sin(t * 6.0)), bold)
-	# level and experience
-	y += 24 * u
+		_text(Vector2(hr.end.x + 6 * u, y + 12 * u), "+", fs, Color(0.62, 0.78, 0.55, 0.45 + 0.35 * sin(t * 5.0)), bold)
+	# level and experience: a thin line of tarnished gold
+	y += 26 * u
 	var need := Hero.xp_need(p.xp_level)
 	var lvl: String = game.L("lv") % p.xp_level
-	var lw := _text(Vector2(x, y + 9 * u), lvl, int(14 * u), Color(0.6, 0.85, 1.0), bold)
-	var xr := Rect2(x + lw + 8 * u, y + 2 * u, bw + 24 * u - lw - 8 * u, 7 * u)
-	_bar(xr, float(p.xp) / need, Color(0.45, 0.75, 1.0), Color(0.06, 0.1, 0.18, 0.9))
+	var lw := _text(Vector2(x, y + 9 * u), lvl, int(13 * u), Color(0.82, 0.72, 0.5), bold)
+	var xr := Rect2(x + lw + 8 * u, y + 3 * u, bw + 26 * u - lw - 8 * u, 5 * u)
+	_bar(xr, float(p.xp) / need, Color(0.7, 0.55, 0.25), Color(0.06, 0.04, 0.03, 0.9))
 	var xt := "%d/%d %s" % [p.xp, need, game.L("xp")]
-	_text(Vector2(xr.end.x + 8 * u, y + 9 * u), xt, int(12 * u), Color(0.55, 0.7, 0.85))
-	# ink (for knives), labelled with its key
+	_text(Vector2(xr.end.x + 8 * u, y + 9 * u), xt, int(11 * u), Color(0.6, 0.54, 0.42))
+	# ink (for knives), labelled with its key: one slanted blade per sixth of a knife
 	y += 24 * u
-	var ink_col := Color(0.55, 0.65, 1.0)
+	var ink_col := Color(0.5, 0.42, 0.78)
 	if game.ink_flash > 0.0 and int(t * 16.0) % 2 == 0:
-		ink_col = Color(1.0, 0.4, 0.4)
-	x += _text(Vector2(x, y), game.L("ink").to_upper() + " ", int(12 * u), ink_col, bold)
-	x += _text(Vector2(x, y), game.key("throw") + " ", int(12 * u), Color(0.7, 0.72, 0.8), bold)
+		ink_col = Color(0.85, 0.2, 0.2)
+	x += _text(Vector2(x, y), game.L("ink").to_upper() + " ", int(12 * u), Color(0.62, 0.56, 0.72), bold)
+	x += _text(Vector2(x, y), game.key("throw") + " ", int(12 * u), Color(0.6, 0.58, 0.62), bold)
 	var bars := 18
 	for i in bars:
 		var filled: bool = (i + 1) * Hero.MAX_INK / bars <= p.ink + 0.01
-		x += _text(Vector2(x, y), "|", fs, ink_col if filled else Color(0.16, 0.18, 0.3), bold) + (5.0 * u if (i + 1) % 6 == 0 else 0.0)
-	x += 12.0 * u
-	x += _text(Vector2(x, y), "◆ ", fs, Color(1.0, 0.85, 0.35), bold)
-	_text(Vector2(x, y), str(p.shards), fs, Color(0.95, 0.92, 0.85), bold)
+		var bx := x + 2 * u
+		var poly := PackedVector2Array([Vector2(bx + 3 * u, y - 11 * u), Vector2(bx + 6 * u, y - 11 * u), Vector2(bx + 3 * u, y + 1 * u),
+			Vector2(bx, y + 1 * u)])
+		draw_colored_polygon(poly, ink_col if filled else Color(0.12, 0.1, 0.17))
+		x += 6.5 * u + (7.0 * u if (i + 1) % 6 == 0 else 0.0)
+	x += 8.0 * u
+	x += _text(Vector2(x, y), "◆ ", fs, Color(0.85, 0.68, 0.32), bold)
+	_text(Vector2(x, y), str(p.shards), fs, Color(0.88, 0.82, 0.72), bold)
 	# equipment
 	y += 26.0 * u
 	x = 26.0 * u
@@ -419,11 +479,19 @@ func _draw_hint(vp: Vector2) -> void:
 		_hint_a = move_toward(_hint_a, 0.0, get_process_delta_time() * 4.0)
 	else:
 		_hint_a = move_toward(_hint_a, 1.0, get_process_delta_time() * 3.0)
+	if game.ui_check:
+		_hint_shown = id
+		_hint_a = 1.0
 	if _hint_shown == "" or _hint_a <= 0.0 or game.menu.active():
 		return
 	var text := hint_text(_hint_shown)
 	var fs := int(17 * u)
 	var w := rich(Vector2.ZERO, text, fs, Color.WHITE, true)
+	# stay clear of the minimap; long hints get a smaller font
+	var max_w := vp.x - 540.0 * u
+	if w > max_w:
+		fs = maxi(int(11 * u), int(fs * max_w / w))
+		w = rich(Vector2.ZERO, text, fs, Color.WHITE, true)
 	var y := 128.0 * u
 	var x := (vp.x - w) * 0.5
 	var pad := 14.0 * u

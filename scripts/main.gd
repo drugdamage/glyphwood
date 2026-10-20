@@ -27,12 +27,25 @@ const FontBold := preload("res://fonts/DejaVuSansMono-Bold.ttf")
 
 enum State { TITLE, PLAY }
 
+## The 0.4.0 single save; moved into the first world slot on start.
 const RUN_PATH := "user://run.cfg"
+## Each world (a hero with its own seed and difficulty) lives in its own slot.
+const WORLD_PATH := "user://world_%d.cfg"
+const MAX_WORLDS := 5
 ## Bumped when the saved hero changes shape; older saves are not continued.
 const RUN_VERSION := 2
+const DIFFICULTIES := ["easy", "normal", "hard", "nightmare"]
+## Enemy damage and health, share of carried shards lost on a fall, experience.
+const DIFF := {
+	"easy": {"dmg": 0.6, "hp": 0.75, "toll": 0.15, "xp": 1.0},
+	"normal": {"dmg": 1.0, "hp": 1.0, "toll": 0.3, "xp": 1.0},
+	"hard": {"dmg": 1.4, "hp": 1.3, "toll": 0.5, "xp": 1.25},
+	"nightmare": {"dmg": 1.9, "hp": 1.6, "toll": 1.0, "xp": 1.5},
+}
+const NAME_A := ["Ash", "Grave", "Hollow", "Mourn", "Dusk", "Wither", "Bone", "Raven", "Thorn", "Gloam", "Rot", "Cinder", "Black",
+	"Dread", "Wraith", "Sorrow"]
+const NAME_B := ["mere", "wood", "fall", "moor", "reach", "vale", "crypt", "barrow", "spire", "deep", "mire", "hold", "gate", "fen"]
 const RUN_KEYS := ["hp", "base_hp", "ink", "shards", "weapon", "charms", "bag", "xp", "xp_level", "up_hp", "up_dmg"]
-## Share of carried shards lost when the hero falls.
-const DEATH_TOLL := 0.3
 ## Glyph-level fallbacks for Chinese and Japanese text (system fonts).
 const CJK_FONTS := {
 	"zh": ["PingFang SC", "Hiragino Sans GB", "Heiti SC", "Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "Noto Sans SC",
@@ -95,6 +108,9 @@ var level_up_t := 0.0
 var _cjk: Array = []
 ## Bumped whenever tiles change after the level is built (for the minimap).
 var lv_changes := 0
+var world_slot := -1
+var world_name := ""
+var difficulty := "normal"
 
 var cfg: Settings
 var ctl: Controls
@@ -121,6 +137,11 @@ var _fixed_seed := -1
 var _to_boss := false
 var _nopost := false
 var debug_tab := 0
+## --uicheck: walks every menu in every language and prints text that leaves its panel or the window.
+var ui_check := false
+var _ui_steps: Array = []
+var _ui_wait := 0
+var _ui_issues := {}
 var _zoo := false
 var _dts: Array = []
 
@@ -137,6 +158,7 @@ func _ready() -> void:
 	rng.randomize()
 	cfg = Settings.new()
 	cfg.load_all()
+	_migrate_save()
 	ctl = Controls.new()
 	ctl.setup(cfg.get_v("binds"))
 	audio = Audio.new()
@@ -222,6 +244,12 @@ func _parse_cmdline() -> bool:
 			_to_boss = true
 		elif a == "--play":
 			autostart = true
+		elif a.begins_with("--uiscale="):
+			cfg.values.ui_scale = float(a.substr(10))
+		elif a.begins_with("--uicheck"):
+			ui_check = true
+			if a.begins_with("--uicheck="):
+				cfg.values.ui_scale = float(a.substr(10))
 	return autostart
 
 
@@ -275,7 +303,10 @@ func _apply_cjk() -> void:
 
 # ---------------------------------------------------------------- settings
 
-func apply_settings() -> void:
+## Applies the settings; [changed] names the one that changed ("" applies all).
+## Costly steps (window mode, vsync, redrawing the world) only run when needed.
+func apply_settings(changed: String = "") -> void:
+	var all := changed == ""
 	var l: String = cfg.get_v("lang")
 	if not T.LANGS.has(l):
 		l = OS.get_locale_language()
@@ -284,7 +315,7 @@ func apply_settings() -> void:
 	lang = l
 	lang_idx = T.LANGS.find(l)
 	_apply_cjk()
-	if DisplayServer.get_name() != "headless" and _shot_path == "":
+	if DisplayServer.get_name() != "headless" and _shot_path == "" and not ui_check and (all or changed in ["window", "vsync"]):
 		var mode: String = cfg.get_v("window")
 		var want := DisplayServer.WINDOW_MODE_WINDOWED
 		if mode == "borderless":
@@ -296,7 +327,8 @@ func apply_settings() -> void:
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED if cfg.get_v("vsync") else DisplayServer.VSYNC_DISABLED)
 	Engine.max_fps = int(cfg.get_v("fps"))
 	world.zoom_idx = int(cfg.get_v("zoom"))
-	world.redraw_all()
+	if all or changed in ["zoom", "quality", "lang"]:
+		world.redraw_all()
 	var mat := post.material as ShaderMaterial
 	var q: String = cfg.get_v("quality")
 	mat.set_shader_parameter("glow", 0.75 if cfg.get_v("glow") and q != "low" else 0.0)
@@ -307,8 +339,10 @@ func apply_settings() -> void:
 
 
 func set_setting(key: String, v: Variant) -> void:
+	if cfg.get_v(key) == v:
+		return
 	cfg.set_v(key, v)
-	apply_settings()
+	apply_settings(key)
 
 
 ## Particles kept alive at once, by quality.
@@ -338,6 +372,8 @@ func is_playing() -> bool:
 # ---------------------------------------------------------------- flow
 
 func show_title() -> void:
+	save_run()
+	world_slot = -1
 	state = State.TITLE
 	level_num = 1
 	run_seed = rng.randi()
@@ -350,14 +386,92 @@ func show_title() -> void:
 	audio.ambient("wood")
 
 
+## True when there is a world to continue.
 func has_save() -> bool:
+	return not worlds().is_empty()
+
+
+## Saved worlds, most recently played first.
+func worlds() -> Array:
+	var out: Array = []
+	if ui_check:
+		for i in MAX_WORLDS:
+			out.append({"slot": i, "name": "Wraithbarrow", "difficulty": DIFFICULTIES[i % 4], "level": 12 + i, "hero": 23, "time": 99999.0,
+				"played": i})
+		return out
+	for slot in MAX_WORLDS:
+		var cf := ConfigFile.new()
+		if cf.load(WORLD_PATH % slot) != OK or cf.get_value("run", "ver", 1) != RUN_VERSION:
+			continue
+		var pl: Dictionary = cf.get_value("run", "player", {})
+		out.append({"slot": slot, "name": cf.get_value("run", "name", "?"), "difficulty": cf.get_value("run", "difficulty", "normal"),
+			"level": cf.get_value("run", "level", 1), "hero": pl.get("xp_level", 1), "time": cf.get_value("run", "time", 0.0),
+			"played": cf.get_value("run", "played", 0)})
+	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a.played > b.played)
+	return out
+
+
+func free_world_slot() -> int:
+	for slot in MAX_WORLDS:
+		if not FileAccess.file_exists(WORLD_PATH % slot):
+			return slot
+	return -1
+
+
+static func make_world_name(seed_v: int) -> String:
+	var r := RandomNumberGenerator.new()
+	r.seed = seed_v
+	return NAME_A[r.randi() % NAME_A.size()] + NAME_B[r.randi() % NAME_B.size()]
+
+
+## Starts a new hero in a new world slot.
+func create_world(wname: String, diff: String, seed_v: int) -> void:
+	world_slot = free_world_slot()
+	world_name = wname
+	difficulty = diff
+	run_seed = seed_v
+	_begin_run()
+
+
+func play_world(slot: int) -> void:
+	world_slot = slot
+	continue_run()
+
+
+func delete_world(slot: int) -> void:
+	var path := WORLD_PATH % slot
+	if FileAccess.file_exists(path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+## The single save of 0.4.0 becomes the first world.
+func _migrate_save() -> void:
+	if not FileAccess.file_exists(RUN_PATH):
+		return
 	var cf := ConfigFile.new()
-	return cf.load(RUN_PATH) == OK and cf.get_value("run", "ver", 1) == RUN_VERSION
+	if cf.load(RUN_PATH) == OK and cf.get_value("run", "ver", 1) == RUN_VERSION and free_world_slot() >= 0:
+		cf.set_value("run", "name", make_world_name(cf.get_value("run", "seed", 0)))
+		cf.set_value("run", "difficulty", "normal")
+		cf.set_value("run", "played", int(Time.get_unix_time_from_system()))
+		cf.save(WORLD_PATH % free_world_slot())
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(RUN_PATH))
 
 
+func diff() -> Dictionary:
+	return DIFF.get(difficulty, DIFF.normal)
+
+
+## A new hero without a world slot (debug starts with --play are not saved).
 func new_run() -> void:
-	_delete_save()
+	world_slot = -1
+	world_name = ""
+	difficulty = "normal"
 	run_seed = _fixed_seed if _fixed_seed != -1 else rng.randi()
+	_begin_run()
+
+
+func _begin_run() -> void:
+	Foes.hp_mult = diff().hp
 	player = Hero.create()
 	level_num = _start_level
 	kills = 0
@@ -369,11 +483,19 @@ func new_run() -> void:
 	_start_level_now()
 
 
+## Continues world_slot, or the most recently played world.
 func continue_run() -> void:
+	if world_slot < 0:
+		var ws := worlds()
+		if ws.is_empty():
+			return
+		world_slot = ws[0].slot
 	var cf := ConfigFile.new()
-	if cf.load(RUN_PATH) != OK or cf.get_value("run", "ver", 1) != RUN_VERSION:
-		new_run()
+	if cf.load(WORLD_PATH % world_slot) != OK or cf.get_value("run", "ver", 1) != RUN_VERSION:
 		return
+	world_name = cf.get_value("run", "name", "")
+	difficulty = cf.get_value("run", "difficulty", "normal")
+	Foes.hp_mult = diff().hp
 	run_seed = cf.get_value("run", "seed", 0)
 	level_num = cf.get_value("run", "level", 1)
 	kills = cf.get_value("run", "kills", 0)
@@ -396,10 +518,13 @@ func _start_level_now() -> void:
 
 
 func save_run() -> void:
-	if _bot or state != State.PLAY:
+	if _bot or state != State.PLAY or world_slot < 0:
 		return
 	var cf := ConfigFile.new()
 	cf.set_value("run", "ver", RUN_VERSION)
+	cf.set_value("run", "name", world_name)
+	cf.set_value("run", "difficulty", difficulty)
+	cf.set_value("run", "played", int(Time.get_unix_time_from_system()))
 	cf.set_value("run", "seed", run_seed)
 	cf.set_value("run", "level", level_num)
 	cf.set_value("run", "kills", kills)
@@ -408,12 +533,7 @@ func save_run() -> void:
 	for k in RUN_KEYS:
 		saved[k] = player[k]
 	cf.set_value("run", "player", saved)
-	cf.save(RUN_PATH)
-
-
-func _delete_save() -> void:
-	if FileAccess.file_exists(RUN_PATH):
-		DirAccess.remove_absolute(ProjectSettings.globalize_path(RUN_PATH))
+	cf.save(WORLD_PATH % world_slot)
 
 
 func biome_index(n: int) -> int:
@@ -510,7 +630,7 @@ func on_player_died() -> void:
 ## Brings the hero back at the last lantern after a fall.
 func _respawn() -> void:
 	var p := player
-	var lost := int(p.shards * DEATH_TOLL)
+	var lost := int(ceil(p.shards * diff().toll))
 	p.shards -= lost
 	for ar in lv.arenas:
 		if ar.state == "active":
@@ -533,7 +653,7 @@ func _respawn() -> void:
 ## Experience from a kill; levels up as often as it fills the bar.
 func gain_xp(amount: float, at: Vector2) -> void:
 	var p := player
-	var got := int(round(amount * (1.0 + minf(hit_combo, 30) * 0.02)))
+	var got := int(round(amount * diff().xp * (1.0 + minf(hit_combo, 30) * 0.02)))
 	p.xp += got
 	if cfg.get_v("damage_numbers"):
 		popups.append({"pos": at + Vector2(0, 14), "text": "+%d %s" % [got, L("xp")], "color": Color(0.6, 0.85, 1.0), "life": 0.9,
@@ -558,7 +678,7 @@ func gain_xp(amount: float, at: Vector2) -> void:
 
 ## Damage of one normal enemy blow at the current depth.
 func hit_damage() -> float:
-	return 14.0 * (1.0 + 0.12 * (level_num - 1))
+	return 14.0 * (1.0 + 0.12 * (level_num - 1)) * diff().dmg
 
 
 func combo_hit() -> void:
@@ -689,6 +809,8 @@ func _physics_process(dt: float) -> void:
 		_bot_input()
 	ctl.latch()
 	_debug_capture(dt)
+	if ui_check:
+		_ui_check_step()
 	_update_cursor()
 
 	shake = move_toward(shake, 0.0, dt * 30.0)
@@ -803,6 +925,61 @@ func _debug_capture(dt: float) -> void:
 				player.get("pos", Vector2.ZERO).x, lv.pixel_size().x])
 			get_tree().quit()
 			_shot_path = ""
+
+
+func ui_issue(where: String, text: String) -> void:
+	var k := "[%s] %s: %s" % [lang, where, text]
+	if not _ui_issues.has(k):
+		_ui_issues[k] = true
+		print("UI OVERFLOW ", k)
+
+
+func _ui_check_step() -> void:
+	if _ui_steps.is_empty() and _ui_wait == 0:
+		for l in T.LANGS:
+			for m in ["", "new_world", "worlds", "world", "confirm_delete"]:
+				_ui_steps.append([l, "title", m, 0])
+			for m in ["", "pause", "inventory", "shop", "map", "moves"]:
+				_ui_steps.append([l, "play", m, 0])
+			for k in 4:
+				_ui_steps.append([l, "play", "settings", k])
+			for key in T.STRINGS:
+				if key.begins_with("hint_"):
+					_ui_steps.append([l, "hint", key.substr(5), 0])
+		_ui_steps.append(["", "done", "", 0])
+		_ui_wait = 1
+	_ui_wait -= 1
+	if _ui_wait > 0:
+		return
+	_ui_wait = 3
+	var s: Array = _ui_steps.pop_front()
+	if s[1] == "done":
+		print("UI CHECK DONE: %d issues" % _ui_issues.size())
+		get_tree().quit()
+		return
+	if s[0] != lang:
+		cfg.values.lang = s[0]
+		apply_settings()
+	if s[1] == "title" and state != State.TITLE:
+		show_title()
+	elif s[1] != "title" and state != State.PLAY:
+		new_run()
+		player.xp_level = 20
+		player.bag = Items.ITEMS.keys().filter(func(id: String) -> bool: return id != player.weapon)
+		Hero.refresh(player)
+		shop_prop = {"stock": ["glyph_saber", "phantom_step", "lucky_coin"]}
+	menu.close_all()
+	if s[1] == "title":
+		menu.open("title")
+	hint = s[2] if s[1] == "hint" else ""
+	if s[1] != "hint" and s[2] != "":
+		menu._world = worlds()[0]
+		if s[2] == "world" or s[2] == "confirm_delete":
+			menu.open("worlds")
+			if s[2] == "confirm_delete":
+				menu.open("world")
+		debug_tab = s[3]
+		menu.open(s[2])
 
 
 # ---------------------------------------------------------------- API for other scripts

@@ -1,57 +1,43 @@
-# Glyphwood
+<h1 align="center">Glyphwood</h1>
 
-A gothic action platformer drawn entirely with text characters.
+<p align="center">A gothic action platformer drawn entirely with text characters.</p>
 
-Descend through a graveyard forest, an ossuary and an ashen abyss, procedurally
-built levels of rooms with shafts, secret walls, arenas and a merchant, with a
-boss at the end of every biome. The descent never ends: after the third boss
-the biomes start over, darker and harder, while your hero keeps growing.
+<p align="center">
+  <img src="docs/gameplay.gif" alt="Glyphwood gameplay" width="640">
+</p>
 
-- **Simple goal:** a small arrow next to the hero always points to the exit, and
-  the minimap marks it with `>`.
-- **Checkpoints:** walk past a lantern to light it. If you fall, you wake at the
-  last lantern with full health and lose only some shards.
-- **Progress that stays:** kills give experience; every level adds health and
-  damage for good, levels 10 and 20 open extra charm slots, and the merchant
-  sells permanent upgrades. Good for a few minutes or a few hours.
-- **Moves:** Triple Cut, Dash Lunge, Rising Crescent, pogo strike, ink knives
-  and critical hits (Pause → Moves lists them with your keys).
-- Keyboard, mouse and gamepad; every key can be rebound. Every setting explains
-  itself when you hover it.
-- Seven languages: English, German, Russian, Chinese, Spanish, French, Japanese.
+<p align="center">
+  <a href="https://github.com/drugdamage/glyphwood/releases/latest">Download</a> ·
+  <a href="CHANGELOG.md">Changelog</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a>
+</p>
 
-![Glyphwood](docs/gameplay.gif)
+An endless descent through a graveyard forest, an ossuary and an ashen abyss,
+with procedural levels, secret walls, arenas, a merchant and a boss at the end
+of every biome; lanterns are your checkpoints and a small arrow always points
+the way, while every kill grows your hero for good, so a few minutes or a few
+hours both count. Combos, dash lunges, rising slashes and critical hits, several
+worlds with four difficulties, keyboard, mouse and gamepad, and seven languages.
 
-## Install and play
+## Install
 
-**You do not need Godot or anything else.** The game is a ready-to-run program
-for Windows, macOS and Linux.
+**macOS / Linux**
 
-The fastest way is one command, which downloads the latest version, installs it
-and starts it (run it again later to update):
+```sh
+curl -fsSL https://raw.githubusercontent.com/drugdamage/glyphwood/main/install.sh | sh
+```
 
-- **macOS / Linux** (Terminal):
-  ```sh
-  curl -fsSL https://raw.githubusercontent.com/drugdamage/glyphwood/main/install.sh | sh
-  ```
-- **Windows** (PowerShell):
-  ```powershell
-  irm https://raw.githubusercontent.com/drugdamage/glyphwood/main/install.ps1 | iex
-  ```
+**Windows** (PowerShell)
 
-Or grab the zip for your system from the
-[latest release](https://github.com/drugdamage/glyphwood/releases/latest), unzip
-it and run the game. If macOS says the app **can't be opened** (it isn't
-notarized), right-click it and choose **Open**, or run `xattr -cr Glyphwood.app`
-once. The install script does this for you.
+```powershell
+irm https://raw.githubusercontent.com/drugdamage/glyphwood/main/install.ps1 | iex
+```
 
-Controls are shown in-game as you need them, and all of them are listed (and
-can be changed) in **Settings → Controls**. If the game stutters on an older
-laptop, set **Settings → Video → Graphics quality** to Low.
+The command installs the latest version and starts it; run it again to update.
+You can also download the zip from the
+[latest release](https://github.com/drugdamage/glyphwood/releases/latest).
 
 ## Run from source
-
-Only needed if you want to change the game.
 
 1. Install [Godot 4.5](https://godotengine.org/download) or newer (the standard build, not .NET).
 2. Clone this repository: `git clone https://github.com/drugdamage/glyphwood.git`

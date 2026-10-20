@@ -40,13 +40,15 @@ godot --path . -- --play --bot --seed=42 --level=2 --time=10 --shot=out.png
 | `--level=N` | Start at level N (two levels per biome; even levels end with a boss) |
 | `--boss` | Start next to the boss arena (with an even `--level`) |
 | `--zoo` | Spawn one enemy of every type next to the start |
-| `--menu=NAME` | Open a menu: `settings`, `inventory`, `map`, `pause`, `shop`, `moves` |
+| `--menu=NAME` | Open a menu: `settings`, `inventory`, `map`, `pause`, `shop`, `moves`, `worlds`, `new_world` |
 | `--tab=N` | Settings tab to open (0 game, 1 video, 2 audio, 3 controls) |
 | `--lang=CODE` | Interface language: `en`, `de`, `ru`, `zh`, `es`, `fr`, `ja` |
 | `--shot=file.png` | Save a screenshot after `--time` seconds, then quit |
 | `--time=S` | Delay for `--shot` (default 1 s) |
 | `--record=dir` | Save every third frame as PNG into `dir` |
 | `--nopost` | Disable the post-processing shader |
+| `--uiscale=X` | Interface size for this run, e.g. `1.3` |
+| `--uicheck[=X]` | Open every menu in every language (at interface size X) and print text that leaves its panel or the window, then quit |
 
 ### Checks to run before a PR
 
@@ -58,6 +60,9 @@ gdlint scripts                                   # style / naming lint (.gdlintr
 godot --headless --path . --import               # must print no SCRIPT ERROR
 godot --headless --path . --quit-after 1200 -- --play --bot --seed=1   # smoke test
 ```
+
+If you change menu or HUD text, also run `godot --path . -- --uicheck=1.3` (it
+needs a window): it prints every text that leaves its panel or the window.
 
 ## Code style
 
@@ -195,7 +200,7 @@ Mark breaking changes with `!` (`feat!: ...`) or a `BREAKING CHANGE:` footer.
 
 1. Move the `Unreleased` entries in `CHANGELOG.md` into a new version section.
 2. Bump `config/version` in `project.godot`.
-3. Commit, then tag and push: `git tag v0.4.0 && git push origin v0.4.0`.
+3. Commit, then tag and push: `git tag v0.5.0 && git push origin v0.5.0`.
 4. The **Release** workflow exports all platforms and publishes the GitHub
    release with the changelog section.
 

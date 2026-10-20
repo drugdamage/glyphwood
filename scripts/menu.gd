@@ -45,6 +45,15 @@ var _msg_t := 0.0
 var _mouse := Vector2.ZERO
 var _map_ci: Node2D
 var _map_rect := Rect2()
+## The world being created on the "new_world" screen, and the one picked in "worlds".
+var _nw := {"name": "", "difficulty": "normal", "seed": 0}
+var _world := {}
+## The panel text has to stay inside (checked with --uicheck).
+var _bounds := Rect2()
+## Holding ←/→ on a number speeds up after a moment; Shift moves 10 at a time.
+var _adj_last := 0
+var _adj_n := 0
+var _dragging := false
 
 
 func setup(g, f: Font, b: Font) -> void:
@@ -149,6 +158,29 @@ func _slider(label: String, key: String, lo: float, hi: float, step: float) -> D
 		"act": adj.bind(1), "adj": adj, "setf": setf, "tip": _tip(label)}
 
 
+## Frames-per-second limit, one by one from FPS_MIN to FPS_MAX, then "no limit".
+func _fps_slider() -> Dictionary:
+	var lo := Settings.FPS_MIN
+	var hi := Settings.FPS_MAX + 1
+	var v: int = game.cfg.get_v("fps")
+	var pos := hi if v == 0 else clampi(v, lo, Settings.FPS_MAX)
+	var put := func(n: int) -> void: game.set_setting("fps", 0 if n >= hi else clampi(n, lo, Settings.FPS_MAX))
+	var adj := func(dir: int) -> void: put.call(clampi(pos + dir, lo, hi))
+	var setf := func(f: float) -> void: put.call(int(round(lerpf(lo, hi, f))))
+	return {"type": "slider", "label": game.L("s_fps"), "frac": float(pos - lo) / (hi - lo), "value": game.L("fps_0") if v == 0 else str(v),
+		"act": adj.bind(1), "adj": adj, "setf": setf, "tip": _tip("s_fps")}
+
+
+## How many steps one press moves a number: more while the key is held, 10 with Shift.
+func _accel() -> int:
+	var now := Time.get_ticks_msec()
+	_adj_n = _adj_n + 1 if now - _adj_last < 200 else 0
+	_adj_last = now
+	if Input.is_key_pressed(KEY_SHIFT):
+		return 10
+	return 1 if _adj_n < 10 else (3 if _adj_n < 30 else 6)
+
+
 ## Bound as _cycle.bind(key, choices); Callable.bind appends, so dir comes first.
 func _cycle(dir: int, key: String, choices: Array) -> void:
 	var i := choices.find(game.cfg.get_v(key))
@@ -159,9 +191,11 @@ func _build(name: String) -> Array:
 	var out: Array = []
 	match name:
 		"title":
-			if game.has_save():
-				out.append(_btn(game.L("m_continue"), game.continue_run))
-			out.append(_btn(game.L("m_new"), _new_game))
+			var ws: Array = game.worlds()
+			if not ws.is_empty():
+				out.append(_btn(game.L("m_continue"), game.continue_run, {"note": ws[0].name}))
+				out.append(_btn(game.L("m_worlds"), open.bind("worlds")))
+			out.append(_btn(game.L("m_new_world"), _new_world))
 			out.append(_btn(game.L("m_settings"), open.bind("settings")))
 			if not OS.has_feature("web"):
 				out.append(_btn(game.L("m_quit"), get_tree().quit))
@@ -176,8 +210,27 @@ func _build(name: String) -> Array:
 			out.append({"type": "tabs"})
 			out.append_array(_settings_tab())
 			out.append(_btn(game.L("m_back"), close))
-		"confirm_new":
-			out.append(_btn(game.L("m_yes"), game.new_run))
+		"new_world":
+			if _nw.name == "":
+				_reroll_name(0)
+			out.append({"type": "value", "label": game.L("s_world_name"), "value": _nw.name, "tip": game.L("tip_world_name"),
+				"act": _reroll_name.bind(1), "adj": _reroll_name})
+			out.append({"type": "value", "label": game.L("s_difficulty"), "value": game.L("diff_" + _nw.difficulty),
+				"tip": game.L("diffd_" + _nw.difficulty), "act": _cycle_diff.bind(1), "adj": _cycle_diff})
+			out.append(_btn(game.L("m_create"), func() -> void: game.create_world(_nw.name, _nw.difficulty, _nw.seed)))
+			out.append(_btn(game.L("m_back"), close))
+		"worlds":
+			for w in game.worlds():
+				out.append({"type": "world", "w": w, "act": _pick_world.bind(w)})
+			if game.free_world_slot() >= 0:
+				out.append(_btn(game.L("m_new_world"), _new_world))
+			out.append(_btn(game.L("m_back"), close))
+		"world":
+			out.append(_btn(game.L("m_play"), game.play_world.bind(_world.get("slot", 0))))
+			out.append(_btn(game.L("m_delete"), open.bind("confirm_delete")))
+			out.append(_btn(game.L("m_back"), close))
+		"confirm_delete":
+			out.append(_btn(game.L("m_yes"), _delete_world))
 			out.append(_btn(game.L("m_no"), close))
 		"sign", "map", "moves":
 			out.append(_btn(game.L("m_ok") if name == "sign" else game.L("m_back"), close))
@@ -188,11 +241,38 @@ func _build(name: String) -> Array:
 	return out
 
 
-func _new_game() -> void:
-	if game.has_save():
-		open("confirm_new")
-	else:
-		game.new_run()
+func _new_world() -> void:
+	if game.free_world_slot() < 0:
+		game.sfx("error", -6.0)
+		_message(game.L("worlds_full"))
+		return
+	_nw = {"name": "", "difficulty": "normal", "seed": 0}
+	_reroll_name(0)
+	open("new_world")
+
+
+## Bound as _reroll_name.bind(dir) or called by _adjust with dir; a new seed gives a new name.
+func _reroll_name(_dir: int) -> void:
+	_nw.seed = randi()
+	_nw.name = game.make_world_name(_nw.seed)
+
+
+func _cycle_diff(dir: int) -> void:
+	var ds: Array = game.DIFFICULTIES
+	_nw.difficulty = ds[posmod(ds.find(_nw.difficulty) + dir, ds.size())]
+
+
+func _pick_world(w: Dictionary) -> void:
+	_world = w
+	open("world")
+
+
+func _delete_world() -> void:
+	game.delete_world(_world.slot)
+	close()
+	close()
+	if game.worlds().is_empty():
+		close()
 
 
 func _settings_tab() -> Array:
@@ -208,27 +288,26 @@ func _settings_tab() -> Array:
 				_message(game.L("hints_reset_done")), {"small": true, "tip": game.L("tip_reset_hints")}))
 			out.append(_toggle("s_guide", "guide"))
 			out.append(_toggle("s_damage_numbers", "damage_numbers"))
-			out.append(_slider("s_shake", "shake", 0.0, 1.0, 0.1))
+			out.append(_slider("s_shake", "shake", 0.0, 1.0, 0.01))
 			out.append(_toggle("s_mouse_aim", "mouse_aim"))
 		1:
 			out.append(_choice("s_quality", game.L("q_" + cfg.get_v("quality")), _cycle.bind("quality", Settings.QUALITY_CHOICES)))
 			var modes: Array = Settings.WINDOW_CHOICES if not OS.has_feature("web") else ["windowed", "borderless"]
 			out.append(_choice("s_window", game.L("w_" + cfg.get_v("window")), _cycle.bind("window", modes)))
 			out.append(_toggle("s_vsync", "vsync"))
-			var fps: int = cfg.get_v("fps")
-			out.append(_choice("s_fps", game.L("fps_0") if fps == 0 else str(fps), _cycle.bind("fps", Settings.FPS_CHOICES)))
+			out.append(_fps_slider())
 			out.append(_choice("s_zoom", game.L("zoom_%d" % cfg.get_v("zoom")), _cycle.bind("zoom", [0, 1, 2])))
 			out.append(_toggle("s_lighting", "lighting"))
 			out.append(_toggle("s_glow", "glow"))
 			out.append(_toggle("s_scanlines", "scanlines"))
 			out.append(_toggle("s_vignette", "vignette"))
-			out.append(_slider("s_ui_scale", "ui_scale", 0.8, 1.3, 0.05))
+			out.append(_slider("s_ui_scale", "ui_scale", 0.8, 1.3, 0.01))
 			out.append(_toggle("s_show_fps", "show_fps"))
 		2:
-			out.append(_slider("s_master", "vol_master", 0.0, 1.0, 0.05))
-			out.append(_slider("s_music", "vol_music", 0.0, 1.0, 0.05))
-			out.append(_slider("s_sfx", "vol_sfx", 0.0, 1.0, 0.05))
-			out.append(_slider("s_amb", "vol_amb", 0.0, 1.0, 0.05))
+			out.append(_slider("s_master", "vol_master", 0.0, 1.0, 0.01))
+			out.append(_slider("s_music", "vol_music", 0.0, 1.0, 0.01))
+			out.append(_slider("s_sfx", "vol_sfx", 0.0, 1.0, 0.01))
+			out.append(_slider("s_amb", "vol_amb", 0.0, 1.0, 0.01))
 			out.append(_toggle("s_mute_unfocused", "mute_unfocused"))
 		3:
 			for a in Controls.ACTIONS:
@@ -362,9 +441,12 @@ func _adjust(dir: int) -> void:
 		"bind":
 			col = clampi(col + dir, 0, 1)
 			game.sfx("menu_move", -10.0)
-		"value", "slider":
+		"value":
 			it.adj.call(dir)
 			game.sfx("menu_move", -8.0)
+		"slider":
+			it.adj.call(dir * _accel())
+			game.sfx("menu_move", -12.0)
 
 
 func _back() -> void:
@@ -383,6 +465,14 @@ func handle(event: InputEvent) -> void:
 
 func _handle_mouse(event: InputEventMouse) -> void:
 	_mouse = event.position
+	# dragging a slider bar sets the value under the cursor
+	if _dragging:
+		if not (event.button_mask & MOUSE_BUTTON_MASK_LEFT) or sel >= items.size() or items[sel].type != "slider":
+			_dragging = false
+		elif event is InputEventMouseMotion and items[sel].has("bar"):
+			var bar: Rect2 = items[sel].bar
+			items[sel].setf.call(clampf((event.position.x - bar.position.x) / bar.size.x, 0.0, 1.0))
+		return
 	var i := _hover(event.position)
 	var mb := event as InputEventMouseButton
 	if mb == null or not mb.pressed:
@@ -404,8 +494,9 @@ func _handle_mouse(event: InputEventMouse) -> void:
 
 
 func _click(it: Dictionary, pos: Vector2) -> void:
-	if it.type == "slider" and it.has("bar") and it.bar.grow(6).has_point(pos):
+	if it.type == "slider" and it.has("bar") and it.bar.grow(8 * u).has_point(pos):
 		it.setf.call(clampf((pos.x - it.bar.position.x) / it.bar.size.x, 0.0, 1.0))
+		_dragging = true
 		game.sfx("menu_move", -8.0)
 	elif it.type == "tabs":
 		for k in it.tab_rects.size():
@@ -492,19 +583,67 @@ func _text(pos: Vector2, text: String, size: int, color: Color, f: Font = null) 
 	var fnt := f if f != null else font
 	size = maxi(size, 4)
 	draw_string(fnt, pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, color)
-	return fnt.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, maxi(size, 4)).x
+	var w := fnt.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+	if game.ui_check:
+		_check(Rect2(pos.x, pos.y - size * 0.75, w, size * 0.95), text)
+	return w
 
 
 func _w(text: String, size: int, f: Font = null) -> float:
 	return (f if f != null else font).get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, maxi(size, 4)).x
 
 
+## Reports text that leaves its panel or the window (debug --uicheck).
+func _check(r: Rect2, text: String) -> void:
+	var vp := get_viewport_rect()
+	var box := _bounds if _bounds.has_area() else vp
+	if not box.grow(1.0).encloses(r) or not vp.encloses(r):
+		game.ui_issue("menu %s/%d" % [top(), tab], text)
+
+
+## The largest size up to [size] (down to 65%) at which [text] fits in [max_w].
+func _fit(text: String, size: int, max_w: float, f: Font = null) -> int:
+	var s := size
+	while s > int(size * 0.65) and _w(text, s, f) > max_w:
+		s -= 1
+	return s
+
+
+## Draws [text] shrunk to fit [max_w], cut with "…" if even that is not enough.
+func _text_fit(pos: Vector2, text: String, size: int, max_w: float, color: Color, f: Font = null) -> float:
+	var s := _fit(text, size, max_w, f)
+	var txt := text
+	if _w(txt, s, f) > max_w:
+		while txt.length() > 1 and _w(txt + "…", s, f) > max_w:
+			txt = txt.substr(0, txt.length() - 1)
+		txt += "…"
+	return _text(pos, txt, s, color, f)
+
+
+## Wrapped text; [pos] is the first baseline. Returns the height.
+func _para(pos: Vector2, text: String, w: float, size: int, color: Color, align := HORIZONTAL_ALIGNMENT_LEFT, f: Font = null) -> float:
+	var fnt := f if f != null else font
+	draw_multiline_string(fnt, pos, text, align, w, size, -1, color)
+	var sz := fnt.get_multiline_string_size(text, align, w, size)
+	if game.ui_check:
+		_check(Rect2(pos.x, pos.y - size * 0.75, minf(sz.x, w), sz.y - size * 0.25), text)
+	return sz.y
+
+
+func _para_h(text: String, w: float, size: int, f: Font = null) -> float:
+	return (f if f != null else font).get_multiline_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, w, size).y
+
+
 func _center(y: float, text: String, size: int, color: Color, f: Font = null) -> void:
-	_text(Vector2((get_viewport_rect().size.x - _w(text, size, f)) * 0.5, y), text, size, color, f)
+	var vw := get_viewport_rect().size.x
+	var max_w := (_bounds.size.x if _bounds.has_area() else vw) - 40 * u
+	size = _fit(text, size, max_w, f)
+	_text(Vector2((vw - _w(text, size, f)) * 0.5, y), text, size, color, f)
 
 
 ## A panel with a glyph frame.
 func _panel(r: Rect2, accent: Color) -> void:
+	_bounds = Rect2()
 	draw_rect(r, Color(0.015, 0.02, 0.022, 0.9))
 	var fs := int(14 * u)
 	var c := Color(accent.r, accent.g, accent.b, 0.55)
@@ -518,6 +657,7 @@ func _panel(r: Rect2, accent: Color) -> void:
 		_text(Vector2(x - 3 * u, r.position.y + fs * 0.35), "-", fs, c * 0.8, font)
 		_text(Vector2(x - 3 * u, r.end.y + fs * 0.35), "-", fs, c * 0.8, font)
 		x += step
+	_bounds = r
 
 
 func _draw() -> void:
@@ -525,6 +665,7 @@ func _draw() -> void:
 		return
 	var vp := get_viewport_rect().size
 	u = vp.y / 900.0 * float(game.cfg.get_v("ui_scale"))
+	_bounds = Rect2()
 	var name := top()
 	var accent: Color = Color(0.8, 0.2, 0.2).lerp(game.biome.top, 0.2)
 	if name != "title":
@@ -534,8 +675,14 @@ func _draw() -> void:
 			_draw_title(vp, accent)
 		"pause":
 			_draw_list(vp, game.L("paused"), accent, 360.0, _run_line())
-		"confirm_new":
-			_draw_list(vp, game.L("m_new"), accent, 520.0, game.L("confirm_new"))
+		"new_world":
+			_draw_list(vp, game.L("m_new_world"), accent, 640.0)
+		"worlds":
+			_draw_worlds(vp, accent)
+		"world":
+			_draw_list(vp, _world.get("name", ""), accent, 460.0, _world_line(_world))
+		"confirm_delete":
+			_draw_list(vp, game.L("m_delete"), accent, 560.0, game.L("confirm_delete") % _world.get("name", ""))
 		"settings":
 			_draw_settings(vp, accent)
 		"moves":
@@ -548,6 +695,7 @@ func _draw() -> void:
 			_draw_shop(vp, accent)
 		"map":
 			_draw_map(vp, accent)
+	_bounds = Rect2()
 	if _msg_t > 0.0:
 		var a := minf(1.0, _msg_t * 2.0)
 		_center(vp.y - 70 * u, _msg, int(16 * u), Color(1.0, 0.85, 0.5, a), bold)
@@ -566,7 +714,7 @@ func _draw_tip(vp: Vector2) -> void:
 	var fs := int(14 * u)
 	var mouse: bool = game.ctl.device == "mouse" and items[sel].has("rect") and items[sel].rect.has_point(_mouse)
 	var w := minf(vp.x - 60 * u, (440 if mouse else 760) * u)
-	var h := font.get_multiline_string_size(tip, HORIZONTAL_ALIGNMENT_LEFT, w - 44 * u, fs).y + 22 * u
+	var h := _para_h(tip, w - 44 * u, fs) + 14 * u
 	var r := Rect2((vp.x - w) * 0.5, vp.y - 44 * u - h, w, h)
 	if mouse:
 		# a tooltip next to the cursor, kept on screen
@@ -576,9 +724,9 @@ func _draw_tip(vp: Vector2) -> void:
 			r.position.y = _mouse.y - h - 12 * u
 	draw_rect(r, Color(0.03, 0.035, 0.04, 0.96))
 	draw_rect(r, Color(1.0, 0.85, 0.5, 0.45), false, maxf(1.0, u))
+	_bounds = r
 	_text(Vector2(r.position.x + 12 * u, r.position.y + 21 * u), "?", fs, Color(1.0, 0.85, 0.45), bold)
-	draw_multiline_string(font, r.position + Vector2(32 * u, 21 * u), tip, HORIZONTAL_ALIGNMENT_LEFT, w - 44 * u, fs, -1,
-		Color(0.88, 0.9, 0.86))
+	_para(r.position + Vector2(32 * u, 21 * u), tip, w - 44 * u, fs, Color(0.88, 0.9, 0.86))
 
 
 func _run_line() -> String:
@@ -602,16 +750,24 @@ func _draw_rows(x: float, y: float, w: float, row_h: float, from: int = 0) -> fl
 		var lc := Color(1.0, 0.95, 0.85) if on else Color(0.78, 0.82, 0.8)
 		match it.type:
 			"button":
-				var lw := _w(it.label, size, bold if on else font)
+				var bf: Font = bold if on else font
+				var note: String = it.get("note", "")
+				var ns := int(size * 0.8)
+				var bs := _fit(it.label, size, w - 60 * u - (_w("  ·  " + note, ns) if note != "" else 0.0), bf)
+				var lw := _w(it.label, bs, bf) + (_w("  ·  " + note, ns) if note != "" else 0.0)
 				var bx := x + (w - lw) * 0.5 if not small else x + 30 * u
-				_text(Vector2(bx, y + row_h * 0.68), it.label, size, lc, bold if on else font)
+				bx += _text(Vector2(bx, y + row_h * 0.68), it.label, bs, lc, bf)
+				if note != "":
+					_text(Vector2(bx, y + row_h * 0.68), "  ·  " + note, ns, Color(0.6, 0.62, 0.6))
 			"value":
-				_text(Vector2(x + 30 * u, y + row_h * 0.68), it.label, size, lc)
 				var v: String = "‹  " + it.value + "  ›" if on else it.value
-				_text(Vector2(x + w - 20 * u - _w(v, size, bold), y + row_h * 0.68), v, size, Color(1.0, 0.85, 0.5) if on else lc, bold)
+				var vs := _fit(v, size, w * 0.5, bold)
+				var vw := _w(v, vs, bold)
+				_text(Vector2(x + w - 20 * u - vw, y + row_h * 0.68), v, vs, Color(1.0, 0.85, 0.5) if on else lc, bold)
+				_text_fit(Vector2(x + 30 * u, y + row_h * 0.68), it.label, size, w - 66 * u - vw, lc)
 			"slider":
-				_text(Vector2(x + 30 * u, y + row_h * 0.68), it.label, size, lc)
 				var bw := w * 0.32
+				_text_fit(Vector2(x + 30 * u, y + row_h * 0.68), it.label, size, w - 130 * u - bw, lc)
 				var bar := Rect2(x + w - 90 * u - bw, y + row_h * 0.4, bw, row_h * 0.22)
 				it.bar = bar
 				draw_rect(bar, Color(1, 1, 1, 0.1))
@@ -626,9 +782,9 @@ func _draw_rows(x: float, y: float, w: float, row_h: float, from: int = 0) -> fl
 
 
 func _draw_bind(it: Dictionary, r: Rect2, size: int, on: bool, lc: Color) -> void:
-	_text(Vector2(r.position.x + 30 * u, r.position.y + r.size.y * 0.68), it.label, size, lc)
 	var binds: Array = game.ctl.binds[it.action]
 	var sw := 150.0 * u
+	_text_fit(Vector2(r.position.x + 30 * u, r.position.y + r.size.y * 0.68), it.label, size, r.size.x - 70 * u - 2 * (sw + 10 * u), lc)
 	it.slots = []
 	for k in 2:
 		var sr := Rect2(r.end.x - 20 * u - (2 - k) * (sw + 10 * u), r.position.y + 4 * u, sw, r.size.y - 8 * u)
@@ -641,7 +797,8 @@ func _draw_bind(it: Dictionary, r: Rect2, size: int, on: bool, lc: Color) -> voi
 		if label == "":
 			label = "—"
 		var c := Color(1.0, 0.85, 0.45) if waiting and int(t * 4.0) % 2 == 0 else (Color(1, 0.95, 0.85) if hl else Color(0.75, 0.78, 0.76))
-		_text(Vector2(sr.get_center().x - _w(label, size, bold) * 0.5, sr.position.y + sr.size.y * 0.7), label, size, c, bold)
+		var ls := _fit(label, size, sw - 12 * u, bold)
+		_text(Vector2(sr.get_center().x - _w(label, ls, bold) * 0.5, sr.position.y + sr.size.y * 0.7), label, ls, c, bold)
 
 
 func _draw_tabs(it: Dictionary, r: Rect2, size: int, on: bool) -> void:
@@ -658,20 +815,25 @@ func _draw_tabs(it: Dictionary, r: Rect2, size: int, on: bool) -> void:
 		var c := Color(1.0, 0.9, 0.6) if cur else Color(0.6, 0.65, 0.63)
 		if on and cur:
 			c = Color(1, 1, 1)
-		_text(Vector2(tr.get_center().x - _w(label, size, bold) * 0.5, tr.position.y + tr.size.y * 0.66), label, size,
+		var ts := _fit(label, size, tw - 10 * u, bold)
+		_text(Vector2(tr.get_center().x - _w(label, ts, bold) * 0.5, tr.position.y + tr.size.y * 0.66), label, ts,
 			c, bold if cur else font)
 
 
 func _draw_list(vp: Vector2, title: String, accent: Color, width: float, sub: String = "") -> void:
-	var w := width * u
+	var w := minf(vp.x - 40 * u, width * u)
 	var row_h := 40.0 * u
-	var h := 130.0 * u + items.size() * row_h
-	var r := Rect2((vp.x - w) * 0.5, (vp.y - h) * 0.5, w, h)
+	var fs := int(14 * u)
+	var sub_h := _para_h(sub, w - 60 * u, fs) + 10 * u if sub != "" else 0.0
+	var top_h := 80.0 * u + sub_h
+	var h := top_h + items.size() * row_h + 26 * u
+	var r := Rect2((vp.x - w) * 0.5, maxf(16 * u, (vp.y - 70 * u - h) * 0.5), w, h)
 	_panel(r, accent)
 	_center(r.position.y + 52 * u, title, int(34 * u), Color(0.95, 0.95, 0.9), bold)
 	if sub != "":
-		_center(r.position.y + 82 * u, sub, int(14 * u), Color(0.65, 0.72, 0.68))
-	_draw_rows(r.position.x + 20 * u, r.position.y + 105 * u, w - 40 * u, row_h)
+		_para(Vector2(r.position.x + 30 * u, r.position.y + 84 * u), sub, w - 60 * u, fs, Color(0.65, 0.72, 0.68),
+			HORIZONTAL_ALIGNMENT_CENTER)
+	_draw_rows(r.position.x + 20 * u, r.position.y + top_h, w - 40 * u, row_h)
 
 
 func _draw_title(vp: Vector2, accent: Color) -> void:
@@ -699,22 +861,24 @@ func _draw_title(vp: Vector2, accent: Color) -> void:
 			draw_char(bold, Vector2(x0 + j * adv, y0 + i * lh), ch, fs, c)
 	var y := y0 + lines.size() * lh + 34 * u
 	_center(y, game.L("subtitle"), int(19 * u), Color(0.75, 0.7, 0.68))
-	var w := 380.0 * u
-	_draw_rows((vp.x - w) * 0.5, y + 40 * u, w, 42.0 * u)
+	var w := minf(vp.x - 40 * u, 460.0 * u)
+	var row_h := minf(42.0 * u, (vp.y - 90 * u - (y + 40 * u)) / maxf(1.0, items.size()))
+	_draw_rows((vp.x - w) * 0.5, y + 40 * u, w, row_h)
 	var pr: Dictionary = game.cfg.profile
 	if pr.runs > 0:
 		var best: String = game.L("best") % [pr.best_level, pr.get("best_xp", 1), pr.get("best_combo", 0)]
 		_center(vp.y - 56 * u, best, int(13 * u), Color(0.55, 0.62, 0.58))
+	# bottom left: the FPS counter sits in the bottom right corner
 	var ver := "v" + str(ProjectSettings.get_setting("application/config/version", ""))
-	_text(Vector2(vp.x - _w(ver, int(12 * u)) - 16 * u, vp.y - 22 * u), ver, int(12 * u), Color(0.4, 0.45, 0.43))
+	_text(Vector2(16 * u, vp.y - 22 * u), ver, int(12 * u), Color(0.4, 0.45, 0.43))
 
 
 func _draw_settings(vp: Vector2, accent: Color) -> void:
 	var w := minf(vp.x - 40 * u, 820.0 * u)
 	var n := items.size()
-	var row_h := minf(40.0 * u, (vp.y - 230.0 * u) / maxf(1.0, n))
+	var row_h := minf(40.0 * u, (vp.y - 300.0 * u) / maxf(1.0, n))
 	var h := 120.0 * u + n * row_h + (40.0 * u if tab == 3 else 0.0)
-	var r := Rect2((vp.x - w) * 0.5, maxf(20 * u, (vp.y - h) * 0.5), w, h)
+	var r := Rect2((vp.x - w) * 0.5, maxf(16 * u, (vp.y - 90 * u - h) * 0.5), w, h)
 	_panel(r, accent)
 	_center(r.position.y + 50 * u, game.L("m_settings"), int(30 * u), Color(0.95, 0.95, 0.9), bold)
 	var y := _draw_rows(r.position.x + 20 * u, r.position.y + 72 * u, w - 40 * u, row_h)
@@ -729,8 +893,7 @@ func _draw_sign(vp: Vector2, _accent: Color) -> void:
 	var r := Rect2((vp.x - w) * 0.5, (vp.y - h) * 0.5, w, h)
 	_panel(r, Color(0.85, 0.7, 0.45))
 	var fs := int(18 * u)
-	draw_multiline_string(font, r.position + Vector2(36 * u, 60 * u), game.sign_text, HORIZONTAL_ALIGNMENT_CENTER, w - 72 * u, fs, -1,
-		Color(0.95, 0.9, 0.8))
+	_para(r.position + Vector2(36 * u, 60 * u), game.sign_text, w - 72 * u, fs, Color(0.95, 0.9, 0.8), HORIZONTAL_ALIGNMENT_CENTER)
 	_draw_rows(r.position.x + w * 0.3, r.end.y - 62 * u, w * 0.4, 40.0 * u)
 
 
@@ -817,7 +980,8 @@ func _draw_inventory(vp: Vector2, accent: Color) -> void:
 				draw_rect(rect.grow(-2 * u), Color(1.0, 0.85, 0.5, 0.6), false, maxf(1.0, u))
 		if it.type == "slot":
 			_draw_icon(Rect2(rect.position + Vector2(6, 5) * u, Vector2(row_h - 10 * u, row_h - 10 * u)), "", Color(0.3, 0.32, 0.3))
-			_text(Vector2(rect.position.x + row_h + 8 * u, rect.position.y + row_h * 0.62), game.L("inv_empty"), fs, Color(0.4, 0.43, 0.42))
+			_text_fit(Vector2(rect.position.x + row_h + 8 * u, rect.position.y + row_h * 0.62), game.L("inv_empty"), fs, cw - row_h - 16 * u,
+				Color(0.4, 0.43, 0.42))
 			continue
 		var d: Dictionary = Items.def(it.id)
 		if it.group == "bag":
@@ -826,8 +990,8 @@ func _draw_inventory(vp: Vector2, accent: Color) -> void:
 				draw_rect(rect.grow(2 * u), Color(1.0, 0.85, 0.5, 0.8), false, maxf(1.0, u * 1.5))
 			continue
 		_draw_icon(Rect2(rect.position + Vector2(6, 5) * u, Vector2(row_h * 1.25, row_h - 10 * u)), it.id, d.color, on)
-		_text(Vector2(rect.position.x + row_h * 1.25 + 16 * u, rect.position.y + row_h * 0.62), _item_name(it.id), fs,
-			Color(1, 0.96, 0.88) if on else Color(0.8, 0.84, 0.82), bold if on else font)
+		_text_fit(Vector2(rect.position.x + row_h * 1.25 + 16 * u, rect.position.y + row_h * 0.62), _item_name(it.id), fs,
+			cw - row_h * 1.25 - 26 * u, Color(1, 0.96, 0.88) if on else Color(0.8, 0.84, 0.82), bold if on else font)
 	if p.bag.is_empty():
 		_text(Vector2(rx + 4 * u, by + 30 * u), game.L("inv_empty"), fs, Color(0.4, 0.43, 0.42))
 	# details of the selected item
@@ -836,24 +1000,26 @@ func _draw_inventory(vp: Vector2, accent: Color) -> void:
 	if sel < items.size() and items[sel].type == "item":
 		var id: String = items[sel].id
 		var d2: Dictionary = Items.def(id)
-		_text(Vector2(lx, dy + 10 * u), _item_name(id), int(20 * u), d2.color, bold)
-		_text(Vector2(lx, dy + 38 * u), game.L("item_" + id + "_d"), int(15 * u), Color(0.8, 0.84, 0.82))
-		if d2.slot == "weapon":
-			var ws := "%s %d   %s ×%.2f   %s ×%.2f" % [game.L("stat_dmg"), d2.dmg, game.L("stat_speed"), d2.speed, game.L("stat_reach"), d2.reach]
-			_text(Vector2(lx, dy + 64 * u), ws, int(14 * u), Color(0.65, 0.72, 0.68))
 		var action := ""
 		if items[sel].group == "charm":
 			action = game.L("inv_unequip")
 		elif items[sel].group == "bag":
 			action = game.L("inv_equip")
+		var hw := 0.0
 		if action != "":
 			var hint := "[Enter] " + action
+			hw = _w(hint, int(14 * u), bold) + 20 * u
 			_text(Vector2(r.end.x - 30 * u - _w(hint, int(14 * u), bold), dy + 10 * u), hint, int(14 * u), Color(1.0, 0.85, 0.5), bold)
+		_text_fit(Vector2(lx, dy + 10 * u), _item_name(id), int(20 * u), w - 60 * u - hw, d2.color, bold)
+		var dh := _para(Vector2(lx, dy + 38 * u), game.L("item_" + id + "_d"), w - 60 * u, int(15 * u), Color(0.8, 0.84, 0.82))
+		if d2.slot == "weapon":
+			var ws := "%s %d   %s ×%.2f   %s ×%.2f" % [game.L("stat_dmg"), d2.dmg, game.L("stat_speed"), d2.speed, game.L("stat_reach"), d2.reach]
+			_text_fit(Vector2(lx, dy + 40 * u + dh), ws, int(14 * u), w - 60 * u, Color(0.65, 0.72, 0.68))
 	var st: Dictionary = p.st
 	var summary := "%s    %s %d/%d    %s %d    %s ×%.2f    %s %d%%    ◆ %d" % [
 		game.L("lv") % p.xp_level, game.L("stat_hp"), p.hp, p.max_hp, game.L("stat_dmg"), int(st.dmg * st.dmg_mult),
 		game.L("stat_speed"), st.speed, game.L("stat_crit"), int(st.crit * 100.0), p.shards]
-	_text(Vector2(lx, r.end.y - 30 * u), summary, int(14 * u), Color(0.7, 0.76, 0.73))
+	_text_fit(Vector2(lx, r.end.y - 30 * u), summary, int(14 * u), w - 60 * u, Color(0.7, 0.76, 0.73))
 
 
 func _draw_shop(vp: Vector2, _accent: Color) -> void:
@@ -878,20 +1044,22 @@ func _draw_shop(vp: Vector2, _accent: Color) -> void:
 		if on:
 			draw_rect(rect.grow(-2 * u), Color(1.0, 0.85, 0.5, 0.6), false, maxf(1.0, u))
 		if it.type == "button":
-			_text(Vector2(rect.get_center().x - _w(it.label, fs, bold) * 0.5, y + row_h * 0.62), it.label, fs, Color(0.9, 0.92, 0.9), bold)
+			_center(y + row_h * 0.62, it.label, fs, Color(0.9, 0.92, 0.9), bold)
 		else:
 			var gc: Color = it.get("color", Items.def(it.id).get("color", Color.WHITE))
 			var label: String = it.get("label", _item_name(it.id))
 			_draw_icon(Rect2(rect.position + Vector2(6, 5) * u, Vector2(row_h * 1.2, row_h - 10 * u)), it.id, gc, on)
 			var tx := rect.position.x + row_h * 1.2 + 18 * u
-			_text(Vector2(tx, y + row_h * 0.44), label, fs, Color(1, 0.96, 0.88) if on else Color(0.82, 0.85, 0.83), bold)
+			var price := "◆ %d" % it.price
+			var pc := Color(1.0, 0.85, 0.35) if p.shards >= it.price else Color(0.6, 0.35, 0.3)
+			var pw := _w(price, fs, bold)
+			_text(Vector2(rect.end.x - 16 * u - pw, y + row_h * 0.62), price, fs, pc, bold)
+			var tw := rect.end.x - 32 * u - pw - tx
+			_text_fit(Vector2(tx, y + row_h * 0.44), label, fs, tw, Color(1, 0.96, 0.88) if on else Color(0.82, 0.85, 0.83), bold)
 			var desc: String = it.get("note", "")
 			if not it.has("label"):
 				desc = game.L("item_" + it.id + "_d")
-			_text(Vector2(tx, y + row_h * 0.82), desc, int(12 * u), Color(0.6, 0.65, 0.63))
-			var price := "◆ %d" % it.price
-			var pc := Color(1.0, 0.85, 0.35) if p.shards >= it.price else Color(0.6, 0.35, 0.3)
-			_text(Vector2(rect.end.x - 16 * u - _w(price, fs, bold), y + row_h * 0.62), price, fs, pc, bold)
+			_text_fit(Vector2(tx, y + row_h * 0.82), desc, int(12 * u), tw, Color(0.6, 0.65, 0.63))
 		y += row_h
 
 
@@ -931,16 +1099,65 @@ func _draw_moves(vp: Vector2, accent: Color) -> void:
 		["move_knife", game.key("throw")],
 		["move_crit", ""],
 	]
-	var row_h := 64.0 * u
-	var h := 150.0 * u + moves.size() * row_h
-	var r := Rect2((vp.x - w) * 0.5, (vp.y - h) * 0.5, w, h)
+	# descriptions wrap, so every row is as tall as its text
+	var dw := w - 72 * u
+	var ds := int(14 * u)
+	var h := 160.0 * u
+	for m in moves:
+		h += 34 * u + _para_h(game.L(m[0] + "_d"), dw, ds)
+	var r := Rect2((vp.x - w) * 0.5, maxf(10 * u, (vp.y - 40 * u - h) * 0.5), w, h)
 	_panel(r, accent)
 	_center(r.position.y + 48 * u, game.L("m_moves"), int(30 * u), Color(0.95, 0.95, 0.9), bold)
 	var y := r.position.y + 90 * u
 	for m in moves:
-		_text(Vector2(r.position.x + 36 * u, y), game.L(m[0]), int(18 * u), Color(1.0, 0.85, 0.45), bold)
+		var kw := 0.0
 		if m[1] != "":
+			kw = _w(m[1], int(16 * u), bold) + 16 * u
 			_text(Vector2(r.end.x - 36 * u - _w(m[1], int(16 * u), bold), y), m[1], int(16 * u), Color(0.95, 0.92, 0.8), bold)
-		_text(Vector2(r.position.x + 36 * u, y + 24 * u), game.L(m[0] + "_d"), int(14 * u), Color(0.72, 0.77, 0.74))
-		y += row_h
+		_text_fit(Vector2(r.position.x + 36 * u, y), game.L(m[0]), int(18 * u), dw - kw, Color(1.0, 0.85, 0.45), bold)
+		y += 34 * u + _para(Vector2(r.position.x + 36 * u, y + 24 * u), game.L(m[0] + "_d"), dw, ds, Color(0.72, 0.77, 0.74))
 	_draw_rows(r.position.x + w * 0.3, r.end.y - 58 * u, w * 0.4, 40.0 * u)
+
+
+const DIFF_COLORS := {"easy": Color(0.6, 0.85, 0.65), "normal": Color(0.85, 0.82, 0.7), "hard": Color(1.0, 0.55, 0.3),
+	"nightmare": Color(1.0, 0.2, 0.2)}
+
+
+func _world_line(w: Dictionary) -> String:
+	var secs := int(w.get("time", 0.0))
+	return game.L("world_info") % [w.get("level", 1), w.get("hero", 1), "%d:%02d" % [secs / 3600, (secs / 60) % 60]]
+
+
+func _draw_worlds(vp: Vector2, accent: Color) -> void:
+	var w := minf(vp.x - 40 * u, 700.0 * u)
+	var row_h := 62.0 * u
+	var n := 0
+	for it in items:
+		if it.type == "world":
+			n += 1
+	var h := 120.0 * u + n * row_h + (items.size() - n) * 40.0 * u
+	var r := Rect2((vp.x - w) * 0.5, maxf(16 * u, (vp.y - 40 * u - h) * 0.5), w, h)
+	_panel(r, accent)
+	_center(r.position.y + 50 * u, game.L("m_worlds"), int(30 * u), Color(0.95, 0.95, 0.9), bold)
+	var y := r.position.y + 80 * u
+	var fs := int(18 * u)
+	for i in n:
+		var it: Dictionary = items[i]
+		var wd: Dictionary = it.w
+		var rect := Rect2(r.position.x + 20 * u, y, w - 40 * u, row_h - 6 * u)
+		it.rect = rect
+		var on := i == sel
+		draw_rect(rect, Color(1, 1, 1, 0.09 if on else 0.03))
+		if on:
+			draw_rect(rect, Color(1.0, 0.85, 0.5, 0.6), false, maxf(1.0, u))
+		var dc: Color = DIFF_COLORS.get(wd.difficulty, Color.WHITE)
+		var tag: String = game.L("diff_" + wd.difficulty).to_upper()
+		var tw := _w(tag, int(13 * u), bold)
+		_text(Vector2(rect.end.x - 16 * u - tw, rect.position.y + 24 * u), tag, int(13 * u), dc, bold)
+		_text_fit(Vector2(rect.position.x + 16 * u, rect.position.y + 24 * u), wd.name, fs, rect.size.x - tw - 48 * u,
+			Color(1, 0.96, 0.88) if on else Color(0.82, 0.85, 0.83), bold)
+		_text_fit(Vector2(rect.position.x + 16 * u, rect.position.y + 46 * u), _world_line(wd), int(13 * u), rect.size.x - 32 * u,
+			Color(0.6, 0.65, 0.63))
+		y += row_h
+	_draw_rows(r.position.x + 20 * u, y + 6 * u, w - 40 * u, 40.0 * u, n)
+

@@ -5,7 +5,9 @@ extends RefCounted
 const PATH := "user://settings.cfg"
 const PROFILE_PATH := "user://profile.cfg"
 
-const FPS_CHOICES := [30, 60, 120, 144, 240, 0]
+## The frame limit slider runs from FPS_MIN to FPS_MAX; one step past FPS_MAX is "no limit" (stored as 0).
+const FPS_MIN := 30
+const FPS_MAX := 360
 const WINDOW_CHOICES := ["windowed", "borderless", "fullscreen"]
 const QUALITY_CHOICES := ["low", "medium", "high"]
 

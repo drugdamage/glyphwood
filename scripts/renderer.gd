@@ -30,7 +30,8 @@ class Painter:
 	var arg: Variant
 
 	func _draw() -> void:
-		fn.call(self, arg)
+		if fn.is_valid():
+			fn.call(self, arg)
 
 
 var game
@@ -315,17 +316,73 @@ func _draw() -> void:
 		PackedColorArray([top, top, bot, bot]))
 	if b.sky:
 		# moon and stars drift very slowly
-		var mp := Vector2(vp.x * 0.78 - game.cam.x * s * 0.02, vp.y * 0.16 - game.cam.y * s * 0.02)
-		draw_circle(mp, 34.0 * s, Color(0.6, 0.08, 0.08, 0.08))
-		draw_circle(mp, 18.0 * s, Color(0.8, 0.15, 0.12, 0.2))
-		draw_circle(mp, 9.0 * s, Color(0.78, 0.2, 0.16))
-		draw_circle(mp + Vector2(2.5, -1.5) * s, 2.2 * s, Color(0.62, 0.14, 0.12))
-		draw_circle(mp + Vector2(-3.0, 2.5) * s, 1.6 * s, Color(0.62, 0.14, 0.12))
+		var title: bool = game.is_title()
+		var mp: Vector2 = Vector2(vp.x * (0.87 if title else 0.78), vp.y * (0.1 if title else 0.15)) - game.cam * s * 0.02
+		_draw_moon(mp, minf(20.0 * s, vp.y * 0.065))
 		for i in 70:
 			var sx := fposmod(_hash01(i, 3) * vp.x * 1.5 - game.cam.x * s * 0.05, vp.x)
 			var sy := _hash01(i, 9) * vp.y * 0.6
 			var tw := 0.35 + 0.35 * sin(t * (1.0 + _hash01(i, 5) * 2.0) + i)
 			_gc(self, Vector2(sx, sy), "." if i % 3 else "+", Color(0.75, 0.7, 0.8, tw), fs, font)
+
+
+## A blood moon: a slow pulsing halo, a shaded disc with an eclipse shadow
+## eating into it, craters that read as a faint skull, cracks, drifting black
+## clouds and now and then a bat crossing it.
+func _draw_moon(c: Vector2, r: float) -> void:
+	var pulse := 0.85 + 0.15 * sin(t * 0.7)
+	for k in 6:
+		var f := 1.0 + k * 0.42
+		draw_circle(c, r * f, Color(0.55, 0.03, 0.04, 0.05 * pulse * (1.0 - k / 6.0)))
+	var disc := _circle_poly(c, r, 40)
+	# shading from deep blood at the rim to a sick glow toward the upper left
+	for k in 7:
+		var f := 1.0 - k / 7.0
+		draw_circle(c + Vector2(-0.22, -0.26) * r * (1.0 - f), r * f, Color(0.42, 0.03, 0.03).lerp(Color(0.86, 0.22, 0.12), 1.0 - f))
+	# craters: two sockets, a nose and a row of teeth, plus scattered pits
+	var pits := [[-0.36, -0.12, 0.2], [0.14, -0.14, 0.19], [-0.1, 0.17, 0.08], [0.52, 0.34, 0.07], [-0.55, 0.3, 0.06],
+		[0.1, -0.6, 0.06], [-0.2, -0.55, 0.05]]
+	for i in 5:
+		pits.append([-0.36 + i * 0.12, 0.43, 0.045])
+	for q in pits:
+		var pc := c + Vector2(q[0], q[1]) * r
+		draw_circle(pc + Vector2(0.03, 0.04) * r, q[2] * r, Color(0.95, 0.38, 0.22, 0.35))
+		draw_circle(pc, q[2] * r, Color(0.28, 0.02, 0.03, 0.85))
+	# cracks
+	var cracks := [[Vector2(-0.9, -0.2), Vector2(-0.55, -0.1), Vector2(-0.4, 0.05)],
+		[Vector2(0.3, 0.6), Vector2(0.45, 0.8), Vector2(0.4, 0.95)],
+		[Vector2(0.6, -0.7), Vector2(0.4, -0.45), Vector2(0.42, -0.3)]]
+	for cr in cracks:
+		var line := PackedVector2Array()
+		for v in cr:
+			line.append(c + v * r)
+		draw_polyline(line, Color(0.2, 0.0, 0.02, 0.8), maxf(1.0, r * 0.03))
+	# the eclipse shadow, kept inside the disc
+	var shadow := _circle_poly(c + Vector2(0.9, 0.12) * r * (0.95 + 0.05 * sin(t * 0.05)), r * 0.98, 40)
+	for poly in Geometry2D.intersect_polygons(disc, shadow):
+		draw_colored_polygon(poly, Color(0.07, 0.0, 0.01, 0.78))
+	# black clouds drifting across
+	for k in 3:
+		var w := r * (2.6 + k * 0.7)
+		var cx := c.x + fposmod(t * (6.0 + k * 3.0) * s + k * 140.0 * s, w + r * 6.0) - w * 0.5 - r * 3.0
+		var cy := c.y + (-0.35 + k * 0.42) * r
+		var ell := PackedVector2Array()
+		for i in 16:
+			var a := TAU * i / 16.0
+			ell.append(Vector2(cx + cos(a) * w * 0.5, cy + sin(a) * r * 0.09))
+		draw_colored_polygon(ell, Color(0.03, 0.01, 0.02, 0.72))
+	# a bat crosses the moon every so often
+	var bt := fposmod(t, 23.0)
+	if bt < 4.0:
+		var bp := c + Vector2(lerpf(-2.2, 2.2, bt / 4.0) * r, sin(bt * 5.0) * r * 0.15 - r * 0.2)
+		_gc(self, bp, "^v^" if int(t * 8.0) % 2 == 0 else "vvv", Color(0.02, 0.0, 0.01), fs, bold)
+
+
+func _circle_poly(c: Vector2, r: float, n: int) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	for i in n:
+		out.append(c + Vector2.from_angle(TAU * i / n) * r)
+	return out
 
 
 # ---------------------------------------------------------------- cached layers
@@ -350,6 +407,9 @@ func _paint_mid(_ci: CanvasItem, _arg: Variant) -> void:
 ## glyphs every frame, so one item per layer would draw the whole level.
 func _build_bg_buckets() -> void:
 	for bk in _bg_buckets:
+		# the arrays are shared with the new level, so old buckets must not draw again
+		bk[0].visible = false
+		bk[0].fn = Callable()
 		bk[0].queue_free()
 	_bg_buckets.clear()
 	_bucket_layer(_far, _bd.far_pos, _bd.far_g, _bd.far_c, true)
