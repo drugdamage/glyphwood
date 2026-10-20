@@ -192,16 +192,6 @@ func _draw_play(vp: Vector2) -> void:
 	_draw_hint(vp)
 	_draw_boss(vp)
 	_draw_toasts(vp)
-	# the UI check skips the crosshair: it follows the real mouse, wherever that is
-	if game.aiming_with_mouse() and game.is_playing() and not game.menu.active() and not game.ui_check:
-		var m := get_viewport().get_mouse_position()
-		var c := Color(1.0, 0.92, 0.7, 0.9)
-		var fs := int(18 * u)
-		for d in [Vector2(-1, 0), Vector2(1, 0), Vector2(0, -1), Vector2(0, 1)]:
-			var g := "-" if d.y == 0.0 else "|"
-			var w := _width(g, fs, bold)
-			_text(m + d * 9.0 * u - Vector2(w * 0.5, -fs * 0.35), g, fs, c, bold)
-		draw_circle(m, 1.5 * u, c)
 
 
 func _bar(r: Rect2, f: float, col: Color, back: Color) -> void:

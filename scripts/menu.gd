@@ -169,14 +169,7 @@ func _fps_slider() -> Dictionary:
 	var hi := Settings.FPS_MAX + 1
 	var v: int = game.cfg.get_v("fps")
 	var pos := hi if v == 0 else clampi(v, lo, Settings.FPS_MAX)
-	var put := func(n: int) -> void:
-		var fps := 0 if n >= hi else clampi(n, lo, Settings.FPS_MAX)
-		game.set_setting("fps", fps)
-		# V-Sync caps frames at the display's refresh rate, so a higher limit would do nothing
-		var hz: int = game.refresh_rate()
-		if game.cfg.get_v("vsync") and hz > 0 and (fps == 0 or fps > hz):
-			game.set_setting("vsync", false)
-			_message(game.L("vsync_auto_off") % hz)
+	var put := func(n: int) -> void: game.set_setting("fps", 0 if n >= hi else clampi(n, lo, Settings.FPS_MAX))
 	var adj := func(dir: int) -> void: put.call(clampi(pos + dir, lo, hi))
 	var setf := func(f: float) -> void: put.call(int(round(lerpf(lo, hi, f))))
 	return {"type": "slider", "label": game.L("s_fps"), "frac": float(pos - lo) / (hi - lo), "value": game.L("fps_0") if v == 0 else str(v),

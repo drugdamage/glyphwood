@@ -141,6 +141,7 @@ var _ui_wait := 0
 var _ui_issues := {}
 var _zoo := false
 var _dts: Array = []
+var _crosshair_px := 0
 
 
 func _process(delta: float) -> void:
@@ -815,9 +816,40 @@ func _update_cursor() -> void:
 	var playing: bool = state == State.PLAY and not menu.active() and not player.dead and get_window().has_focus()
 	var want := Input.MOUSE_MODE_VISIBLE
 	if playing and _shot_path == "":
-		want = Input.MOUSE_MODE_CONFINED_HIDDEN if aiming_with_mouse() else Input.MOUSE_MODE_CONFINED
+		want = Input.MOUSE_MODE_CONFINED
 	if Input.mouse_mode != want:
 		Input.mouse_mode = want
+	_set_crosshair(playing and aiming_with_mouse())
+
+
+## The aiming crosshair is the system cursor, so the OS draws it at the
+## display's refresh rate with no lag, whatever the game's frame rate.
+func _set_crosshair(on: bool) -> void:
+	var px := int(round(36.0 * hud.u)) if on else 0
+	if px == _crosshair_px:
+		return
+	_crosshair_px = px
+	if not on:
+		Input.set_custom_mouse_cursor(null)
+		return
+	# macOS sizes cursors in points, so the image is drawn at points, not pixels
+	var n := clampi(int(round(px / maxf(1.0, DisplayServer.screen_get_scale()))), 16, 128)
+	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+	var c := n / 2
+	var th := maxi(1, n / 16)
+	var near := n * 5 / 32
+	var arm := n * 9 / 32
+	# four arms around a gap, and a dot in the middle
+	var arms: Array[Rect2i] = [
+		Rect2i(c - near - arm, c - th / 2, arm, th), Rect2i(c + near + 1, c - th / 2, arm, th),
+		Rect2i(c - th / 2, c - near - arm, th, arm), Rect2i(c - th / 2, c + near + 1, th, arm),
+		Rect2i(c - th / 2, c - th / 2, th, th),
+	]
+	for r in arms:
+		img.fill_rect(r.grow(1), Color(0.05, 0.02, 0.02, 0.85))
+	for r in arms:
+		img.fill_rect(r, Color(1.0, 0.92, 0.7))
+	Input.set_custom_mouse_cursor(ImageTexture.create_from_image(img), Input.CURSOR_ARROW, Vector2(c, c))
 
 
 ## Switching to another app pauses the game and frees the cursor.
