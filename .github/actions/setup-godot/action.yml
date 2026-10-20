@@ -65,7 +65,7 @@ runs:
         dest=~/.local/share/godot/export_templates/${{ inputs.version }}.stable
         mkdir -p "$dest"
         # Only keep the templates this project exports to (the full archive is ~1 GB).
-        unzip -q -j "$tmp/$file" \
+        unzip -o -q -j "$tmp/$file" \
           'templates/version.txt' \
           'templates/linux_*.x86_64' \
           'templates/windows_*_x86_64*.exe' \
