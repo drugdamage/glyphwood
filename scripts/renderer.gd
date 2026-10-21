@@ -15,6 +15,7 @@ const Backdrop := preload("res://scripts/backdrop.gd")
 const Items := preload("res://scripts/items.gd")
 const WeaponArt := preload("res://scripts/weapon_art.gd")
 const DecorArt := preload("res://scripts/decor_art.gd")
+const SpriteCache := preload("res://scripts/sprite_cache.gd")
 
 ## Tiles visible vertically at each zoom level.
 const ZOOMS := [30.0, 24.0, 19.0]
@@ -80,6 +81,9 @@ var lights: Array = []
 var _low := false
 var _shadow_key := ""
 var _shadow_polys: Array = []
+## Sprite frames turned into flat glyph lists once (sprite_cache.gd), keyed by the
+## hash of the frame and its colour map.
+var _compiled := {}
 
 
 func setup(g, f: Font, b: Font) -> void:
@@ -207,6 +211,11 @@ func clamp_cam(c: Vector2) -> Vector2:
 	c.x = size.x * 0.5 if size.x < half.x * 2.0 else clampf(c.x, half.x, size.x - half.x)
 	c.y = size.y * 0.5 if size.y < half.y * 2.0 else clampf(c.y, half.y, size.y - half.y)
 	return c
+
+
+## The size of the view in world units.
+func view_size() -> Vector2:
+	return vp / s if s > 0.0 else Vector2(1280, 800)
 
 
 func screen_to_world(p: Vector2) -> Vector2:
@@ -369,21 +378,36 @@ func _index_chunk(k: Vector2i) -> void:
 ## Tiles outside [r] keep their depth and feed the edge of the region.
 func _compute_depth(r: Rect2i) -> void:
 	var lv = game.lv
-	if _depth.size() != lv.w * lv.h:
-		_depth.resize(lv.w * lv.h)
+	var w: int = lv.w
+	var h: int = lv.h
+	if _depth.size() != w * h:
+		_depth.resize(w * h)
+	var tiles: PackedByteArray = lv.tiles
 	for y in range(r.position.y, r.end.y):
 		for x in range(r.position.x, r.end.x):
-			var i: int = y * lv.w + x
-			var tt: int = lv.tiles[i]
+			var i: int = y * w + x
+			var tt: int = tiles[i]
 			_depth[i] = 9 if (tt == Level.SOLID or tt == Level.CRACKED) else 0
-	for pass_i in 4:
-		for y in range(r.position.y, r.end.y):
-			for x in range(r.position.x, r.end.x):
-				var i: int = y * lv.w + x
-				if _depth[i] == 0:
-					continue
-				var m := mini(mini(_dget(x - 1, y), _dget(x + 1, y)), mini(_dget(x, y - 1), _dget(x, y + 1)))
-				_depth[i] = mini(9, m + 1)
+	# distance to the nearest open tile (capped at 9) in two sweeps: from the
+	# top left, then from the bottom right; outside the level counts as rock
+	for y in range(r.position.y, r.end.y):
+		for x in range(r.position.x, r.end.x):
+			var i: int = y * w + x
+			var d: int = _depth[i]
+			if d == 0:
+				continue
+			var l: int = _depth[i - 1] if x > 0 else 9
+			var u: int = _depth[i - w] if y > 0 else 9
+			_depth[i] = mini(d, mini(l, u) + 1)
+	for y in range(r.end.y - 1, r.position.y - 1, -1):
+		for x in range(r.end.x - 1, r.position.x - 1, -1):
+			var i: int = y * w + x
+			var d: int = _depth[i]
+			if d == 0:
+				continue
+			var rr: int = _depth[i + 1] if x < w - 1 else 9
+			var dn: int = _depth[i + w] if y < h - 1 else 9
+			_depth[i] = mini(d, mini(rr, dn) + 1)
 
 
 func _dget(x: int, y: int) -> int:
@@ -772,7 +796,7 @@ func _paint_dynamic_inner() -> void:
 	var vc := _view_chunks()
 	_draw_ceiling_decor(b, view, vc)
 	_draw_torches(b, view, vc)
-	_draw_door(b)
+	_draw_door(b, view)
 	_draw_props(view)
 	_draw_tiles_dynamic(b, tl, br)
 	_draw_items(view)
@@ -986,10 +1010,10 @@ func _draw_torches(b: Dictionary, view: Rect2, vc: Array) -> void:
 			_glyph(tp + Vector2(-fl * 0.8, -D.GH * 1.4), "'" if fl > 0.3 else ".", _mul(fc, 0.8), 1.0, bold)
 
 
-func _draw_door(b: Dictionary) -> void:
+func _draw_door(b: Dictionary, view: Rect2) -> void:
 	var lv = game.lv
 	var r: Rect2 = lv.door
-	if r.size == Vector2.ZERO or not lv.door_open:
+	if r.size == Vector2.ZERO or not lv.door_open or not view.grow(D.TILE * 2.0).intersects(r):
 		return
 	var def: Dictionary = S.PROPS.door
 	var foot := Vector2(r.get_center().x, r.end.y)
@@ -1340,37 +1364,40 @@ static func _tangent_glyph(a: float) -> String:
 ## fr is either an Array of rows or {"g": rows, "m": palette masks}.
 func _sprite(fr: Variant, foot: Vector2, facing: int, pal: Array, cmap: Dictionary, anchor: float,
 		tint: Color = Color(1, 1, 1), ghost: bool = false, flash: bool = false, sc: float = 1.0) -> void:
-	var rows: Array = fr.g if fr is Dictionary else fr
-	var masks: Array = fr.m if fr is Dictionary else []
-	var n := rows.size()
+	var key: int = fr.hash() + 31 * cmap.hash() + int(anchor * 8.0)
+	var cs: Array = _compiled.get(key, [])
+	if cs.is_empty():
+		cs = SpriteCache.compile(fr, cmap, anchor)
+		_compiled[key] = cs
+	var dx: PackedFloat32Array = cs[0]
+	var dy: PackedFloat32Array = cs[1]
+	var chars: PackedStringArray = cs[2] if facing >= 0 else cs[3]
+	var pidx: PackedInt32Array = cs[4]
 	var dir := 1.0 if facing >= 0 else -1.0
-	for i in n:
-		var line: String = rows[i]
-		var mask: String = masks[i] if i < masks.size() else ""
-		var y := foot.y - ((n - 1 - i) * D.GH + D.GH * 0.5) * sc
-		for j in line.length():
-			var ch := line[j]
-			if ch == " ":
-				continue
-			if dir < 0.0:
-				ch = S.MIRROR.get(ch, ch)
-			var col: Color
-			if ghost:
-				col = tint
-			elif flash:
-				col = Color(1, 1, 1)
-			else:
-				var pidx := 0
-				if mask != "" and j < mask.length() and mask[j] != " ":
-					pidx = int(mask[j])
-				elif cmap.has(line[j]):
-					pidx = cmap[line[j]]
-				col = pal[mini(pidx, pal.size() - 1)] * tint
-				col.a = tint.a
-			var wp := Vector2(foot.x + (j - anchor) * D.GW * sc * dir, y)
-			if not ghost:
-				_glyph(wp, ch, Color(0, 0, 0, 0.75 * col.a), 1.12 * sc, null, Vector2(1.5, 1.5) * sc)
-			_glyph(wp, ch, col, 1.12 * sc)
+	var size := maxi(4, int(fs * 1.12 * sc))
+	var key_w := size * 2 + 1
+	var w: float = _adv_cache.get(key_w, -1.0)
+	if w < 0.0:
+		w = bold.get_char_size("M".unicode_at(0), size).x
+		_adv_cache[key_w] = w
+	# glyph centre -> baseline origin, and the drop shadow offset, in screen pixels
+	var org := sp(foot) + Vector2(-w * 0.5, size * 0.36)
+	var step := Vector2(D.GW * sc * dir * s, D.GH * sc * s)
+	var shadow := Vector2(1.5, 1.5) * sc
+	var last := pal.size() - 1
+	for k in chars.size():
+		var col: Color
+		if ghost:
+			col = tint
+		elif flash:
+			col = Color(1, 1, 1)
+		else:
+			col = pal[mini(pidx[k], last)] * tint
+			col.a = tint.a
+		var at := org + Vector2(dx[k] * step.x, -dy[k] * step.y)
+		if not ghost:
+			_dyn.draw_char(bold, at + shadow, chars[k], size, Color(0, 0, 0, 0.75 * col.a))
+		_dyn.draw_char(bold, at, chars[k], size, col)
 
 
 # ---------------------------------------------------------------- lights

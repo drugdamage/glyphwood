@@ -49,6 +49,8 @@ static func interact(g, pr: Dictionary) -> void:
 			g.open_shop(pr)
 		"sign":
 			g.read_sign(pr)
+		"door":
+			g.descend()
 
 
 static func open_chest(g, pr: Dictionary) -> void:

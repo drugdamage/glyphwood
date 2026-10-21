@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-21
+
+### Changed
+
+- **The exit is entered on purpose.** Walking into an open portal no longer
+  takes you down at once: stand in it and press Interact (E, gamepad B) or Up.
+  A "Descend" prompt shows above it, so you can't fall through by accident
+  while fighting or looting near the door.
+- **Gothic weapons.** Every weapon in the hand was redrawn: arming swords with
+  drooping quillons, a red gem and a wheel pommel; a wavy flamberge; a winged
+  partisan with a blood-red tassel; a flanged mace; a rondel dagger; a
+  dark-steel katana; a swept-hilt rapier; a bone scythe bound with a skull; a
+  halberd and a headsman's axe with a cross cut through the blade. The
+  inventory icons follow the same style.
+
+### Performance
+
+- Foes far outside the view sleep until you come near (bosses and foes that
+  have already seen you never do), so deep, crowded levels simulate about a
+  third as much each frame.
+- Glyph sprites are turned into flat lists once and reused, instead of being
+  parsed from text every frame: drawing the hero and foes costs about 20% less.
+- Level loading is more than twice as fast (about 150 ms down to about 60 ms on
+  the biggest levels): the wall-depth shading is computed in two sweeps instead
+  of four slow passes.
+- The exit door is no longer drawn when it is off screen.
+
 ## [0.9.0] - 2026-10-21
 
 ### Added
@@ -385,7 +412,8 @@ First public release.
 - Bundled DejaVu Sans Mono font, used in the Web build (where system fonts are
   unavailable) and as a fallback for glyphs missing from the system font.
 
-[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/drugdamage/glyphwood/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/drugdamage/glyphwood/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/drugdamage/glyphwood/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/drugdamage/glyphwood/compare/v0.6.3...v0.7.0

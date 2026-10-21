@@ -31,6 +31,8 @@ enum State { TITLE, PLAY }
 
 ## Longest single simulation step; longer frames are split (see _step_frame).
 const STEP_MAX := 1.0 / 120.0
+## Foes outside this many view sizes around the camera are not simulated.
+const SLEEP_MARGIN := 2.2
 
 ## The 0.4.0 single save; moved into the first world slot on start.
 const RUN_PATH := "user://run.cfg"
@@ -760,6 +762,11 @@ func hit_damage() -> float:
 	return 14.0 * (1.0 + 0.1 * D.depth(level_num)) * diff().dmg
 
 
+## Goes through the open exit (the hero chose to: see _step_play).
+func descend() -> void:
+	_next_level()
+
+
 func combo_hit() -> void:
 	hit_combo += 1
 	combo_t = 1.8
@@ -986,9 +993,14 @@ func _step_play(dt: float) -> void:
 	run_time += dt
 	level_time += dt
 	Hero.update(self, player, sdt)
+	var tf := Time.get_ticks_usec()
+	# foes far outside the view sleep until the hero comes near (bigger levels
+	# hold a hundred of them); bosses and foes that have seen the hero never do
+	var awake := Rect2(cam - world.view_size() * SLEEP_MARGIN * 0.5, world.view_size() * SLEEP_MARGIN)
 	for e in enemies.duplicate():
-		if enemies.has(e):
+		if enemies.has(e) and (e.boss or e.aggro or awake.has_point(e.pos)):
 			Foes.update(self, e, sdt)
+	prof_add("foes", tf)
 	Combat.update_projectiles(self, sdt)
 	Combat.update_hazards(self, sdt)
 	Combat.update_shards(self, sdt)
@@ -997,19 +1009,22 @@ func _step_play(dt: float) -> void:
 	Props.update_arenas(self)
 	Props.update_lanterns(self)
 	near = Props.nearest(self)
+	# the open exit is entered on purpose (interact or up), never by walking past
+	if near.is_empty() and lv.door_open and lv.door.grow(4.0).has_point(Physics.center(player)) and not player.dead:
+		near = {"kind": "door", "pos": Vector2(lv.door.get_center().x, lv.door.end.y - 14.0)}
 	if not near.is_empty() and (ctl.just.interact or (ctl.just.up and not ctl.held.attack and near.kind != "sign")):
 		Props.interact(self, near)
 	Combat.update_particles(self, sdt)
 	_update_effects(sdt)
 	_update_camera(dt)
+	var tm := Time.get_ticks_usec()
 	_mark_rooms()
 	hint = Hints.update(self, dt)
+	prof_add("rooms_hints", tm)
 	if player.dead:
 		dying_t -= dt
 		if dying_t <= 0.0:
 			_respawn()
-	elif lv.door_open and lv.door.has_point(Physics.center(player)):
-		_next_level()
 
 
 func _mark_rooms() -> void:
@@ -1311,4 +1326,4 @@ func _bot_input() -> void:
 			held.down = d.y > 24.0 and not p.on_floor
 			break
 	held.dash = fmod(_bot_t, 2.3) < 0.02
-	held.interact = not near.is_empty() and near.kind == "chest" and fmod(_bot_t, 0.5) < 0.05
+	held.interact = not near.is_empty() and near.kind in ["chest", "door"] and fmod(_bot_t, 0.5) < 0.05

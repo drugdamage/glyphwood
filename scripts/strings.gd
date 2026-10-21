@@ -31,6 +31,7 @@ const STRINGS := {
 	"act_chest": ["Open", "Öffnen", "Открыть", "打开", "Abrir", "Ouvrir", "開ける"],
 	"act_shop": ["Trade", "Handeln", "Торговать", "交易", "Comerciar", "Commercer", "取引"],
 	"act_sign": ["Read", "Lesen", "Читать", "阅读", "Leer", "Lire", "読む"],
+	"act_door": ["Descend", "Hinabsteigen", "Спуститься", "下行", "Descender", "Descendre", "降りる"],
 	"best": [
 		"Deepest level %d · Best hero level %d · Best combo %d",
 		"Tiefste Ebene %d · Beste Heldenstufe %d · Beste Kombo %d",
