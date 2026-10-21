@@ -3,7 +3,7 @@
 ## device (so hints show the right buttons and the mouse can aim).
 extends RefCounted
 
-const ACTIONS := ["left", "right", "up", "down", "jump", "attack", "dash", "throw", "interact", "inventory", "map", "pause"]
+const ACTIONS := ["left", "right", "up", "down", "jump", "attack", "dash", "throw", "interact", "inventory", "map", "skills", "pause"]
 
 ## Two rebindable slots per action. "k:<physical keycode>" or "m:<mouse button>".
 const DEFAULTS := {
@@ -18,6 +18,7 @@ const DEFAULTS := {
 	"interact": ["k:%d" % KEY_E, ""],
 	"inventory": ["k:%d" % KEY_TAB, "k:%d" % KEY_I],
 	"map": ["k:%d" % KEY_M, ""],
+	"skills": ["k:%d" % KEY_T, ""],
 	"pause": ["k:%d" % KEY_ESCAPE, "k:%d" % KEY_P],
 }
 
@@ -34,6 +35,7 @@ const PAD := {
 	"interact": [[JOY_BUTTON_B], []],
 	"inventory": [[JOY_BUTTON_BACK], []],
 	"map": [[JOY_BUTTON_RIGHT_STICK], []],
+	"skills": [[JOY_BUTTON_LEFT_SHOULDER], []],
 	"pause": [[JOY_BUTTON_START], []],
 }
 
@@ -149,6 +151,14 @@ func latch() -> void:
 		just[a] = held[a] and not _prev[a]
 		released[a] = _prev[a] and not held[a]
 		_prev[a] = held[a]
+
+
+## Presses and releases count once per frame: later steps of the same frame
+## (see main._step_frame) see the keys as held only.
+func consume_presses() -> void:
+	for a in ACTIONS:
+		just[a] = false
+		released[a] = false
 
 
 ## Tracks which kind of device was used last.

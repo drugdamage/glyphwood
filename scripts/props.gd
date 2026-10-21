@@ -156,7 +156,7 @@ static func _gates(g, ar: Dictionary, close: bool) -> void:
 		g.lv.set_t(t.x, t.y, Level.GATE if close else Level.AIR)
 	g.sfx("gate")
 	g.shake_add(4.0)
-	g.lv_changes += 1
+	g.tiles_changed(ar.gates, false)
 	ar.closed = close
 
 

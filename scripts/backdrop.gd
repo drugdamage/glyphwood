@@ -33,13 +33,16 @@ func generate(b: Dictionary, size: Vector2, seed_v: int) -> void:
 	mid_c.clear()
 	var far_ext := Rect2(-720, -320, size.x * FAR + 1440, size.y * FAR + 640)
 	var mid_ext := Rect2(-720, -320, size.x * MID + 1440, size.y * MID + 640)
-	match b.id:
+	match b.look:
 		"wood":
 			_ridge(b, far_ext, "/\\^", ".:'")
 			_spires(b)
 			_trees(b, mid_ext)
 		"hollow":
 			_cavern(b, far_ext)
+			_pillars(b, mid_ext, false)
+		"crypt":
+			_ridge(b, far_ext, "/\\^", "*.:")
 			_pillars(b, mid_ext, false)
 		_:
 			_ridge(b, far_ext, "/\\^", ".,:")

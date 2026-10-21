@@ -468,7 +468,7 @@ func _arena(r: Dictionary, boss: bool) -> void:
 			gates.append(Vector2i(x0 + x, y0 + f[x]))
 	var waves: Array = []
 	if boss:
-		var lift := Vector2(0, 90) if biome.boss == "wraith" else Vector2.ZERO
+		var lift := Vector2(0, 90) if D.ENEMIES[biome.boss].fly else Vector2.ZERO
 		waves.append([{"kind": biome.boss, "pos": _foot(x0 + RW / 2, y0 + D.EDGE_FLOOR) - lift, "elite": false}])
 	else:
 		for wv in 2 + (1 if _level > 2 else 0):
@@ -579,9 +579,14 @@ func _decorate(r: Dictionary) -> void:
 		"wood": ["grave", "cross", "fern", "rock", "grave", "skull", "candle"],
 		"hollow": ["skull", "bones", "candle", "grave", "rock", "candle"],
 		"ember": ["bones", "skull", "vent", "crystal", "rock", "cross"],
+		"mire": ["reeds", "stump", "skull", "reeds", "gallows", "rock", "candle", "reeds"],
+		"cathedral": ["pew", "candelabra", "bones", "font", "candle", "urn", "pew"],
+		"crypt": ["sarcophagus", "ice", "skull", "urn", "crystal", "bones", "ice"],
 	}[bid]
 	var ceil_kinds: Array = {
 		"wood": ["vine", "root", "web"], "hollow": ["chain", "web", "chain", "stalactite"], "ember": ["stalactite", "chain"],
+		"mire": ["noose", "vine", "root", "noose"], "cathedral": ["chain", "banner", "web", "banner"],
+		"crypt": ["icicle", "chain", "icicle", "web"],
 	}[bid]
 	for x in range(2, RW - 2):
 		var tx: int = r.x0 + x

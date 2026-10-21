@@ -8,6 +8,11 @@
 ##   wisp     drifts through walls toward the player
 ##   archer   keeps its distance and lobs arrows
 ##   bomber   runs at the player, lights its fuse and explodes
+##   toad     bog toad: leaps like a ghoul and spits bile in an arc
+##   hanged   hangs from the ceiling on a rope and drops on whoever passes below
+##   choir    a floating choir skull that sings slow fans of bell notes
+##   penitent flagellant: winds up, then whirls at the player with its scourge
+##   wight    frost wight: keeps its distance and throws shards that chill
 ## Bosses are handled in boss.gd.
 extends RefCounted
 
@@ -38,7 +43,7 @@ static func create(kind: String, foot: Vector2, level_num: int, rng: RandomNumbe
 		"hp": hp, "max_hp": hp, "dir": -1 if rng.randf() < 0.5 else 1,
 		"flash": 0.0, "stun": 0.0, "state": "idle", "t": rng.randf_range(0.5, 1.5), "t2": 0.0,
 		"anim": rng.randf() * 3.0, "home": foot - Vector2(0, size.y * 0.5), "aggro": false,
-		"burn": 0.0, "thorn_t": 0.0, "phase": 1, "fly": def.fly,
+		"burn": 0.0, "thorn_t": 0.0, "phase": 1, "fly": def.fly, "chill": 0.0,
 	}
 
 
@@ -57,6 +62,22 @@ static func frame(e: Dictionary) -> Variant:
 			anim = "guard" if e.state == "guard" else "move"
 		"archer":
 			anim = "aim" if e.state == "aim" else "move"
+		"toad":
+			anim = "idle" if e.on_floor else "jump"
+		"hanged":
+			anim = "hang" if e.state == "hang" else "move"
+		"choir":
+			anim = "sing" if e.state == "sing" else "move"
+		"penitent":
+			anim = "whirl" if e.state in ["tele", "whirl"] else "move"
+		"wight":
+			anim = "aim" if e.state == "aim" else "move"
+		"hangman":
+			anim = "raise" if e.state in ["raise", "hook", "crouch"] else "move"
+		"abbess":
+			anim = "cast" if e.state in ["hymn", "light", "tele"] else "move"
+		"frost_king":
+			anim = "raise" if e.state in ["raise", "breath"] else "move"
 		"warden":
 			anim = "crouch" if e.state in ["crouch", "spores"] else "move"
 		"wraith":
@@ -65,12 +86,16 @@ static func frame(e: Dictionary) -> Variant:
 			anim = "raise" if e.state in ["raise", "slam"] else "move"
 	var frames: Array = def.get(anim, def.get("move", def.get("idle")))
 	var speed := 8.0 if e.fly else 5.0
-	if e.kind != "hopper" and absf(e.vel.x) < 1.0 and not e.fly and frames.size() > 1:
+	if e.kind not in ["hopper", "toad"] and absf(e.vel.x) < 1.0 and not e.fly and frames.size() > 1:
 		return frames[0]
 	return frames[int(e.anim * speed) % frames.size()]
 
 
 static func update(g, e: Dictionary, dt: float) -> void:
+	# a chilled foe (Frost Crown) moves and thinks at a slower pace
+	if e.chill > 0.0:
+		e.chill -= dt
+		dt *= 0.75 if e.boss else 0.55
 	e.anim += dt
 	e.flash = maxf(0.0, e.flash - dt)
 	e.stun = maxf(0.0, e.stun - dt)
@@ -149,6 +174,105 @@ static func update(g, e: Dictionary, dt: float) -> void:
 
 		"knight":
 			_knight(g, e, lv, dt, to_p, speed)
+
+		"toad":
+			e.t -= dt
+			if e.on_floor:
+				e.vel.x = move_toward(e.vel.x, 0.0, 900.0 * dt)
+				if e.t <= 0.0 and to_p.length() < 260.0 and not p.dead and e.stun <= 0.0:
+					e.dir = 1 if to_p.x > 0.0 else -1
+					if g.rng.randf() < 0.45:
+						_shoot_arc(g, e, Physics.center(p), "bile")
+						e.t = 1.4
+					else:
+						e.vel = Vector2(e.dir * speed * g.rng.randf_range(0.8, 1.2), -300.0)
+						e.t = g.rng.randf_range(0.8, 1.3)
+			e.vel.y = minf(e.vel.y + GRAVITY * dt, 500.0)
+			Physics.move(e, lv, dt)
+
+		"hanged":
+			_hanged(g, e, lv, dt, to_p, speed)
+
+		"choir":
+			e.t -= dt
+			if not e.aggro and to_p.length() < 220.0 and not p.dead:
+				e.aggro = true
+			var bob := Vector2(sin(e.anim * 1.7) * 18.0, cos(e.anim * 2.3) * 12.0)
+			var goal: Vector2 = e.home + bob
+			if e.aggro and not p.dead:
+				goal = Physics.center(p) + Vector2(-signf(to_p.x) * 110.0, -70.0) + bob
+			_fly(e, lv, dt, (goal - Physics.center(e)).limit_length(speed * 2.0), true)
+			if e.aggro and e.t <= 0.0 and e.state != "sing":
+				e.state = "sing"
+				e.t = 0.6
+				g.sfx("tele", -10.0, 1.6)
+			elif e.state == "sing" and e.t <= 0.0:
+				var aim := to_p.angle()
+				for k in 3:
+					var a := aim + (k - 1) * 0.3
+					g.fire(Physics.center(e), Vector2(cos(a), sin(a)) * 110.0, "enemy", 1, 0.0, "bell")
+				g.sfx("bell", -12.0, 1.8)
+				e.state = "idle"
+				e.t = 2.4
+
+		"penitent":
+			e.t -= dt
+			match e.state:
+				"tele":
+					e.vel.x = 0.0
+					if e.t <= 0.0:
+						e.state = "whirl"
+						e.t = 0.8
+				"whirl":
+					e.vel.x = e.dir * 230.0
+					if not Physics.ground_ahead(e, lv, e.dir) or e.on_wall != 0:
+						e.vel.x = 0.0
+					if e.t <= 0.0:
+						e.state = "rest"
+						e.t = 1.0
+				"rest":
+					e.vel.x = move_toward(e.vel.x, 0.0, 900.0 * dt)
+					if e.t <= 0.0:
+						e.state = "idle"
+				_:
+					if sees and absf(to_p.x) < 130.0 and e.t <= 0.0 and e.on_floor:
+						e.state = "tele"
+						e.t = 0.45
+						e.dir = 1 if to_p.x > 0.0 else -1
+						g.sfx("tele", -6.0, 0.8)
+					elif e.stun <= 0.0:
+						e.vel.x = e.dir * speed
+						if e.on_wall != 0 or (e.on_floor and not Physics.ground_ahead(e, lv, e.dir)):
+							e.dir = -e.dir
+			if e.stun > 0.0:
+				e.vel.x = move_toward(e.vel.x, 0.0, 600.0 * dt)
+			e.vel.y = minf(e.vel.y + GRAVITY * dt, 500.0)
+			Physics.move(e, lv, dt)
+
+		"wight":
+			e.t -= dt
+			if sees and e.on_floor:
+				e.dir = 1 if to_p.x > 0.0 else -1
+				if e.state != "aim" and absf(to_p.x) < 70.0 and Physics.ground_ahead(e, lv, -e.dir):
+					e.vel.x = -e.dir * speed
+				elif e.state != "aim" and e.t <= 0.0:
+					e.state = "aim"
+					e.t = 0.6
+					e.vel.x = 0.0
+				elif e.state != "aim":
+					e.vel.x = move_toward(e.vel.x, 0.0, 600.0 * dt)
+				if e.state == "aim" and e.t <= 0.0:
+					var from: Vector2 = Physics.center(e) + Vector2(e.dir * 8.0, -6.0)
+					g.fire(from, (Physics.center(p) - from).normalized() * 190.0, "enemy", 1, 0.0, "frost")
+					g.sfx("throw", -8.0, 1.4)
+					e.state = "idle"
+					e.t = 2.0
+				e.vel.y = minf(e.vel.y + GRAVITY * dt, 500.0)
+				Physics.move(e, lv, dt)
+			else:
+				if e.state == "aim":
+					e.state = "idle"
+				_ground(e, lv, dt, speed * 0.6)
 
 		"shield":
 			e.t -= dt
@@ -288,15 +412,46 @@ static func _knight(g, e: Dictionary, lv, dt: float, to_p: Vector2, speed: float
 	Physics.move(e, lv, dt)
 
 
+## Hangs on a rope until someone walks below, drops, then hunts on foot.
+static func _hanged(g, e: Dictionary, lv, dt: float, to_p: Vector2, speed: float) -> void:
+	if e.state == "idle":
+		# find the ceiling above the spawn point and string it up there
+		var tx := int(floor(Physics.center(e).x / D.TILE))
+		var ty := int(floor(e.pos.y / D.TILE))
+		var top := -1
+		for k in range(1, 9):
+			if lv.solid(tx, ty - k):
+				top = ty - k
+				break
+		if top < 0:
+			e.state = "walk"
+		else:
+			e.rope_y = (top + 1) * D.TILE
+			e.pos.y = e.rope_y + 18.0
+			e.state = "hang"
+		return
+	if e.state == "hang":
+		e.vel = Vector2.ZERO
+		e.pos.x += sin(e.anim * 1.4) * 4.0 * dt
+		if (absf(to_p.x) < 46.0 and to_p.y > 0.0 and to_p.y < 190.0 and not g.player.dead) or e.flash > 0.0:
+			e.state = "walk"
+			e.aggro = true
+			g.sfx("tele", -6.0, 0.6)
+		return
+	if e.aggro and e.on_floor and e.stun <= 0.0:
+		e.dir = 1 if to_p.x > 0.0 else -1
+	_ground(e, lv, dt, speed * (1.5 if e.aggro else 1.0), not e.aggro)
+
+
 ## Fires an arrow on a ballistic arc that lands near the target.
-static func _shoot_arc(g, e: Dictionary, target: Vector2) -> void:
+static func _shoot_arc(g, e: Dictionary, target: Vector2, kind: String = "arrow") -> void:
 	var from: Vector2 = Physics.center(e) + Vector2(e.dir * 8.0, -6.0)
 	var grav := 500.0
 	var d := target - from
 	var tt := clampf(absf(d.x) / 230.0, 0.35, 1.3)
 	var v := Vector2(d.x / tt, d.y / tt - 0.5 * grav * tt)
-	g.fire(from, v, "enemy", 1, grav, "arrow")
-	g.sfx("throw", -8.0, 0.7)
+	g.fire(from, v, "enemy", 1, grav, kind)
+	g.sfx("throw" if kind == "arrow" else "splash", -8.0, 0.7)
 
 
 ## True if a hit from this direction is blocked by the shield.

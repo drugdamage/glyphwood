@@ -40,10 +40,13 @@ godot --path . -- --play --bot --seed=42 --level=2 --time=10 --shot=out.png
 | `--level=N` | Start at level N (two levels per biome; even levels end with a boss) |
 | `--boss` | Start next to the boss arena (with an even `--level`) |
 | `--zoo` | Spawn one enemy of every type next to the start |
-| `--menu=NAME` | Open a menu: `settings`, `inventory`, `map`, `pause`, `shop`, `moves`, `worlds`, `new_world` |
+| `--menu=NAME` | Open a menu: `settings`, `inventory`, `map`, `pause`, `shop`, `sell`, `moves`, `skills`, `worlds`, `new_world` |
+| `--hero=N` | Start with a hero of level N (N - 1 skill points) |
+| `--skills=a,b` | Learn these skill tree nodes at the start, e.g. `quake,edge,edge` |
+| `--equip=a,b` | Give and equip these items at the start, e.g. `grave_maul,bone_boomerang` |
 | `--tab=N` | Settings tab to open (0 game, 1 video, 2 audio, 3 controls) |
 | `--lang=CODE` | Interface language: `en`, `de`, `ru`, `zh`, `es`, `fr`, `ja` |
-| `--shot=file.png` | Save a screenshot after `--time` seconds, then quit |
+| `--shot=file.png` | Save a screenshot after `--time` seconds, print frame timings per section, then quit |
 | `--time=S` | Delay for `--shot` (default 1 s) |
 | `--record=dir` | Save every third frame as PNG into `dir` |
 | `--nopost` | Disable the post-processing shader |
@@ -86,8 +89,12 @@ enforced by `gdlint` with the settings in [`.gdlintrc`](.gdlintrc).
   introducing nodes per entity.
 - Static data lives in its own scripts: world constants, biomes, enemy stats and
   hand-made rooms in `scripts/data.gd`, ASCII art in `scripts/sprites.gd`, items
-  in `scripts/items.gd`. Behaviour lives in the other scripts.
-- Any user-visible text goes into `scripts/strings.gd` with **all seven**
+  in `scripts/items.gd`, the skill tree in `scripts/skills.gd`. Behaviour lives
+  in the other scripts.
+- Keep every script under 1500 lines (gdlint checks it): drawing helpers that
+  grow large move into their own file, like `weapon_art.gd` and `decor_art.gd`.
+- Any user-visible text goes into `scripts/strings.gd` (or `scripts/strings_more.gd`
+  once the first is full) with **all seven**
   translations (English, German, Russian, Chinese, Spanish, French, Japanese) and is read
   with `L("key")`. If you can't translate, copy the English text and say so in
   the PR.
@@ -149,7 +156,8 @@ Not comfortable with code? Use the **New room** issue form and paste your
    `Physics.move()` for collision, `e.state` / `e.t` for a small state machine,
    `g.fire()` to shoot, and respect `e.stun` so hits feel right. Document the
    behaviour in the comment at the top of the file.
-4. **Spawning** – add the kind to a biome's `foes` list in `scripts/data.gd`.
+4. **Spawning** – add the kind to a biome's `foes` list in `scripts/data.gd`
+   (and to the `--zoo` list in `_build_level()` in `scripts/main.gd`).
 5. **Telegraphs** – extra visual tells (like the knight's `!`) belong in
    `_draw_enemy()` in `scripts/renderer.gd`.
 

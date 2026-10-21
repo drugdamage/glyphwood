@@ -19,7 +19,14 @@ const SHOT_LOOK := {
 	"orb": ["o", Color(0.7, 0.85, 1.0)], "arrow": ["-", Color(0.9, 0.8, 0.6)], "spore": ["@", Color(0.6, 1.0, 0.4)],
 	"wave": ["^", Color(0.7, 1.0, 0.5)], "rock": ["o", Color(0.7, 0.55, 0.45)], "ember": ["*", Color(1.0, 0.55, 0.2)],
 	"knife": ["»", Color(0.65, 0.75, 1.0)], "shot": ["*", Color(1.0, 0.55, 0.4)],
+	"boomerang": ["<", Color(0.92, 0.86, 0.72)], "chakram": ["✶", Color(0.6, 0.95, 0.55)], "flask": ["ò", Color(0.55, 0.9, 0.3)],
+	"hwave": ["^", Color(1.0, 0.8, 0.55)], "frost": ["*", Color(0.7, 0.9, 1.0)], "bell": ["o", Color(0.95, 0.8, 0.45)],
+	"bile": ["@", Color(0.55, 0.8, 0.3)], "hook": ["J", Color(0.72, 0.72, 0.78)], "noose": ["O", Color(0.7, 0.62, 0.45)],
 }
+## Thrown weapon item -> projectile kind.
+const THROW_KIND := {"ink_knife": "knife", "bone_boomerang": "boomerang", "thorn_chakram": "chakram", "bile_flask": "flask"}
+## Every TOLL_EVERY melee hit rings the Funeral Bell for triple damage.
+const TOLL_EVERY := 5
 
 
 # ---------------------------------------------------------------- melee
@@ -46,17 +53,29 @@ static func attack_hits(g, p: Dictionary, box: Rect2) -> void:
 			crit_bonus = 0.1
 		"rise":
 			mult = 1.5
+	mult *= damage_bonus(p)
 	for e in g.enemies.duplicate():
 		if p.atk_hit.has(e.id) or (e.kind == "wisp" and _wisp_hidden(e)):
 			continue
 		if box.intersects(Physics.rect(e)):
 			p.atk_hit[e.id] = true
-			# the lunge and the finisher break through shields
-			if Foes.blocks(e, Physics.center(p).x, p.atk_kind) and not (finisher or p.atk_kind == "lunge"):
+			# the lunge, the finisher and crushing weapons break through shields
+			if Foes.blocks(e, Physics.center(p).x, p.atk_kind) and not (finisher or p.atk_kind == "lunge" or st.crush):
 				blocked = true
 				e.flash = 0.05
 				continue
-			hurt_enemy(g, e, st.dmg * st.dmg_mult * mult, kdir, true, crit_bonus)
+			var m := mult
+			if st.toll > 0:
+				p.toll_n += 1
+				if p.toll_n % TOLL_EVERY == 0:
+					m *= 3.0
+					g.sfx("bell", -4.0, 1.4)
+					burst(g, Physics.center(e), ["o", "O", "·"], Color(0.95, 0.8, 0.45), 10, 140.0)
+			hurt_enemy(g, e, st.dmg * st.dmg_mult * m, kdir, true, crit_bonus)
+			if g.enemies.has(e) and st.chill:
+				e.chill = 2.0
+			if g.enemies.has(e) and st.crush and not e.boss:
+				e.stun = maxf(e.stun, 0.5)
 			if g.enemies.has(e) and not e.boss:
 				if p.atk_kind == "rise" and not e.fly:
 					e.vel.y = -380.0
@@ -64,7 +83,7 @@ static func attack_hits(g, p: Dictionary, box: Rect2) -> void:
 				elif finisher or p.atk_kind == "lunge":
 					e.vel.x = p.facing * 320.0
 					e.stun = 0.45
-			p.ink = minf(Hero.MAX_INK, p.ink + INK_PER_HIT * st.ink_gain)
+			p.ink = minf(Hero.MAX_INK, p.ink + INK_PER_HIT * st.ink_gain * st.ink_hit)
 			if st.burn:
 				e.burn = 2.1
 			hit_any = true
@@ -92,13 +111,26 @@ static func attack_hits(g, p: Dictionary, box: Rect2) -> void:
 		g.hitstop = maxf(g.hitstop, 0.08 if (finisher or p.atk_kind == "lunge") else 0.05)
 		g.shake_add(5.0 if finisher else 2.5)
 		if p.atk_kind == "down":
+			p.slam = false
 			p.vel.y = -Hero.POGO
 			p.air_dash = true
-			p.air_jumps = 1 if st.double_jump else 0
+			p.air_jumps = st.air_jumps
 			p.dash_cd = 0.0
 			g.sfx("pogo", -4.0)
 		elif p.atk_kind == "side" and not p.on_floor:
 			p.vel.y = minf(p.vel.y, 0.0)
+
+
+## Damage multiplier from the hero's state: Blood Rosary and Last Stand at low health.
+static func damage_bonus(p: Dictionary) -> float:
+	var st: Dictionary = p.st
+	var low: bool = p.hp <= p.max_hp * 0.35
+	var m := 1.0
+	if low:
+		m *= st.rage
+		if st.last_stand:
+			m *= 1.2
+	return m
 
 
 static func break_tiles(g, list: Array) -> void:
@@ -108,18 +140,22 @@ static func break_tiles(g, list: Array) -> void:
 		burst(g, c, ["%", "#", ".", ","], g.biome.edge, 6, 110.0)
 	g.sfx("crumble")
 	g.shake_add(3.0)
-	g.lv_changes += 1
-	g.world.tiles_changed(list)
+	g.tiles_changed(list, true)
 
 
 static func hurt_enemy(g, e: Dictionary, dmg: float, kdir: Vector2, melee: bool = false, crit_bonus: float = 0.0) -> void:
 	if not g.enemies.has(e):
 		return
 	var crit := false
-	if melee and g.rng.randf() < g.player.st.crit + crit_bonus:
+	var p: Dictionary = g.player
+	var sure: bool = melee and p.iaido_t > 0.0
+	if melee and (sure or g.rng.randf() < p.st.crit + crit_bonus):
 		dmg *= 2.0
 		crit = true
+		p.iaido_t = 0.0
 		g.on_crit(Physics.center(e))
+		if p.st.crit_burn:
+			e.burn = 2.5
 	if e.get("stagger", 0.0) > 0.0:
 		dmg *= STAGGER_DMG
 	e.hp -= dmg
@@ -199,7 +235,14 @@ static func kill_enemy(g, e: Dictionary) -> void:
 	g.gain_xp(base * 4.0 * (2.5 if e.elite else 1.0) * (1.0 + 0.1 * (g.level_num - 1)), Physics.center(e))
 	if g.rng.randf() < st.lifesteal:
 		heal_player(g, 0.08)
-	if not e.boss and g.rng.randf() < 0.2:
+	if st.chain:
+		heal_player(g, 0.04)
+	if st.reaper:
+		var p: Dictionary = g.player
+		p.dash_cd = 0.0
+		p.air_dash = true
+		p.haste_t = 1.5
+	if not e.boss and g.rng.randf() < 0.2 * st.orbs:
 		g.pickups.append({"kind": "orb", "pos": Physics.center(e)})
 	if e.kind == "bomber":
 		explode(g, Physics.center(e), 48.0, false)
@@ -243,7 +286,11 @@ static func hurt_player(g, units: float, src_x: float, spikes: bool = false) -> 
 		if spikes:
 			p.respawn_t = 0.45
 		return
-	var dmg := int(round(units * g.hit_damage()))
+	var st: Dictionary = p.st
+	var armor: float = st.armor
+	if st.last_stand and p.hp <= p.max_hp * 0.35:
+		armor *= 0.65
+	var dmg := maxi(1, int(round(units * g.hit_damage() * armor)))
 	p.hp -= dmg
 	p.calm = 0.0
 	p.regen = 0.0
@@ -260,6 +307,8 @@ static func hurt_player(g, units: float, src_x: float, spikes: bool = false) -> 
 	burst(g, Physics.center(p), ["*", "x", "·", "+"], Color(1.0, 0.35, 0.3), 12, 170.0)
 	g.popups.append({"pos": Physics.center(p) + Vector2(0, -18), "text": "-%d" % dmg, "color": Color(1.0, 0.35, 0.3), "life": 0.9,
 		"big": false})
+	if st.vengeance and p.hp > 0:
+		shockwave(g, Physics.center(p), 70.0, st.dmg * st.dmg_mult * 1.5, Color(1.0, 0.4, 0.3))
 	if p.hp <= 0:
 		p.hp = 0
 		p.dead = true
@@ -297,21 +346,212 @@ static func check_contacts(g) -> void:
 # ---------------------------------------------------------------- projectiles and hazards
 
 static func fire(g, from: Vector2, vel: Vector2, owner: String, dmg: float, grav: float = 0.0, kind: String = "shot",
-		delay: float = 0.0) -> void:
-	if owner == "hero":
+		delay: float = 0.0) -> Dictionary:
+	if owner == "hero" and kind == "shot":
 		kind = "knife"
-	g.projectiles.append({"pos": from, "vel": vel, "life": 4.0, "owner": owner, "dmg": dmg, "grav": grav,
-		"kind": kind, "delay": delay})
+	var pr := {"pos": from, "vel": vel, "life": 4.0, "owner": owner, "dmg": dmg, "grav": grav,
+		"kind": kind, "delay": delay, "t": 0.0, "hits": {}, "pierce": 0, "bounce": 0}
+	g.projectiles.append(pr)
 	if delay <= 0.0 and owner == "enemy":
 		burst(g, from, ["·"], SHOT_LOOK.get(kind, SHOT_LOOK.shot)[1], 4, 60.0)
+	return pr
+
+
+## Hurls the hero's throwing weapon. free: launched by Blade Storm (no ink, no twin).
+static func throw_weapon(g, p: Dictionary, dir: Vector2, free: bool = false) -> void:
+	var st: Dictionary = p.st
+	var kind: String = THROW_KIND.get(p.get("throw", "ink_knife"), "knife")
+	var dmg: float = st.dmg * st.dmg_mult * st.throw_mult * damage_bonus(p)
+	var from := Physics.center(p) + Vector2(p.facing * 6.0, -4.0)
+	var dirs: Array = [dir]
+	if st.twin_throw and not free:
+		dirs.append(dir.rotated(-0.16 * p.facing))
+	for i in dirs.size():
+		var d: Vector2 = dirs[i]
+		var pr: Dictionary
+		var k := 1.0 if i == 0 else 0.6
+		match kind:
+			"boomerang":
+				pr = fire(g, from, d * 400.0, "hero", dmg * k, 0.0, kind)
+				pr.life = 2.6
+				pr.pierce = 99
+			"chakram":
+				pr = fire(g, from, d * 380.0, "hero", dmg * k, 0.0, kind)
+				pr.life = 2.2
+				pr.pierce = 3
+				pr.bounce = 3
+			"flask":
+				pr = fire(g, from, d * 330.0 + Vector2(0, -130.0), "hero", dmg * k, 700.0, kind)
+			_:
+				pr = fire(g, from, d * Hero.KNIFE_SPEED, "hero", dmg * k, 0.0, kind)
+		if st.ricochet:
+			pr.pierce += 1
+			pr.bounce += 1
+	g.sfx("throw", -4.0 if free else 0.0, 0.8 if kind == "flask" else 1.0)
+
+
+## Juggernaut: a ripple of broken ground runs along the floor from the finisher.
+static func ground_wave(g, p: Dictionary) -> void:
+	var st: Dictionary = p.st
+	var pr := fire(g, Physics.foot(p) + Vector2(p.facing * 14.0, -6.0), Vector2(p.facing * 300.0, 0.0), "hero",
+		st.dmg * st.dmg_mult * 1.2, 0.0, "hwave")
+	pr.pierce = 99
+	pr.life = 0.9
+	g.sfx("slam", -6.0, 1.3)
+
+
+## Quake: the dive lands with a blast that hits every foe on the ground nearby.
+static func quake(g, p: Dictionary) -> void:
+	var st: Dictionary = p.st
+	g.hitstop = maxf(g.hitstop, 0.06)
+	g.shake_add(8.0)
+	g.sfx("slam", -2.0, 0.9)
+	shockwave(g, Physics.foot(p) + Vector2(0, -8), 80.0, st.dmg * st.dmg_mult * 2.0 * damage_bonus(p), g.biome.edge)
+
+
+## Hits every foe within [radius] and throws them back.
+static func shockwave(g, at: Vector2, radius: float, dmg: float, col: Color) -> void:
+	for k in 18:
+		var a := PI + PI * k / 17.0
+		g.particles.append({"p": at, "v": Vector2(cos(a), sin(a) * 0.4) * 260.0, "g": "~" if k % 2 == 0 else "'", "c": col,
+			"life": 0.35, "max": 0.35, "grav": 0.0, "drag": 4.0, "s": 1.0})
+	for e in g.enemies.duplicate():
+		var d: Vector2 = Physics.center(e) - at
+		if d.length() < radius + e.size.x * 0.5 and not (e.kind == "wisp" and _wisp_hidden(e)):
+			hurt_enemy(g, e, dmg, Vector2(signf(d.x), -0.5), false)
+			if g.enemies.has(e) and not e.boss:
+				e.vel = Vector2(signf(d.x) * 260.0, -220.0)
+				e.stun = 0.6
+
+
+## Shoulder Charge: the dash bowls over every foe it passes through, once.
+static func dash_hits(g, p: Dictionary) -> void:
+	var st: Dictionary = p.st
+	var r := Physics.rect(p).grow(4.0)
+	for e in g.enemies.duplicate():
+		if p.dash_hit.has(e.id) or not r.intersects(Physics.rect(e)):
+			continue
+		p.dash_hit[e.id] = true
+		hurt_enemy(g, e, st.dmg * st.dmg_mult * damage_bonus(p), Vector2(p.facing, -0.3), true)
+		if g.enemies.has(e) and not e.boss:
+			e.vel = Vector2(p.facing * 300.0, -200.0)
+			e.stun = 0.5
+		g.hitstop = maxf(g.hitstop, 0.04)
+		g.shake_add(3.0)
+
+
+static func _hero_shot_hits(g, pr: Dictionary) -> void:
+	var st: Dictionary = g.player.st
+	for e in g.enemies.duplicate():
+		if pr.hits.get(e.id, -1.0) > pr.t or (e.kind == "wisp" and _wisp_hidden(e)):
+			continue
+		if not Physics.rect(e).grow(3.0).has_point(pr.pos):
+			continue
+		if pr.kind == "flask":
+			_burst_flask(g, pr)
+			return
+		# a boomerang can hit the same foe again on its way back
+		pr.hits[e.id] = pr.t + (0.35 if pr.kind == "boomerang" else 99.0)
+		if Foes.blocks(e, pr.pos.x, "side") and pr.kind != "chakram":
+			g.sfx("clink", -4.0)
+			if pr.kind != "boomerang":
+				g.projectiles.erase(pr)
+				return
+			pr.t = maxf(pr.t, 0.4)
+			continue
+		hurt_enemy(g, e, pr.dmg, pr.vel.normalized())
+		g.sfx("hit", -4.0, 1.3)
+		if g.enemies.has(e):
+			if st.hex:
+				e.burn = 2.5
+			if st.chill:
+				e.chill = 2.0
+		if st.siphon:
+			var p: Dictionary = g.player
+			p.ink = minf(Hero.MAX_INK, p.ink + 12.0)
+		if pr.pierce <= 0:
+			g.projectiles.erase(pr)
+			return
+		pr.pierce -= 1
+
+
+static func _burst_flask(g, pr: Dictionary) -> void:
+	g.projectiles.erase(pr)
+	g.sfx("splash", -2.0, 0.7)
+	burst(g, pr.pos, ["@", "o", "·", "*"], SHOT_LOOK.flask[1], 22, 170.0, -40.0)
+	var st: Dictionary = g.player.st
+	for e in g.enemies.duplicate():
+		if Physics.center(e).distance_to(pr.pos) < 46.0 + e.size.x * 0.5:
+			hurt_enemy(g, e, pr.dmg, (Physics.center(e) - pr.pos).normalized())
+			if g.enemies.has(e):
+				e.burn = 3.0
+				if st.chill:
+					e.chill = 2.0
+	var cracked: Array = Physics.tiles_in(Rect2(pr.pos - Vector2(20, 20), Vector2(40, 40)), g.lv, Level.CRACKED)
+	if not cracked.is_empty():
+		break_tiles(g, cracked)
+
+
+static func _update_hero_shot(g, pr: Dictionary, dt: float) -> void:
+	var lv = g.lv
+	var p: Dictionary = g.player
+	pr.t += dt
+	pr.life -= dt
+	if pr.kind == "boomerang" and pr.t > 0.36:
+		# turns around and flies back to the hand, through walls
+		var to_p: Vector2 = Physics.center(p) - pr.pos
+		pr.vel = pr.vel.move_toward(to_p.normalized() * 470.0, 1500.0 * dt)
+		if pr.t > 0.6 and to_p.length() < 14.0:
+			g.projectiles.erase(pr)
+			return
+	pr.vel.y += pr.grav * dt
+	var nxt: Vector2 = pr.pos + pr.vel * dt
+	var tx := int(floor(nxt.x / D.TILE))
+	var ty := int(floor(nxt.y / D.TILE))
+	if pr.kind != "boomerang" and lv.solid(tx, ty):
+		if lv.at(tx, ty) == Level.CRACKED and pr.kind != "hwave":
+			break_tiles(g, [Vector2i(tx, ty)])
+		if pr.kind == "flask":
+			_burst_flask(g, pr)
+			return
+		if pr.bounce > 0 and pr.kind != "hwave":
+			pr.bounce -= 1
+			if lv.solid(int(floor(nxt.x / D.TILE)), int(floor(pr.pos.y / D.TILE))):
+				pr.vel.x = -pr.vel.x
+			if lv.solid(int(floor(pr.pos.x / D.TILE)), int(floor(nxt.y / D.TILE))):
+				pr.vel.y = -pr.vel.y
+			g.sfx("clink", -10.0, 1.5)
+			nxt = pr.pos
+		else:
+			pr.life = 0.0
+	if pr.kind == "hwave":
+		var below := int(floor((nxt.y + 10.0) / D.TILE))
+		if not (lv.solid(tx, below) or lv.at(tx, below) == Level.ONEWAY):
+			pr.life = 0.0
+		elif g.rng.randf() < 40.0 * dt:
+			burst(g, nxt + Vector2(0, 6), [".", ",", "'"], g.biome.edge, 1, 60.0, -60.0)
+	pr.pos = nxt
+	if pr.life <= 0.0:
+		g.projectiles.erase(pr)
+		burst(g, pr.pos, ["·", "*"], SHOT_LOOK.get(pr.kind, SHOT_LOOK.knife)[1], 5, 80.0)
+		return
+	if g.rng.randf() < 30.0 * dt:
+		g.particles.append({"p": pr.pos, "v": Vector2.ZERO, "g": "·", "c": SHOT_LOOK.get(pr.kind, SHOT_LOOK.knife)[1],
+			"life": 0.3, "max": 0.3, "grav": 0.0, "drag": 0.0, "s": 0.8})
+	_hero_shot_hits(g, pr)
 
 
 static func update_projectiles(g, dt: float) -> void:
 	var p: Dictionary = g.player
 	var lv = g.lv
 	for pr in g.projectiles.duplicate():
+		if not g.projectiles.has(pr):
+			continue
 		if pr.delay > 0.0:
 			pr.delay -= dt
+			continue
+		if pr.owner == "hero":
+			_update_hero_shot(g, pr, dt)
 			continue
 		pr.vel.y += pr.grav * dt
 		pr.pos += pr.vel * dt
@@ -326,30 +566,20 @@ static func update_projectiles(g, dt: float) -> void:
 		if pr.kind == "wave":
 			var below := int(floor((pr.pos.y + 10.0) / D.TILE))
 			dead = dead or not (lv.solid(tx, below) or lv.at(tx, below) == Level.ONEWAY)
-		if pr.kind == "knife" and lv.at(tx, ty) == Level.CRACKED:
-			break_tiles(g, [Vector2i(tx, ty)])
 		if dead:
 			g.projectiles.erase(pr)
 			burst(g, pr.pos, ["·", "*"], col, 5, 80.0)
 			continue
-		if pr.owner == "enemy":
-			if not p.dead and Physics.rect(p).grow(2.0).has_point(pr.pos):
-				g.projectiles.erase(pr)
-				hurt_player(g, pr.dmg, pr.pos.x)
-		else:
-			for e in g.enemies:
-				if Physics.rect(e).grow(2.0).has_point(pr.pos):
-					g.projectiles.erase(pr)
-					if Foes.blocks(e, pr.pos.x, "side"):
-						g.sfx("clink", -4.0)
-					else:
-						hurt_enemy(g, e, pr.dmg, pr.vel.normalized())
-						g.sfx("hit", -4.0, 1.3)
-					break
+		if not p.dead and Physics.rect(p).grow(2.0).has_point(pr.pos):
+			g.projectiles.erase(pr)
+			hurt_player(g, pr.dmg, pr.pos.x)
+			if pr.kind == "frost":
+				p.chill_t = 1.2
 
 
-static func add_pillar(g, x: float, floor_y: float) -> void:
-	g.hazards.append({"x": x, "y": floor_y, "t": 0.0, "warn": 0.75, "active": 0.5})
+## kind: "fire" (Ember Colossus) or "light" (Drowned Abbess).
+static func add_pillar(g, x: float, floor_y: float, kind: String = "fire") -> void:
+	g.hazards.append({"x": x, "y": floor_y, "t": 0.0, "warn": 0.75, "active": 0.5, "kind": kind})
 
 
 static func update_hazards(g, dt: float) -> void:
@@ -416,7 +646,7 @@ static func update_shards(g, dt: float) -> void:
 			g.shards.erase(s)
 
 
-static func update_pickups(g) -> void:
+static func update_pickups(g, dt: float) -> void:
 	var p: Dictionary = g.player
 	if p.dead:
 		return
@@ -425,7 +655,7 @@ static func update_pickups(g) -> void:
 	for pk in g.pickups.duplicate():
 		# health orbs drift toward a wounded hero
 		if pk.kind == "orb" and p.hp < p.max_hp and pk.pos.distance_to(pc) < 70.0:
-			pk.pos = pk.pos.move_toward(pc, 3.0)
+			pk.pos = pk.pos.move_toward(pc, 360.0 * dt)
 		if not pr.has_point(pk.pos):
 			continue
 		if (pk.kind == "heart" or pk.kind == "orb") and p.hp < p.max_hp:

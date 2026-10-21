@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-21
+
+### Added
+
+- **Skill tree** (T, LB on a gamepad, or the pause menu). Every hero level
+  gives a skill point. The core holds the basic moves and two stat nodes
+  (Vitality, Keen Edge, five ranks each); three branches climb from it:
+  *Bulwark* (heavy weapons and toughness: Quake dive, Shoulder Charge, Last
+  Stand, Vengeance, Juggernaut ground wave), *Alchemist* (daggers, thrown
+  weapons and ink: Twin Throw, Ricochet, Hex, Siphon, Blade Storm) and *Shade*
+  (mobility and blades: Phantom Dash, Wind Walker, Iaido, Long Lunge, Reaper).
+  Tiers 2 and 4 fork, and only one side can be learned; a merchant makes you
+  forget everything for a price.
+- **Three new biomes**, six in all: the Gallows Mire, the Drowned Cathedral and
+  the Frostbound Crypt, each with its own colours, decorations, music,
+  ambience, enemies (bog toads, the hanged, choir skulls, penitents, frost
+  wights) and boss (the Hangman, the Drowned Abbess, the Frost King). The
+  world stays endless: after the twelfth level the biomes come back deeper,
+  in a new order for every cycle.
+- **Weapons in the hero's hands.** Each weapon has its own silhouette (sword,
+  great sword, spear, mace, twin daggers, katana) that swings with the
+  attacks, so a mace never looks like a sword. New weapons: Grave Maul (breaks
+  shields), Widow's Fangs (twin daggers), Night Katana.
+- **Throwing weapons** in their own slot: Ink Knife, Bone Boomerang (comes back,
+  cuts both ways), Thorn Chakram (pierces and rebounds) and Bile Flask (bursts
+  in a burning cloud).
+- Eleven new charms, among them the Funeral Bell, Blood Rosary, Iron Shroud,
+  Raven Quill and a charm from each new boss.
+- The merchant buys what you no longer need (Sell), sells **Haste** (+5%
+  running speed, six times) and lets you forget your skills.
+- A charm slot opens every fifth hero level (up to eight).
+
+### Changed
+
+- **Smoother frames.** The world is simulated once per frame (in small steps
+  when frames are long) instead of at a fixed tick that drifted against the
+  display; the terrain is cached in smaller pieces painted one per frame
+  ahead of the camera; breaking a wall repaints only its surroundings; the
+  minimap repaints only rooms that changed; the status panel is cached and
+  redrawn only when something on it changes; health-orb pull no longer
+  depends on the frame rate.
+- The crosshair is about a third smaller.
+- + and − no longer change the interface size; it is only in Settings.
+
 ## [0.7.0] - 2026-10-20
 
 ### Changed
@@ -294,7 +338,8 @@ First public release.
 - Bundled DejaVu Sans Mono font, used in the Web build (where system fonts are
   unavailable) and as a fallback for glyphs missing from the system font.
 
-[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/drugdamage/glyphwood/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/drugdamage/glyphwood/compare/v0.6.3...v0.7.0
 [0.6.3]: https://github.com/drugdamage/glyphwood/compare/v0.6.1...v0.6.3
 [0.6.1]: https://github.com/drugdamage/glyphwood/compare/v0.6.0...v0.6.1

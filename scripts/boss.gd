@@ -3,6 +3,9 @@
 ##   warden    Moss Warden: walks, leaps and sends shockwaves along the floor, spits spores
 ##   wraith    Bell Wraith: floats, fires rings of orbs, dives at the player, summons wisps
 ##   colossus  Ember Colossus: charges into walls, slams fire pillars, rains embers
+##   hangman   The Hangman: hurls hooks, leaps with its axe, drops nooses from the gallows beams
+##   abbess    Drowned Abbess: floats, sings spirals of bells, calls pillars of pale light, dives
+##   frost_king Frost King: breathes frost, charges, brings icicles down; frost slows the hero
 extends RefCounted
 
 const D := preload("res://scripts/data.gd")
@@ -20,9 +23,10 @@ static func update(g, e: Dictionary, dt: float) -> void:
 		e.vel = Vector2.ZERO
 		g.sfx("roar")
 		g.shake_add(10.0)
-		if e.kind == "wraith":
+		var minion: String = {"wraith": "wisp", "hangman": "hanged", "abbess": "choir", "frost_king": "wight"}.get(e.kind, "")
+		if minion != "":
 			for side in [-1, 1]:
-				g.spawn_enemy("wisp", Physics.center(e) + Vector2(side * 60, 0))
+				g.spawn_enemy(minion, Physics.center(e) + Vector2(side * 60, -10))
 	if e.get("stagger", 0.0) > 0.0:
 		e.stagger -= dt
 		e.flash = 0.04 if int(e.stagger * 10.0) % 2 == 0 else 0.0
@@ -40,6 +44,12 @@ static func update(g, e: Dictionary, dt: float) -> void:
 			_wraith(g, e, dt)
 		"colossus":
 			_colossus(g, e, dt)
+		"hangman":
+			_hangman(g, e, dt)
+		"abbess":
+			_abbess(g, e, dt)
+		"frost_king":
+			_frost_king(g, e, dt)
 
 
 static func _face(g, e: Dictionary) -> float:
@@ -251,4 +261,242 @@ static func _colossus(g, e: Dictionary, dt: float) -> void:
 				g.sfx("roar", -8.0, 1.6)
 				e.state = "idle"
 				e.t = 1.4 / fast
+	_fall(e, lv, dt)
+
+
+## Things falling from the arena ceiling at [xs], each [gap] seconds apart.
+static func _drop_from_ceiling(g, e: Dictionary, xs: Array, kind: String, gap: float) -> void:
+	for i in xs.size():
+		var x: float = clampf(xs[i], e.arena.position.x + 16.0, e.arena.end.x - 16.0)
+		g.fire(Vector2(x, e.arena.position.y + 4.0), Vector2(0, 50), "enemy", 1, 420.0, kind, 0.5 + i * gap)
+
+
+# ---------------------------------------------------------------- hangman
+
+static func _hangman(g, e: Dictionary, dt: float) -> void:
+	var lv = g.lv
+	var fast := 1.3 if e.phase == 2 else 1.0
+	var px: float = Physics.center(g.player).x
+	match e.state:
+		"idle", "enrage":
+			e.vel.x = move_toward(e.vel.x, 0.0, 800.0 * dt)
+			if e.t <= 0.0:
+				e.state = "walk"
+				e.t = g.rng.randf_range(1.0, 1.6) / fast
+		"walk":
+			var dx := _face(g, e)
+			e.vel.x = e.dir * D.ENEMIES.hangman.speed * fast if absf(dx) > 36.0 else 0.0
+			if e.t <= 0.0:
+				var r: float = g.rng.randf()
+				e.vel.x = 0.0
+				if r < 0.38:
+					e.state = "hook"
+					e.t = 0.6 / fast
+					g.sfx("tele", -2.0, 0.7)
+				elif r < 0.72:
+					e.state = "crouch"
+					e.t = 0.5 / fast
+					g.sfx("tele", -2.0, 0.5)
+				else:
+					e.state = "raise"
+					e.t = 0.7 / fast
+		"hook":
+			_face(g, e)
+			if e.t <= 0.0:
+				# three hooks on chains, fanned at the hero
+				var from: Vector2 = Physics.center(e) + Vector2(e.dir * 18, -12)
+				var aim: float = (Physics.center(g.player) - from).angle()
+				var n := 5 if e.phase == 2 else 3
+				for k in n:
+					var a := aim + (k - (n - 1) * 0.5) * 0.22
+					g.fire(from, Vector2(cos(a), sin(a)) * 260.0, "enemy", 1, 0.0, "hook")
+				g.sfx("throw", 0.0, 0.6)
+				e.state = "idle"
+				e.t = 0.9 / fast
+		"crouch":
+			e.vel.x = 0.0
+			if e.t <= 0.0:
+				var dx2 := _face(g, e)
+				e.vel = Vector2(clampf(dx2 * 1.5, -380.0, 380.0), -540.0)
+				e.state = "leap"
+		"leap":
+			if e.on_floor and e.vel.y >= 0.0:
+				_land_wave(g, e)
+				e.state = "idle"
+				e.t = 0.8 / fast
+		"raise":
+			e.vel.x = 0.0
+			if e.t <= 0.0:
+				var n2 := 6 if e.phase == 2 else 4
+				var xs: Array = []
+				for k in n2:
+					xs.append(px + (k - (n2 - 1) * 0.5) * 48.0 + g.rng.randf_range(-10.0, 10.0))
+				_drop_from_ceiling(g, e, xs, "noose", 0.12)
+				g.sfx("roar", -6.0, 0.7)
+				e.state = "idle"
+				e.t = 1.2 / fast
+	_fall(e, lv, dt)
+
+
+# ---------------------------------------------------------------- abbess
+
+static func _abbess(g, e: Dictionary, dt: float) -> void:
+	var p: Dictionary = g.player
+	var c := Physics.center(e)
+	var arena: Rect2 = e.arena
+	var fast := 1.25 if e.phase == 2 else 1.0
+	e.t2 -= dt
+	match e.state:
+		"idle", "enrage":
+			e.vel = e.vel.move_toward(Vector2.ZERO, 300.0 * dt)
+			if e.t <= 0.0:
+				e.state = "drift"
+				e.t = g.rng.randf_range(1.6, 2.4)
+		"drift":
+			var target := Vector2(Physics.center(p).x + cos(e.anim * 0.7) * 120.0, arena.position.y + 80.0)
+			e.vel = e.vel.move_toward((target - c).limit_length(D.ENEMIES.abbess.speed * fast), 240.0 * dt)
+			_face(g, e)
+			if e.t <= 0.0:
+				var r: float = g.rng.randf()
+				if r < 0.4:
+					e.state = "hymn"
+					e.t = 1.8
+					e.t2 = 0.0
+				elif r < 0.75:
+					e.state = "light"
+					e.t = 0.7 / fast
+				else:
+					e.state = "tele"
+					e.t = 0.6 / fast
+					e.target = Physics.center(p)
+				g.sfx("bell", -6.0, 0.7)
+		"hymn":
+			# a slow spiral of bell notes
+			e.vel = e.vel.move_toward(Vector2.ZERO, 500.0 * dt)
+			if e.t2 <= 0.0:
+				e.t2 = 0.11 / fast
+				var a: float = e.anim * 3.2
+				for k in (3 if e.phase == 2 else 2):
+					var ak: float = a + k * TAU / (3.0 if e.phase == 2 else 2.0)
+					g.fire(c, Vector2(cos(ak), sin(ak)) * 115.0, "enemy", 1, 0.0, "bell")
+			if e.t <= 0.0:
+				e.state = "idle"
+				e.t = 0.8 / fast
+		"light":
+			e.vel = e.vel.move_toward(Vector2.ZERO, 600.0 * dt)
+			if e.t <= 0.0:
+				var n := 5 if e.phase == 2 else 3
+				for k in n:
+					var x: float = Physics.center(p).x + (k - (n - 1) * 0.5) * 64.0 + g.rng.randf_range(-8.0, 8.0)
+					x = clampf(x, arena.position.x + 10.0, arena.end.x - 10.0)
+					g.add_pillar(x, _floor_below(g.lv, x, c.y), "light")
+				e.state = "idle"
+				e.t = 1.0 / fast
+		"tele":
+			e.vel = e.vel.move_toward(Vector2.ZERO, 600.0 * dt)
+			if e.t <= 0.0:
+				e.state = "dive"
+				e.t = 0.7
+				e.vel = (e.target - c).normalized() * 420.0 * fast
+		"dive":
+			if e.t <= 0.0 or (c.y > arena.end.y - 50.0 and e.vel.y > 0.0):
+				e.state = "rise"
+				e.t = 0.8
+				g.shake_add(4.0)
+		"rise":
+			e.vel = e.vel.move_toward(Vector2(0, -160), 900.0 * dt)
+			if e.t <= 0.0:
+				e.state = "idle"
+				e.t = 0.4
+	e.pos += e.vel * dt
+	e.pos.x = clampf(e.pos.x, arena.position.x, arena.end.x - e.size.x)
+	e.pos.y = clampf(e.pos.y, arena.position.y, arena.end.y - e.size.y - 16.0)
+
+
+## The y of the first floor tile below (x, from_y).
+static func _floor_below(lv, x: float, from_y: float) -> float:
+	var tx := int(x / D.TILE)
+	var ty := int(from_y / D.TILE)
+	while ty < lv.h - 1 and not lv.solid(tx, ty + 1):
+		ty += 1
+	return (ty + 1) * D.TILE
+
+
+# ---------------------------------------------------------------- frost king
+
+static func _frost_king(g, e: Dictionary, dt: float) -> void:
+	var lv = g.lv
+	var fast := 1.3 if e.phase == 2 else 1.0
+	e.t2 -= dt
+	match e.state:
+		"idle", "enrage":
+			e.vel.x = move_toward(e.vel.x, 0.0, 900.0 * dt)
+			if e.t <= 0.0:
+				e.state = "walk"
+				e.t = g.rng.randf_range(1.0, 1.6) / fast
+		"walk":
+			var dx := _face(g, e)
+			e.vel.x = e.dir * D.ENEMIES.frost_king.speed * fast if absf(dx) > 40.0 else 0.0
+			if e.t <= 0.0:
+				var r: float = g.rng.randf()
+				e.vel.x = 0.0
+				if r < 0.35:
+					e.state = "tele"
+					e.t = 0.6 / fast
+					g.sfx("tele", -2.0, 0.5)
+				elif r < 0.7:
+					e.state = "breath"
+					e.t = 1.0
+					e.t2 = 0.3
+				else:
+					e.state = "raise"
+					e.t = 0.7 / fast
+		"tele":
+			_face(g, e)
+			e.vel.x = 0.0
+			e.flash = 0.03 if int(e.t * 14.0) % 2 == 0 else 0.0
+			if e.t <= 0.0:
+				e.state = "charge"
+				e.t = 2.0
+				g.sfx("roar", -4.0, 1.1)
+		"charge":
+			e.vel.x = e.dir * 330.0 * fast
+			if e.on_wall != 0 or e.t <= 0.0:
+				e.state = "stunned"
+				e.t = 1.2
+				e.vel.x = -e.dir * 80.0
+				g.sfx("slam")
+				g.shake_add(12.0)
+				var xs: Array = []
+				for i in 6:
+					xs.append(g.rng.randf_range(e.arena.position.x + 20.0, e.arena.end.x - 20.0))
+				_drop_from_ceiling(g, e, xs, "frost", 0.13)
+		"stunned":
+			e.vel.x = move_toward(e.vel.x, 0.0, 400.0 * dt)
+			if e.t <= 0.0:
+				e.state = "idle"
+				e.t = 0.4
+		"breath":
+			# a cone of frost shards that sweeps across the hero
+			_face(g, e)
+			e.vel.x = 0.0
+			if e.t2 <= 0.0 and e.t < 0.8:
+				e.t2 = 0.07
+				var from: Vector2 = Physics.center(e) + Vector2(e.dir * 22, -14)
+				var aim: float = (Physics.center(g.player) - from).angle() + sin(e.t * 9.0) * 0.35
+				g.fire(from, Vector2(cos(aim), sin(aim)) * 230.0, "enemy", 1, 0.0, "frost")
+			if e.t <= 0.0:
+				e.state = "idle"
+				e.t = 0.9 / fast
+		"raise":
+			e.vel.x = 0.0
+			if e.t <= 0.0:
+				var n := 12 if e.phase == 2 else 8
+				var xs2: Array = []
+				for i in n:
+					xs2.append(g.rng.randf_range(e.arena.position.x + 16.0, e.arena.end.x - 16.0))
+				_drop_from_ceiling(g, e, xs2, "frost", 0.12)
+				g.sfx("roar", -8.0, 1.5)
+				e.state = "idle"
+				e.t = 1.3 / fast
 	_fall(e, lv, dt)

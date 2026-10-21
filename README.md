@@ -12,13 +12,17 @@
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
-An endless descent through a graveyard forest, an ossuary and an ashen abyss,
-with procedural levels, secret walls, arenas, a merchant and a boss at the end
-of every biome; lanterns are your checkpoints and a small arrow always points
-the way, while every kill grows your hero for good, so a few minutes or a few
-hours both count. Combos, dash lunges, rising slashes, critical hits and bosses
-that stagger, several worlds you name yourself with four difficulties, keyboard,
-mouse and gamepad, and seven languages.
+An endless descent through six biomes (a graveyard forest, an ossuary, an
+ashen abyss, a gallows mire, a drowned cathedral and a frostbound crypt) that
+come back in a new order every time you reach the bottom, with procedural
+levels, secret walls, arenas, a merchant and a boss at the end of every biome;
+lanterns are your checkpoints and a small arrow always points the way, while
+every kill grows your hero for good, so a few minutes or a few hours both
+count. A skill tree with three branches and either/or forks, swords, maces,
+daggers, spears and katanas you can see in the hero's hands, knives,
+boomerangs, chakrams and flasks to throw, combos, dash lunges, critical hits
+and bosses that stagger, several worlds you name yourself with four
+difficulties, keyboard, mouse and gamepad, and seven languages.
 
 ## Install
 

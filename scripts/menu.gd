@@ -14,6 +14,8 @@ const Settings := preload("res://scripts/settings.gd")
 const Controls := preload("res://scripts/controls.gd")
 const S := preload("res://scripts/sprites.gd")
 const Hud := preload("res://scripts/hud.gd")
+const Skills := preload("res://scripts/skills.gd")
+const SkillTree := preload("res://scripts/skilltree.gd")
 
 const LOGO := [
 	"  ▄████  ██▓   ▓██   ██▓ ██▓███   ██░ ██  █     █░ ▒█████   ▒█████  ▓█████▄",
@@ -208,6 +210,8 @@ func _build(name: String) -> Array:
 			out.append(_btn(game.L("m_resume"), close))
 			out.append(_btn(game.L("m_inventory"), open.bind("inventory")))
 			out.append(_btn(game.L("m_map"), open.bind("map")))
+			var pts := Skills.free_points(game.player)
+			out.append(_btn(game.L("m_skills"), open.bind("skills"), {"note": game.L("sk_points") % pts} if pts > 0 else {}))
 			out.append(_btn(game.L("m_moves"), open.bind("moves")))
 			out.append(_btn(game.L("m_settings"), open.bind("settings")))
 			out.append(_btn(game.L("m_quit_title"), game.show_title))
@@ -241,6 +245,10 @@ func _build(name: String) -> Array:
 			out = _inventory_items()
 		"shop":
 			out = _shop_items()
+		"sell":
+			out = _sell_items()
+		"skills":
+			out = SkillTree.items(self)
 	return out
 
 
@@ -362,6 +370,7 @@ func _inventory_items() -> Array:
 	var p: Dictionary = game.player
 	var out: Array = []
 	out.append({"type": "item", "id": p.weapon, "group": "weapon"})
+	out.append({"type": "item", "id": p.throw, "group": "throw"})
 	for i in Items.charm_slots(p):
 		if i < p.charms.size():
 			out.append({"type": "item", "id": p.charms[i], "group": "charm"})
@@ -399,13 +408,37 @@ func _shop_items() -> Array:
 		"label": game.L("shop_vigor"), "color": Color(1.0, 0.35, 0.45), "note": game.L("shop_vigor_d") % p.up_hp})
 	out.append({"type": "buy", "id": "whet", "price": Items.service_price(p, "whet", lvl), "act": _buy.bind("whet"),
 		"label": game.L("shop_whet"), "color": Color(0.8, 0.85, 0.95), "note": game.L("shop_whet_d") % p.up_dmg})
+	if p.up_spd < Items.HASTE_MAX:
+		out.append({"type": "buy", "id": "haste", "price": Items.service_price(p, "haste", lvl), "act": _buy.bind("haste"),
+			"label": game.L("shop_haste"), "color": Color(0.6, 0.9, 1.0), "note": game.L("shop_haste_d") % (p.up_spd * 5)})
+	if Skills.spent(p) > 0:
+		out.append({"type": "buy", "id": "forget", "price": Items.service_price(p, "forget", lvl), "act": _buy.bind("forget"),
+			"label": game.L("shop_forget"), "color": Color(0.75, 0.6, 0.95), "note": game.L("shop_forget_d")})
+	if not p.bag.is_empty():
+		out.append(_btn(game.L("shop_sell"), open.bind("sell"), {"note": str(p.bag.size())}))
 	out.append(_btn(game.L("m_leave"), close))
 	return out
 
 
+func _sell_items() -> Array:
+	var out: Array = []
+	for id in game.player.bag:
+		out.append({"type": "buy", "id": id, "price": Items.sell_price(id), "act": _sell.bind(id), "sell": true})
+	out.append(_btn(game.L("m_back"), close))
+	return out
+
+
+func _sell(id: String) -> void:
+	var paid := Items.sell(game.player, id)
+	if paid > 0:
+		game.sfx("shard", 0.0, 0.8)
+		game.sfx("buy", -6.0, 0.8)
+		_message(game.L("shop_sold") % [_item_name(id), paid])
+
+
 func _buy(id: String) -> void:
 	var p: Dictionary = game.player
-	var service: bool = id in ["mend", "vigor", "whet"]
+	var service: bool = id in ["mend", "vigor", "whet", "haste", "forget"]
 	var price: int = Items.service_price(p, id, game.level_num) if service else Items.def(id).price
 	if id == "mend" and p.hp >= p.max_hp:
 		game.sfx("error", -6.0)
@@ -427,6 +460,13 @@ func _buy(id: String) -> void:
 		"whet":
 			p.up_dmg += 1
 			Hero.refresh(p)
+		"haste":
+			p.up_spd += 1
+			Hero.refresh(p)
+		"forget":
+			Skills.forget_all(p)
+			Hero.refresh(p)
+			_message(game.L("shop_forgot"))
 		_:
 			game.shop_prop.stock.erase(id)
 			var equipped := Items.give(p, id)
@@ -557,8 +597,11 @@ func _handle_button(event: InputEvent) -> void:
 		_activate()
 	elif ((k == KEY_ESCAPE or k == KEY_BACKSPACE) and not echo) or pad_back:
 		_back()
-	elif (top() == "inventory" and event.is_action_pressed("g_inventory")) or (top() == "map" and event.is_action_pressed("g_map")):
+	elif (top() == "inventory" and event.is_action_pressed("g_inventory")) or (top() == "map" and event.is_action_pressed("g_map")) \
+			or (top() == "skills" and event.is_action_pressed("g_skills")):
 		close()
+	elif top() == "skills" and sel < items.size() and items[sel].type == "skill" and _dir_pressed(event) != Vector2.ZERO:
+		SkillTree.step(self, _dir_pressed(event))
 	elif event.is_action_pressed("g_pause") and not echo:
 		_back()
 	elif event.is_action_pressed("g_up", true):
@@ -571,6 +614,13 @@ func _handle_button(event: InputEvent) -> void:
 		_adjust(1)
 	elif (event.is_action_pressed("g_jump") or event.is_action_pressed("g_interact")) and not echo:
 		_activate()
+
+
+func _dir_pressed(event: InputEvent) -> Vector2:
+	for a in [["g_up", Vector2.UP], ["g_down", Vector2.DOWN], ["g_left", Vector2.LEFT], ["g_right", Vector2.RIGHT]]:
+		if event.is_action_pressed(a[0], true):
+			return a[1]
+	return Vector2.ZERO
 
 
 ## Selects the item under the mouse; returns its index or -1.
@@ -763,8 +813,10 @@ func _draw() -> void:
 			_draw_sign(vp, accent)
 		"inventory":
 			_draw_inventory(vp, accent)
-		"shop":
+		"shop", "sell":
 			_draw_shop(vp, accent)
+		"skills":
+			SkillTree.draw(self, vp, accent)
 		"map":
 			_draw_map(vp, accent)
 	_bounds = Rect2()
@@ -1036,7 +1088,9 @@ func _draw_inventory(vp: Vector2, accent: Color) -> void:
 	_panel(r, accent)
 	_heading(r.position.y + 48 * u, game.L("m_inventory"), int(30 * u))
 	var fs := int(17 * u)
-	var row_h := 54.0 * u
+	# rows shrink when many charm slots are open
+	var avail := h - 90 * u - 150 * u - 80 * u
+	var row_h := minf(54.0 * u, avail / (2 + Items.charm_slots(p)))
 	var lx := r.position.x + 30 * u
 	var cw := w * 0.46
 	var rx := r.position.x + w * 0.52
@@ -1046,6 +1100,7 @@ func _draw_inventory(vp: Vector2, accent: Color) -> void:
 	var ly := y + 10 * u
 	var by := y + 10 * u
 	var charm_header := false
+	var throw_header := false
 	var bag_col := 0
 	for i in items.size():
 		var it: Dictionary = items[i]
@@ -1057,9 +1112,14 @@ func _draw_inventory(vp: Vector2, accent: Color) -> void:
 			rect = Rect2(rx + (bag_col % per_row) * cell, by + int(bag_col / per_row) * cell, cell - 6 * u, cell - 6 * u)
 			bag_col += 1
 		else:
+			if it.group == "throw" and not throw_header:
+				throw_header = true
+				ly += 20 * u
+				_text(Vector2(lx, ly), game.L("inv_throw").to_upper(), int(13 * u), Color(0.6, 0.66, 0.63), bold)
+				ly += 8 * u
 			if it.group == "charm" and not charm_header:
 				charm_header = true
-				ly += 22 * u
+				ly += 20 * u
 				_text(Vector2(lx, ly), (game.L("inv_charms") + "  %d/%d" % [p.charms.size(), Items.charm_slots(p)]).to_upper(), int(13 * u),
 					Color(0.6, 0.66, 0.63), bold)
 				ly += 8 * u
@@ -1095,7 +1155,9 @@ func _draw_inventory(vp: Vector2, accent: Color) -> void:
 		var id: String = items[sel].id
 		var d2: Dictionary = Items.def(id)
 		var action := ""
-		if items[sel].group == "charm":
+		if items[sel].group == "bag" and Items.def(id).slot != "charm":
+			action = game.L("inv_equip")
+		elif items[sel].group == "charm":
 			action = game.L("inv_unequip")
 		elif items[sel].group == "bag":
 			action = game.L("inv_equip")
@@ -1107,8 +1169,12 @@ func _draw_inventory(vp: Vector2, accent: Color) -> void:
 		_text_fit(Vector2(lx, dy + 10 * u), _item_name(id), int(20 * u), w - 60 * u - hw, d2.color, bold)
 		var dh := _para(Vector2(lx, dy + 38 * u), game.L("item_" + id + "_d"), w - 60 * u, int(15 * u), Color(0.8, 0.84, 0.82))
 		if d2.slot == "weapon":
-			var ws := "%s %d   %s ×%.2f   %s ×%.2f" % [game.L("stat_dmg"), d2.dmg, game.L("stat_speed"), d2.speed, game.L("stat_reach"), d2.reach]
+			var ws := "%s %d   %s ×%.2f   %s ×%.2f   %s" % [game.L("stat_dmg"), d2.dmg, game.L("stat_speed"), d2.speed, game.L("stat_reach"),
+				d2.reach, game.L("class_" + d2.class)]
 			_text_fit(Vector2(lx, dy + 40 * u + dh), ws, int(14 * u), w - 60 * u, Color(0.65, 0.72, 0.68))
+		elif d2.slot == "throw":
+			var ts := "%s ×%.1f   %s %d" % [game.L("stat_dmg"), d2.mult, game.L("ink"), int(d2.ink * p.st.ink_cost)]
+			_text_fit(Vector2(lx, dy + 40 * u + dh), ts, int(14 * u), w - 60 * u, Color(0.65, 0.72, 0.68))
 	var st: Dictionary = p.st
 	var summary := "%s    %s %d/%d    %s %d    %s ×%.2f    %s %d%%    ◆ %d" % [
 		game.L("lv") % p.xp_level, game.L("stat_hp"), p.hp, p.max_hp, game.L("stat_dmg"), int(st.dmg * st.dmg_mult),
@@ -1122,9 +1188,10 @@ func _draw_shop(vp: Vector2, _accent: Color) -> void:
 	var row_h := 50.0 * u
 	var h := 190.0 * u + items.size() * row_h
 	var r := Rect2((vp.x - w) * 0.5, maxf(10 * u, (vp.y - h) * 0.5), w, h)
+	var selling := top() == "sell"
 	_panel(r, Color(0.85, 0.7, 0.95))
-	_center(r.position.y + 46 * u, game.L("act_shop"), int(28 * u), Color(0.95, 0.95, 0.9), bold)
-	_center(r.position.y + 76 * u, game.L("shop_greet"), int(15 * u), Color(0.75, 0.7, 0.85))
+	_center(r.position.y + 46 * u, game.L("shop_sell" if selling else "act_shop"), int(28 * u), Color(0.95, 0.95, 0.9), bold)
+	_center(r.position.y + 76 * u, game.L("shop_sell_greet" if selling else "shop_greet"), int(15 * u), Color(0.75, 0.7, 0.85))
 	var money := "◆ %d" % p.shards
 	_text(Vector2(r.end.x - 30 * u - _w(money, int(18 * u), bold), r.position.y + 46 * u), money, int(18 * u), Color(1.0, 0.85, 0.35), bold)
 	var fs := int(17 * u)
@@ -1144,8 +1211,8 @@ func _draw_shop(vp: Vector2, _accent: Color) -> void:
 			var label: String = it.get("label", _item_name(it.id))
 			_draw_icon(Rect2(rect.position + Vector2(6, 5) * u, Vector2(row_h * 1.2, row_h - 10 * u)), it.id, gc, on)
 			var tx := rect.position.x + row_h * 1.2 + 18 * u
-			var price := "◆ %d" % it.price
-			var pc := Color(1.0, 0.85, 0.35) if p.shards >= it.price else Color(0.6, 0.35, 0.3)
+			var price := ("+◆ %d" if it.get("sell", false) else "◆ %d") % it.price
+			var pc := Color(1.0, 0.85, 0.35) if p.shards >= it.price or it.get("sell", false) else Color(0.6, 0.35, 0.3)
 			var pw := _w(price, fs, bold)
 			_text(Vector2(rect.end.x - 16 * u - pw, y + row_h * 0.62), price, fs, pc, bold)
 			var tw := rect.end.x - 32 * u - pw - tx

@@ -13,10 +13,15 @@ const Foes := preload("res://scripts/foes.gd")
 const Combat := preload("res://scripts/combat.gd")
 const Backdrop := preload("res://scripts/backdrop.gd")
 const Items := preload("res://scripts/items.gd")
+const WeaponArt := preload("res://scripts/weapon_art.gd")
+const DecorArt := preload("res://scripts/decor_art.gd")
 
 ## Tiles visible vertically at each zoom level.
 const ZOOMS := [30.0, 24.0, 19.0]
-const CHUNK := 16
+## Terrain is painted in square chunks of CHUNK tiles; small chunks keep each
+## paint short. AHEAD rings around the view are painted early, one per frame.
+const CHUNK := 8
+const AHEAD := 2
 ## Size of a parallax bucket, in layer units.
 const BG_CELL := 320.0
 const MAX_LIGHTS := 32
@@ -63,12 +68,18 @@ var _lava_lights: Array = []
 var _decor_lights: Array = []
 var _motes: Array = []
 var _dyn_tiles := {}
+## Ceiling decor and torches bucketed per chunk, so only those in view are visited.
+var _ceil_idx := {}
+var _torch_idx := {}
+var _gate_set := {}
 var _adv_cache := {}
 var _deferred: Array = []
 var _defer_ci: CanvasItem = null
 var _last_key := ""
 var lights: Array = []
 var _low := false
+var _shadow_key := ""
+var _shadow_polys: Array = []
 
 
 func setup(g, f: Font, b: Font) -> void:
@@ -109,9 +120,20 @@ func on_level_built() -> void:
 	for k in _chunks:
 		_chunks[k].queue_free()
 	_chunks.clear()
-	_compute_depth()
-	_index_dynamic_tiles()
 	var lv = game.lv
+	_gate_set.clear()
+	for ar in lv.arenas:
+		for gt in ar.gates:
+			_gate_set[gt] = true
+	_compute_depth(Rect2i(0, 0, lv.w, lv.h))
+	_index_dynamic_tiles()
+	_ceil_idx.clear()
+	for d in lv.decor:
+		if d.kind in ["vine", "root", "stalactite", "chain", "web"]:
+			_bucket(_ceil_idx, Vector2i(d.x, d.y), d)
+	_torch_idx.clear()
+	for tp in lv.torches:
+		_bucket(_torch_idx, Vector2i(int(tp.x / D.TILE), int(tp.y / D.TILE)), tp)
 	_bd.generate(game.biome, lv.pixel_size(), game.level_num * 7919 + game.run_seed % 1000)
 	_build_bg_buckets()
 	_lava_lights.clear()
@@ -137,11 +159,44 @@ func on_level_built() -> void:
 	redraw_all()
 
 
-func tiles_changed(_list: Array) -> void:
-	_compute_depth()
-	_index_dynamic_tiles()
-	for k in _chunks:
-		_chunks[k].queue_redraw()
+## A few tiles changed (a wall broke): depth and the dynamic index are updated
+## around them, and only the chunks they touch are painted again.
+func tiles_changed(list: Array) -> void:
+	if list.is_empty():
+		return
+	var lv = game.lv
+	var lo: Vector2i = list[0]
+	var hi: Vector2i = list[0]
+	for tp in list:
+		lo = Vector2i(mini(lo.x, tp.x), mini(lo.y, tp.y))
+		hi = Vector2i(maxi(hi.x, tp.x), maxi(hi.y, tp.y))
+	var m := 5
+	var r := Rect2i(lo - Vector2i(m, m), hi - lo + Vector2i(m * 2 + 1, m * 2 + 1)).intersection(Rect2i(0, 0, lv.w, lv.h))
+	_compute_depth(r)
+	for cy in range(r.position.y / CHUNK, (r.end.y - 1) / CHUNK + 1):
+		for cx in range(r.position.x / CHUNK, (r.end.x - 1) / CHUNK + 1):
+			var k := Vector2i(cx, cy)
+			_index_chunk(k)
+			if _chunks.has(k):
+				_chunks[k].queue_redraw()
+
+
+static func _bucket(idx: Dictionary, tile: Vector2i, v: Variant) -> void:
+	var k := Vector2i(tile.x / CHUNK, tile.y / CHUNK)
+	if not idx.has(k):
+		idx[k] = []
+	idx[k].append(v)
+
+
+## The chunks under the screen (plus one tile around it), as [from, to].
+func _view_chunks() -> Array:
+	var lv = game.lv
+	var tl := screen_to_world(Vector2.ZERO) - Vector2(D.TILE, D.TILE)
+	var br := screen_to_world(vp) + Vector2(D.TILE, D.TILE)
+	var csz := CHUNK * D.TILE
+	return [Vector2i(maxi(0, int(floor(tl.x / csz))), maxi(0, int(floor(tl.y / csz)))),
+		Vector2i(mini(int(ceil(float(lv.w) / CHUNK)) - 1, int(floor(br.x / csz))), mini(int(ceil(float(lv.h) / CHUNK)) - 1,
+			int(floor(br.y / csz))))]
 
 
 func clamp_cam(c: Vector2) -> Vector2:
@@ -163,6 +218,12 @@ func sp(w: Vector2) -> Vector2:
 
 
 func _process(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	_process_inner(delta)
+	game.prof_add("world_proc", t0)
+
+
+func _process_inner(delta: float) -> void:
 	t += delta
 	vp = get_viewport_rect().size
 	s = vp.y / (ZOOMS[zoom_idx] * D.TILE)
@@ -201,34 +262,48 @@ func _place_layers() -> void:
 		var layer: Node2D = bk[1]
 		bk[0].visible = screen.intersects(Rect2(r.position * s + layer.position, r.size * s))
 	var lv = game.lv
+	var nx := int(ceil(float(lv.w) / CHUNK))
+	var ny := int(ceil(float(lv.h) / CHUNK))
+	var csz := CHUNK * D.TILE
 	var tl := screen_to_world(Vector2.ZERO)
 	var br := screen_to_world(vp)
-	var cx0 := maxi(0, int(floor(tl.x / (CHUNK * D.TILE))) - 1)
-	var cy0 := maxi(0, int(floor(tl.y / (CHUNK * D.TILE))) - 1)
-	var cx1 := mini(int(ceil(float(lv.w) / CHUNK)) - 1, int(floor(br.x / (CHUNK * D.TILE))) + 1)
-	var cy1 := mini(int(ceil(float(lv.h) / CHUNK)) - 1, int(floor(br.y / (CHUNK * D.TILE))) + 1)
-	# Chunks just around the view are needed now; one more ring is painted
-	# ahead of time, at most one chunk per frame, so scrolling never stalls.
-	var ahead := 0
-	for cy in range(maxi(0, cy0 - 1), mini(cy1 + 1, int(ceil(float(lv.h) / CHUNK)) - 1) + 1):
-		for cx in range(maxi(0, cx0 - 1), mini(cx1 + 1, int(ceil(float(lv.w) / CHUNK)) - 1) + 1):
+	var cx0 := maxi(0, int(floor(tl.x / csz)) - 1)
+	var cy0 := maxi(0, int(floor(tl.y / csz)) - 1)
+	var cx1 := mini(nx - 1, int(floor(br.x / csz)) + 1)
+	var cy1 := mini(ny - 1, int(floor(br.y / csz)) + 1)
+	# Chunks in view are painted now; the rings around it are painted ahead of
+	# time, the nearest missing one each frame, so scrolling never has to wait.
+	var mid := Vector2i((cx0 + cx1) / 2, (cy0 + cy1) / 2)
+	var best := Vector2i(-1, -1)
+	var best_d := 1 << 30
+	for cy in range(maxi(0, cy0 - AHEAD), mini(cy1 + AHEAD, ny - 1) + 1):
+		for cx in range(maxi(0, cx0 - AHEAD), mini(cx1 + AHEAD, nx - 1) + 1):
 			var k := Vector2i(cx, cy)
 			if _chunks.has(k):
 				continue
-			var needed := cx >= cx0 and cx <= cx1 and cy >= cy0 and cy <= cy1
-			if not needed:
-				if ahead > 0:
-					continue
-				ahead += 1
-			var p := Painter.new()
-			p.fn = _paint_chunk
-			p.arg = k
-			_terrain.add_child(p)
-			_chunks[k] = p
+			if cx >= cx0 and cx <= cx1 and cy >= cy0 and cy <= cy1:
+				_new_chunk(k)
+				continue
+			var d := absi(cx - mid.x) + absi(cy - mid.y)
+			if d < best_d:
+				best_d = d
+				best = k
+	if best.x >= 0:
+		_new_chunk(best)
 	for k in _chunks:
 		var p: Painter = _chunks[k]
-		p.position = (Vector2(k) * CHUNK * D.TILE * s + base).round()
-		p.visible = k.x >= cx0 and k.x <= cx1 and k.y >= cy0 and k.y <= cy1
+		var on: bool = k.x >= cx0 and k.x <= cx1 and k.y >= cy0 and k.y <= cy1
+		p.visible = on
+		if on:
+			p.position = (Vector2(k) * csz * s + base).round()
+
+
+func _new_chunk(k: Vector2i) -> void:
+	var p := Painter.new()
+	p.fn = _paint_chunk
+	p.arg = k
+	_terrain.add_child(p)
+	_chunks[k] = p
 
 
 # ---------------------------------------------------------------- helpers
@@ -267,31 +342,43 @@ func _glyph(w: Vector2, g: String, col: Color, size_mul: float = 1.0, f: Font = 
 func _index_dynamic_tiles() -> void:
 	var lv = game.lv
 	_dyn_tiles.clear()
-	for y in lv.h:
-		for x in lv.w:
-			var tt: int = lv.tiles[y * lv.w + x]
-			var keep := tt == Level.WATER or tt == Level.LAVA or tt == Level.GATE
-			if tt == Level.AIR and lv.solid(x, y + 1):
-				keep = _hash01(x, y) >= (0.6 if game.biome.id == "hollow" else 0.25)
-			for ar in lv.arenas:
-				if ar.gates.has(Vector2i(x, y)):
-					keep = true
-			if keep:
-				var k := Vector2i(x / CHUNK, y / CHUNK)
-				if not _dyn_tiles.has(k):
-					_dyn_tiles[k] = []
-				_dyn_tiles[k].append(Vector2i(x, y))
+	for cy in int(ceil(float(lv.h) / CHUNK)):
+		for cx in int(ceil(float(lv.w) / CHUNK)):
+			_index_chunk(Vector2i(cx, cy))
 
 
-func _compute_depth() -> void:
+func _index_chunk(k: Vector2i) -> void:
 	var lv = game.lv
-	_depth.resize(lv.w * lv.h)
-	for i in lv.w * lv.h:
-		var tt: int = lv.tiles[i]
-		_depth[i] = 9 if (tt == Level.SOLID or tt == Level.CRACKED) else 0
+	var grass_cut := 0.6 if game.biome.look == "hollow" else 0.25
+	var list: Array = []
+	for y in range(k.y * CHUNK, mini(lv.h, (k.y + 1) * CHUNK)):
+		for x in range(k.x * CHUNK, mini(lv.w, (k.x + 1) * CHUNK)):
+			var tt: int = lv.tiles[y * lv.w + x]
+			var keep := tt == Level.WATER or tt == Level.LAVA or tt == Level.GATE or _gate_set.has(Vector2i(x, y))
+			if tt == Level.AIR and lv.solid(x, y + 1):
+				keep = keep or _hash01(x, y) >= grass_cut
+			if keep:
+				list.append(Vector2i(x, y))
+	if list.is_empty():
+		_dyn_tiles.erase(k)
+	else:
+		_dyn_tiles[k] = list
+
+
+## How deep each solid tile lies inside rock (0 = air, up to 9), within [r].
+## Tiles outside [r] keep their depth and feed the edge of the region.
+func _compute_depth(r: Rect2i) -> void:
+	var lv = game.lv
+	if _depth.size() != lv.w * lv.h:
+		_depth.resize(lv.w * lv.h)
+	for y in range(r.position.y, r.end.y):
+		for x in range(r.position.x, r.end.x):
+			var i: int = y * lv.w + x
+			var tt: int = lv.tiles[i]
+			_depth[i] = 9 if (tt == Level.SOLID or tt == Level.CRACKED) else 0
 	for pass_i in 4:
-		for y in lv.h:
-			for x in lv.w:
+		for y in range(r.position.y, r.end.y):
+			for x in range(r.position.x, r.end.x):
 				var i: int = y * lv.w + x
 				if _depth[i] == 0:
 					continue
@@ -309,6 +396,12 @@ func _dget(x: int, y: int) -> int:
 func _draw() -> void:
 	if game == null or game.lv == null:
 		return
+	var t0 := Time.get_ticks_usec()
+	_draw_sky()
+	game.prof_add("sky", t0)
+
+
+func _draw_sky() -> void:
 	var b: Dictionary = game.biome
 	var top: Color = b.sky_top
 	var bot: Color = b.sky_bot
@@ -361,8 +454,12 @@ func _draw_moon(c: Vector2, r: float) -> void:
 			line.append(c + v * r)
 		draw_polyline(line, Color(0.2, 0.0, 0.02, 0.8), maxf(1.0, r * 0.03))
 	# the eclipse shadow, kept inside the disc
-	var shadow := _circle_poly(c + Vector2(0.9, 0.12) * r * (0.95 + 0.05 * sin(t * 0.05)), r * 0.98, 40)
-	for poly in Geometry2D.intersect_polygons(disc, shadow):
+	var sk := "%s|%.1f|%.2f" % [c, r, snappedf(sin(t * 0.05), 0.02)]
+	if sk != _shadow_key:
+		_shadow_key = sk
+		var shadow := _circle_poly(c + Vector2(0.9, 0.12) * r * (0.95 + 0.05 * snappedf(sin(t * 0.05), 0.02)), r * 0.98, 40)
+		_shadow_polys = Geometry2D.intersect_polygons(disc, shadow)
+	for poly in _shadow_polys:
 		draw_colored_polygon(poly, Color(0.07, 0.0, 0.01, 0.78))
 	# black clouds drifting across
 	for k in 3:
@@ -477,6 +574,12 @@ func _bucket_layer(layer: Node2D, pos: PackedVector2Array, gl: PackedStringArray
 func _paint_bucket(ci: CanvasItem, arg: Array) -> void:
 	if game == null or game.lv == null:
 		return
+	var t0 := Time.get_ticks_usec()
+	_paint_bucket_inner(ci, arg)
+	game.prof_add("bg_bucket", t0)
+
+
+func _paint_bucket_inner(ci: CanvasItem, arg: Array) -> void:
 	var pos: PackedVector2Array = arg[0]
 	var gl: PackedStringArray = arg[1]
 	var cols: PackedColorArray = arg[2]
@@ -488,11 +591,13 @@ func _paint_bucket(ci: CanvasItem, arg: Array) -> void:
 
 
 func _paint_chunk(ci: CanvasItem, k: Vector2i) -> void:
+	var t0 := Time.get_ticks_usec()
 	_defer_ci = ci
 	_deferred.clear()
 	_paint_chunk_inner(ci, k)
 	_defer_ci = null
 	_flush(ci)
+	game.prof_add("chunk", t0)
 
 
 ## Glyphs are drawn after all rectangles and grouped by font, so the renderer
@@ -569,7 +674,7 @@ func _paint_chunk_inner(ci: CanvasItem, k: Vector2i) -> void:
 								col = _mul(b.edge if depth <= 1 else inner, (0.8 if depth <= 1 else 1.2) - minf(depth, 6) * 0.08)
 							elif depth >= 3 and hv > 0.988:
 								# something buried in the rock
-								match b.id:
+								match b.look:
 									"wood":
 										g = ["(", ")", "~", "j"][int(hv * 9000.0) % 4]
 										col = Color(0.3, 0.2, 0.14)
@@ -619,7 +724,7 @@ func _paint_backwall(ci: CanvasItem, tx: int, ty: int, o: Vector2, cell: Vector2
 			var hv := _hash01(gx + 911, gy + 37)
 			var g := ""
 			var col: Color = _mul(b.deep, 1.1)
-			match b.id:
+			match b.look:
 				"hollow":
 					if gy % 3 == 2:
 						g = "_" if hv < 0.8 else ""
@@ -645,70 +750,7 @@ func _paint_backwall(ci: CanvasItem, tx: int, ty: int, o: Vector2, cell: Vector2
 
 
 func _paint_floor_decor(ci: CanvasItem, d: Dictionary, o: Vector2, cell: Vector2, b: Dictionary) -> void:
-	var v: int = d.v
-	var c := func(i: float, j: float) -> Vector2: return o + Vector2((i + 0.5) * cell.x, (j + 0.5) * cell.y)
-	match d.kind:
-		"flower":
-			var fc: Color = [Color(1.0, 0.55, 0.7), Color(1.0, 0.9, 0.45), Color(0.9, 0.9, 1.0), Color(0.75, 0.6, 1.0)][v]
-			_gc(ci, c.call(1 + v % 2, 2), "|", _mul(b.grass, 0.8), fs, font)
-			_gc(ci, c.call(1 + v % 2, 1), "*", fc, fs, bold)
-		"mushroom":
-			var mc := Color(0.55, 0.75, 1.0) if b.id == "hollow" else Color(1.0, 0.45, 0.35)
-			_gc(ci, c.call(1, 2), "|", Color(0.85, 0.8, 0.7), fs, font)
-			_gc(ci, c.call(1, 1.3), "n", mc, fs, bold)
-			if v > 1:
-				_gc(ci, c.call(2.5, 2), "n", mc * 0.8, int(fs * 0.8), bold)
-		"fern":
-			_gc(ci, c.call(1, 2), "\\", _mul(b.grass, 0.75), fs, font)
-			_gc(ci, c.call(2, 1.6), "|", _mul(b.grass, 0.85), fs, font)
-			_gc(ci, c.call(3, 2), "/", _mul(b.grass, 0.75), fs, font)
-		"rock":
-			_gc(ci, c.call(1, 2), "(", _mul(b.edge, 0.8), fs, font)
-			_gc(ci, c.call(2, 2), "_" if v < 2 else "o", _mul(b.edge, 0.9), fs, font)
-			_gc(ci, c.call(3, 2), ")", _mul(b.edge, 0.8), fs, font)
-		"bones":
-			_gc(ci, c.call(1, 2), "=", Color(0.8, 0.78, 0.7), fs, font)
-			_gc(ci, c.call(2, 2), "o" if v % 2 == 0 else "°", Color(0.85, 0.83, 0.75), fs, font)
-		"crystal":
-			var cc := Color(0.5, 0.85, 1.0) if b.id != "ember" else Color(1.0, 0.45, 0.3)
-			_gc(ci, c.call(2, 0.4), "^", cc, fs, bold)
-			_gc(ci, c.call(1.5, 1.2), "/", cc * 0.9, fs, bold)
-			_gc(ci, c.call(2.5, 1.2), "\\", cc * 0.9, fs, bold)
-			_gc(ci, c.call(2, 2), "V" if v % 2 == 0 else "W", cc * 0.75, fs, bold)
-		"grave":
-			var gc := _mul(b.edge, 1.15)
-			_gc(ci, c.call(2, 0.2), "_", gc, fs, font)
-			_gc(ci, c.call(1, 1), "/" if v < 2 else "|", gc, fs, font)
-			_gc(ci, c.call(2, 1), "+" if v % 2 == 0 else "-", _mul(gc, 0.8), fs, bold)
-			_gc(ci, c.call(3, 1), "\\" if v < 2 else "|", gc, fs, font)
-			_gc(ci, c.call(1, 2), "|", gc, fs, font)
-			_gc(ci, c.call(2, 2), "_", gc, fs, font)
-			_gc(ci, c.call(3, 2), "|", gc, fs, font)
-		"cross":
-			var cc2 := _mul(b.edge, 1.1)
-			_gc(ci, c.call(2, 0), "|", cc2, fs, bold)
-			_gc(ci, c.call(1, 0.9), "-", cc2, fs, bold)
-			_gc(ci, c.call(2, 0.9), "+", cc2, fs, bold)
-			_gc(ci, c.call(3, 0.9), "-", cc2, fs, bold)
-			_gc(ci, c.call(2, 2), "|", _mul(cc2, 0.85), fs, bold)
-		"skull":
-			var sc := Color(0.85, 0.82, 0.74)
-			_gc(ci, c.call(1.5 + v % 2, 1.4), "_", sc, fs, font)
-			_gc(ci, c.call(1 + v % 2, 2), "(", sc, fs, font)
-			_gc(ci, c.call(1.5 + v % 2, 2), "°" if v < 2 else "x", Color(0.15, 0.1, 0.1), fs, bold)
-			_gc(ci, c.call(2 + v % 2, 2), ")", sc, fs, font)
-		"candle":
-			var fl := 0.8 + 0.2 * sin(t * 11.0 + d.x)
-			_gc(ci, c.call(1, 0.9), "'", Color(1.0, 0.75, 0.35) * fl, fs, bold)
-			_gc(ci, c.call(1, 1.6), "|", Color(0.88, 0.85, 0.76), fs, font)
-			_gc(ci, c.call(1, 2), "_", Color(0.88, 0.85, 0.76), fs, font)
-			if v > 1:
-				_gc(ci, c.call(2.6, 1.5), "'", Color(1.0, 0.75, 0.35) * fl, fs, bold)
-				_gc(ci, c.call(2.6, 2), "|", Color(0.88, 0.85, 0.76), fs, font)
-		"vent":
-			_gc(ci, c.call(1, 2), "/", Color(0.5, 0.25, 0.15), fs, font)
-			_gc(ci, c.call(2, 2), "w", Color(1.0, 0.5, 0.15), fs, bold)
-			_gc(ci, c.call(3, 2), "\\", Color(0.5, 0.25, 0.15), fs, font)
+	DecorArt.paint_floor(self, ci, d, o, cell, b)
 
 
 # ---------------------------------------------------------------- dynamic layer
@@ -716,17 +758,24 @@ func _paint_floor_decor(ci: CanvasItem, d: Dictionary, o: Vector2, cell: Vector2
 func _paint_dynamic(_ci: CanvasItem, _arg: Variant) -> void:
 	if game == null or game.lv == null:
 		return
+	var t0 := Time.get_ticks_usec()
+	_paint_dynamic_inner()
+	game.prof_add("dynamic", t0)
+
+
+func _paint_dynamic_inner() -> void:
 	var b: Dictionary = game.biome
 	var tl := screen_to_world(Vector2.ZERO) - Vector2(D.TILE, D.TILE)
 	var br := screen_to_world(vp) + Vector2(D.TILE, D.TILE)
 	var view := Rect2(tl, br - tl)
 	_draw_motes(b, view)
-	_draw_ceiling_decor(b, view)
-	_draw_torches(b, view)
+	var vc := _view_chunks()
+	_draw_ceiling_decor(b, view, vc)
+	_draw_torches(b, view, vc)
 	_draw_door(b)
-	_draw_props()
+	_draw_props(view)
 	_draw_tiles_dynamic(b, tl, br)
-	_draw_items()
+	_draw_items(view)
 	for hz in game.hazards:
 		_draw_hazard(hz)
 	for e in game.enemies:
@@ -749,11 +798,23 @@ func _paint_dynamic(_ci: CanvasItem, _arg: Variant) -> void:
 		var pc: Color = pu.color
 		pc.a = clampf(pu.life * 2.0, 0.0, 1.0)
 		var sp_p := sp(pu.pos)
-		var fsz := int(fs * (1.6 + maxf(0.0, pu.life - 0.8) * 2.0 if pu.get("big", false) else 1.05))
+		# grown crits use a few fixed sizes: every new size is rasterised once
+		var fsz := int(fs * (1.6 + snappedf(maxf(0.0, pu.life - 0.8) * 2.0, 0.2) if pu.get("big", false) else 1.05))
 		var w := bold.get_string_size(pu.text, HORIZONTAL_ALIGNMENT_LEFT, -1, fsz).x
 		_dyn.draw_string(bold, sp_p - Vector2(w * 0.5, 0), pu.text, HORIZONTAL_ALIGNMENT_LEFT, -1, fsz, pc)
 	if not game.near.is_empty() and game.is_playing():
 		_draw_prompt(game.near)
+
+
+## Everything bucketed in [idx] under the chunks [vc] covers.
+func _in_view(idx: Dictionary, vc: Array) -> Array:
+	var out: Array = []
+	for cy in range(vc[0].y, vc[1].y + 1):
+		for cx in range(vc[0].x, vc[1].x + 1):
+			var k := Vector2i(cx, cy)
+			if idx.has(k):
+				out.append_array(idx[k])
+	return out
 
 
 func _draw_motes(b: Dictionary, view: Rect2) -> void:
@@ -830,7 +891,7 @@ func _draw_dyn_tile(b: Dictionary, lv, x: int, y: int, pc: Vector2, wc: Color) -
 func _draw_grass(b: Dictionary, x: int, y: int, pc: Vector2) -> void:
 	var T := D.TILE
 	var h := _hash01(x, y)
-	if h < 0.25 or b.id == "hollow" and h < 0.6 or (_low and h < 0.6):
+	if h < 0.25 or b.look == "hollow" and h < 0.6 or (_low and h < 0.6):
 		return
 	for k in 4:
 		var hk := _hash01(x * 4 + k, y + 77)
@@ -852,16 +913,14 @@ func _draw_grass(b: Dictionary, x: int, y: int, pc: Vector2) -> void:
 			_glyph(Vector2(wx, (y + 1) * T - D.GH * 1.5), "'" if lean > 0.0 else "`", _mul(b.grass, 0.6), 1.0, font)
 
 
-func _draw_ceiling_decor(b: Dictionary, view: Rect2) -> void:
-	for d in game.lv.decor:
-		if not d.kind in ["vine", "root", "stalactite", "chain", "web"]:
-			continue
+func _draw_ceiling_decor(b: Dictionary, view: Rect2, vc: Array) -> void:
+	for d in _in_view(_ceil_idx, vc):
 		var top := Vector2((d.x + 0.5) * D.TILE, d.y * D.TILE)
 		if not view.has_point(top):
 			continue
 		var n: int = d.v
 		for k in n:
-			var sway: float = sin(t * 1.3 + d.x * 0.7 + k * 0.5) * k * 0.35 if d.kind != "stalactite" else 0.0
+			var sway: float = sin(t * 1.3 + d.x * 0.7 + k * 0.5) * k * 0.35 if d.kind not in ["stalactite", "icicle"] else 0.0
 			var p := top + Vector2(sway, (k + 0.5) * D.GH)
 			var g := ":"
 			var c: Color = _mul(b.edge, 0.7 - k * 0.05)
@@ -875,10 +934,18 @@ func _draw_ceiling_decor(b: Dictionary, view: Rect2) -> void:
 				"root":
 					g = ["\\", "|", "/", "|"][k % 4]
 					c = Color(0.45, 0.33, 0.22)
-				"stalactite":
+				"stalactite", "icicle":
 					if k > n / 2:
 						break
 					g = "V" if k == 0 else ("v" if k < n / 2 else "'")
+					if d.kind == "icicle":
+						c = Color(0.75, 0.9, 1.0, 0.9 - k * 0.15)
+				"noose":
+					g = "O" if k == n - 1 else "|"
+					c = Color(0.62, 0.55, 0.4)
+				"banner":
+					g = "=" if k == 0 else ("V" if k == n - 1 else "|")
+					c = Color(0.5, 0.08, 0.12) if k > 0 else Color(0.6, 0.5, 0.3)
 				"chain":
 					g = "o" if k % 2 == 0 else "|"
 					c = Color(0.55, 0.55, 0.6)
@@ -895,8 +962,8 @@ func _draw_ceiling_decor(b: Dictionary, view: Rect2) -> void:
 			_glyph(p, g, c, 1.0, font)
 
 
-func _draw_torches(b: Dictionary, view: Rect2) -> void:
-	for tp in game.lv.torches:
+func _draw_torches(b: Dictionary, view: Rect2, vc: Array) -> void:
+	for tp in _in_view(_torch_idx, vc):
 		if not view.has_point(tp):
 			continue
 		var fl := sin(t * 13.0 + tp.x) * 0.5 + sin(t * 7.3 + tp.y) * 0.5
@@ -941,8 +1008,10 @@ func _draw_door(b: Dictionary) -> void:
 		_glyph(r.get_center() + Vector2(0, -2), ">", _mul(b.top, pulse), 1.3, bold)
 
 
-func _draw_props() -> void:
+func _draw_props(view: Rect2) -> void:
 	for pr in game.props:
+		if not view.grow(48.0).has_point(pr.pos):
+			continue
 		var def: Dictionary = S.PROPS[pr.kind]
 		var fr: Array
 		match pr.kind:
@@ -978,8 +1047,10 @@ func _draw_prompt(pr: Dictionary) -> void:
 	_dyn.draw_string(font, Vector2(p.x - w * 0.5, p.y + bob), label, HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color(1.0, 0.92, 0.7))
 
 
-func _draw_items() -> void:
+func _draw_items(view: Rect2) -> void:
 	for pk in game.pickups:
+		if not view.has_point(pk.pos):
+			continue
 		var p: Vector2 = pk.pos + Vector2(0, sin(t * 3.0 + pk.pos.x) * 2.0)
 		if pk.kind == "heart":
 			_glyph(p, "♥", Color(1.0, 0.35, 0.45), 1.3)
@@ -993,6 +1064,8 @@ func _draw_items() -> void:
 				_glyph(p + Vector2(cos(a), sin(a)) * 4.0, "*", Color(1.0, 0.85, 0.35), 0.9)
 			_glyph(p, "◆", Color(1.0, 0.95, 0.6), 1.1)
 	for sh in game.shards:
+		if not view.has_point(sh.pos):
+			continue
 		var c := _mul(Color(1.0, 0.85, 0.35), 0.8 + 0.2 * sin(t * 10.0 + sh.pos.x))
 		_glyph(sh.pos + sh.size * 0.5, "*", c, 0.9)
 
@@ -1005,19 +1078,24 @@ func _draw_hazard(hz: Dictionary) -> void:
 		return
 	var k := 0
 	var y: float = hz.y - D.GH * 0.5
+	var light: bool = hz.get("kind", "fire") == "light"
 	while y > hz.y - 110.0:
 		var c := Color(1.0, 0.75 - k * 0.025, 0.3 - k * 0.01)
-		var g: String = ["|", "*", "^", "|"][(k + int(t * 20.0)) % 4]
+		var side := Color(1.0, 0.45, 0.15, 0.7)
+		if light:
+			c = Color(0.85 - k * 0.01, 0.92, 1.0)
+			side = Color(0.6, 0.75, 1.0, 0.6)
+		var g: String = ["|", "*", "^", "|"][(k + int(t * 20.0)) % 4] if not light else ["|", "+", "|", "'"][(k + int(t * 14.0)) % 4]
 		_glyph(Vector2(hz.x + sin(t * 30.0 + k) * 2.0, y), g, c, 1.1)
-		_glyph(Vector2(hz.x - D.GW, y), "(", Color(1.0, 0.45, 0.15, 0.7), 1.0)
-		_glyph(Vector2(hz.x + D.GW, y), ")", Color(1.0, 0.45, 0.15, 0.7), 1.0)
+		_glyph(Vector2(hz.x - D.GW, y), "(", side, 1.0)
+		_glyph(Vector2(hz.x + D.GW, y), ")", side, 1.0)
 		y -= D.GH
 		k += 1
 
 
 func _draw_projectile(pr: Dictionary) -> void:
 	if pr.delay > 0.0:
-		if pr.kind in ["ember", "rock"]:
+		if pr.kind in ["ember", "rock", "frost", "noose"]:
 			var tx := int(pr.pos.x / D.TILE)
 			var ty := int(pr.pos.y / D.TILE)
 			while ty < game.lv.h and not game.lv.solid(tx, ty + 1):
@@ -1027,6 +1105,25 @@ func _draw_projectile(pr: Dictionary) -> void:
 		return
 	var look: Array = Combat.SHOT_LOOK.get(pr.kind, Combat.SHOT_LOOK.shot)
 	var g: String = look[0]
+	match pr.kind:
+		"boomerang":
+			_glyph(pr.pos, ["<", "^", ">", "v"][int(pr.t * 20.0) % 4], look[1], 1.4)
+			return
+		"chakram":
+			_glyph(pr.pos, "✶" if int(pr.t * 16.0) % 2 == 0 else "*", look[1], 1.35)
+			return
+		"hook":
+			_glyph(pr.pos, "J" if pr.vel.x >= 0.0 else "L", look[1], 1.4)
+			_glyph(pr.pos - pr.vel.normalized() * 6.0, "·", Color(0.6, 0.6, 0.65, 0.7), 1.0)
+			return
+		"noose":
+			_glyph(pr.pos + Vector2(0, -8), "|", Color(0.62, 0.55, 0.4, 0.8), 1.2)
+			_glyph(pr.pos, "O", look[1], 1.5)
+			return
+		"hwave":
+			_glyph(pr.pos, "^", look[1], 1.7)
+			_glyph(pr.pos + Vector2(-signf(pr.vel.x) * 6.0, 2.0), "^", Color(look[1].r, look[1].g, look[1].b, 0.5), 1.2)
+			return
 	if pr.kind == "arrow" or pr.kind == "knife":
 		var a: float = pr.vel.angle()
 		g = _tangent_glyph(a + PI * 0.5) if pr.kind == "arrow" else ("»" if pr.vel.x >= 0.0 else "«")
@@ -1044,6 +1141,8 @@ func _draw_enemy(e: Dictionary) -> void:
 		tint.a = 0.15 if ph > 2.3 else 1.0
 	if e.burn > 0.0 and int(t * 10.0) % 2 == 0:
 		tint = Color(1.0, 0.7, 0.5)
+	elif e.chill > 0.0:
+		tint = Color(0.6, 0.85, 1.0, tint.a)
 	var foot := Physics.foot(e)
 	if e.elite:
 		for i in 4:
@@ -1062,11 +1161,17 @@ func _draw_enemy(e: Dictionary) -> void:
 		"archer":
 			if e.state == "aim" and e.t < 0.3 and int(t * 14.0) % 2 == 0:
 				_glyph(Vector2(Physics.center(e).x, e.pos.y - 10), "!", Color(1.0, 0.3, 0.25), 1.2)
+		"hanged":
+			if e.state == "hang" and e.has("rope_y"):
+				var y0: float = e.rope_y
+				while y0 < e.pos.y + 2.0:
+					_glyph(Vector2(Physics.center(e).x, y0), "|", Color(0.62, 0.55, 0.4), 1.0)
+					y0 += D.GH
 		"bomber":
 			if e.state == "fuse":
 				_glyph(Physics.center(e) + Vector2(0, -14), "*", Color(1.0, 1.0, 0.6), 1.2 + sin(t * 40.0) * 0.3)
-		"warden", "colossus", "wraith":
-			if e.state in ["crouch", "tele", "raise", "ring"] and int(t * 10.0) % 2 == 0:
+		"warden", "colossus", "wraith", "hangman", "abbess", "frost_king":
+			if e.state in ["crouch", "tele", "raise", "ring", "hook"] and int(t * 10.0) % 2 == 0:
 				_glyph(Vector2(Physics.center(e).x, e.pos.y - 14), "!", Color(1.0, 0.3, 0.25), 1.8)
 	if not e.boss and e.hp < e.max_hp and e.hp > 0:
 		var w: float = e.size.x
@@ -1096,14 +1201,24 @@ func _draw_hero() -> void:
 	if game.level_up_t > 2.0:
 		tint = Color(0.7, 0.9, 1.0)
 	_sprite(Hero.frame(p), Physics.foot(p), p.facing, S.HERO_PAL, {}, S.HERO.a, tint, false, false, S.HERO.scale)
-	if p.atk_t > p.atk_len - 0.16 and p.atk_kind == "side":
-		var wid: String = game.player.weapon
-		var wc: Color = Items.def(wid).get("color", Color(0.85, 0.9, 1.0))
-		var reach: float = p.st.reach
-		for i in int(2 + reach * 2.0):
-			_glyph(Physics.foot(p) + Vector2(p.facing * (D.GW * (3.3 + i * 0.75)), -D.GH * 2.17), "=" if i < 2 else "-", wc, 0.8)
+	_draw_weapon(p, tint)
 
 
+## The equipped weapon in the hero's hand (weapon_art.gd).
+func _draw_weapon(p: Dictionary, tint: Color) -> void:
+	var d: Dictionary = Items.def(p.weapon)
+	var kind: String = d.get("kind", "sword")
+	var pose := WeaponArt.pose(p, kind)
+	var a: float = pose[0]
+	var f: float = p.facing
+	var shoulder := Physics.foot(p) + Vector2(f * 4.0, -15.0)
+	var hand: Vector2 = shoulder + Vector2(cos(a) * f, sin(a)) * (4.5 + pose[1])
+	var col: Color = d.get("color", Color(0.85, 0.9, 1.0)) * tint
+	col.a = 1.0
+	WeaponArt.draw(_dyn, kind, sp(hand), a, f, s, col, p.st.reach)
+	if kind == "dagger":
+		# the off hand holds a second fang, reversed
+		WeaponArt.draw(_dyn, kind, sp(Physics.foot(p) + Vector2(-f * 3.0, -13.0)), a + 2.4, f, s, col * 0.8, p.st.reach)
 
 
 ## A small arrow circling the hero that points the way to the exit.
@@ -1270,9 +1385,9 @@ func _collect_lights() -> void:
 	for d in _decor_lights:
 		var dp := Vector2((d.x + 0.5) * D.TILE, (d.y + 0.5) * D.TILE)
 		if view.has_point(dp):
-			var c := Color(0.5, 0.85, 1.0) if b.id != "ember" else Color(1.0, 0.45, 0.25)
+			var c := Color(0.5, 0.85, 1.0) if b.look != "ember" else Color(1.0, 0.45, 0.25)
 			if d.kind == "mushroom":
-				c = Color(0.55, 0.75, 1.0) if b.id == "hollow" else Color(1.0, 0.5, 0.4)
+				c = Color(0.55, 0.75, 1.0) if b.look == "hollow" else Color(1.0, 0.5, 0.4)
 			elif d.kind == "candle":
 				c = Color(1.0, 0.7, 0.35)
 			_light(dp, 70.0 if d.kind == "candle" else 55.0, c, 0.7)

@@ -21,11 +21,16 @@ const Audio := preload("res://scripts/audio.gd")
 const Renderer := preload("res://scripts/renderer.gd")
 const Hud := preload("res://scripts/hud.gd")
 const Menu := preload("res://scripts/menu.gd")
+const Skills := preload("res://scripts/skills.gd")
+const T2 := preload("res://scripts/strings_more.gd")
 const PostShader := preload("res://shaders/post.gdshader")
 const FontRegular := preload("res://fonts/DejaVuSansMono.ttf")
 const FontBold := preload("res://fonts/DejaVuSansMono-Bold.ttf")
 
 enum State { TITLE, PLAY }
+
+## Longest single simulation step; longer frames are split (see _step_frame).
+const STEP_MAX := 1.0 / 120.0
 
 ## The 0.4.0 single save; moved into the first world slot on start.
 const RUN_PATH := "user://run.cfg"
@@ -42,7 +47,8 @@ const DIFF := {
 	"hard": {"dmg": 1.4, "hp": 1.3, "toll": 0.5, "xp": 1.25},
 	"nightmare": {"dmg": 1.9, "hp": 1.6, "toll": 1.0, "xp": 1.5},
 }
-const RUN_KEYS := ["hp", "base_hp", "ink", "shards", "weapon", "charms", "bag", "xp", "xp_level", "up_hp", "up_dmg"]
+const RUN_KEYS := ["hp", "base_hp", "ink", "shards", "weapon", "charms", "bag", "xp", "xp_level", "up_hp", "up_dmg", "throw", "up_spd",
+	"skills"]
 ## Glyph-level fallbacks for Chinese and Japanese text (system fonts).
 const CJK_FONTS := {
 	"zh": ["PingFang SC", "Hiragino Sans GB", "Heiti SC", "Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "Noto Sans SC",
@@ -103,8 +109,6 @@ var best_combo := 0
 var crit_flash := 0.0
 var level_up_t := 0.0
 var _cjk: Array = []
-## Bumped whenever tiles change after the level is built (for the minimap).
-var lv_changes := 0
 var world_slot := -1
 var world_name := ""
 var difficulty := "normal"
@@ -130,6 +134,10 @@ var _start_level := 1
 var _record_dir := ""
 var _record_frame := 0
 var _menu_arg := ""
+## Debug: starting hero level and learned skills (--hero=, --skills=).
+var _hero_level := 1
+var _skills_arg: Array = []
+var _equip_arg: Array = []
 var _fixed_seed := -1
 var _to_boss := false
 var _nopost := false
@@ -141,6 +149,11 @@ var _ui_wait := 0
 var _ui_issues := {}
 var _zoo := false
 var _dts: Array = []
+## --shot: per frame [process s, physics s, render cpu ms, render gpu ms].
+var _bench: Array = []
+## --shot: microseconds spent per named section, and how often it ran.
+var prof := {}
+var _frames_seen := 0
 ## The game's own cursor while the mouse is captured (see _update_cursor).
 var cursor := Vector2.ZERO
 var _mouse_k := 1.0
@@ -148,11 +161,19 @@ var _mouse_last := Vector2.ZERO
 
 
 func _process(delta: float) -> void:
+	_step_frame(delta)
 	_dts.append(delta)
 	if delta > 0.03 and _shot_path != "":
 		print("slow frame %.0fms at %.2fs" % [delta * 1000.0, Time.get_ticks_msec() / 1000.0])
 	if _dts.size() > 240:
 		_dts.pop_front()
+	if _shot_path != "":
+		_frames_seen += 1
+		var vp_rid := get_viewport().get_viewport_rid()
+		_bench.append([Performance.get_monitor(Performance.TIME_PROCESS), Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS),
+			RenderingServer.viewport_get_measured_render_time_cpu(vp_rid), RenderingServer.viewport_get_measured_render_time_gpu(vp_rid)])
+		if _bench.size() > 600:
+			_bench.pop_front()
 
 
 func _ready() -> void:
@@ -172,6 +193,7 @@ func _ready() -> void:
 	elif DisplayServer.get_name() != "headless":
 		# benchmarks and recordings run as fast as they can
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+		RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
 
 	font = _make_font(400)
 	font_bold = _make_font(700)
@@ -234,6 +256,12 @@ func _parse_cmdline() -> bool:
 			_record_dir = a.substr(9)
 		elif a.begins_with("--menu="):
 			_menu_arg = a.substr(7)
+		elif a.begins_with("--hero="):
+			_hero_level = maxi(1, int(a.substr(7)))
+		elif a.begins_with("--skills="):
+			_skills_arg = a.substr(9).split(",")
+		elif a.begins_with("--equip="):
+			_equip_arg = a.substr(8).split(",")
 		elif a == "--bot":
 			_bot = true
 		elif a == "--god":
@@ -329,8 +357,7 @@ func apply_settings(changed: String = "") -> void:
 		if DisplayServer.window_get_mode() != want:
 			DisplayServer.window_set_mode(want)
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED if cfg.get_v("vsync") else DisplayServer.VSYNC_DISABLED)
-	Engine.max_fps = 0 if _shot_path != "" else int(cfg.get_v("fps"))
-	Engine.physics_ticks_per_second = _tick_rate()
+	Engine.max_fps = _frame_cap()
 	world.zoom_idx = int(cfg.get_v("zoom"))
 	if all or changed in ["zoom", "quality", "lang"]:
 		world.redraw_all()
@@ -350,18 +377,19 @@ func set_setting(key: String, v: Variant) -> void:
 	apply_settings(key)
 
 
-## The game steps as often as frames are shown (60 to 240 times a second), so
-## high frame rates also move smoothly instead of repeating 60 Hz positions.
-func _tick_rate() -> int:
-	if _shot_path != "" or ui_check:
+## The frame limit handed to the engine. With V-Sync on and a limit at or
+## above the display's refresh rate, V-Sync alone paces the frames: a timer at
+## the same rate drifts against the display and drops a frame now and then.
+func _frame_cap() -> int:
+	if _shot_path != "":
+		return 0
+	if _record_dir != "":
 		return 60
 	var target := int(cfg.get_v("fps"))
-	if target <= 0:
-		target = 240
 	var hz := refresh_rate()
-	if cfg.get_v("vsync") and hz > 0:
-		target = mini(target, hz)
-	return clampi(target, 60, 240)
+	if cfg.get_v("vsync") and hz > 0 and (target == 0 or target >= hz):
+		return 0
+	return target
 
 
 ## The refresh rate of the window's display in Hz, or -1 when it is unknown.
@@ -377,7 +405,7 @@ func particle_cap() -> int:
 
 
 func L(key: String) -> String:
-	var row: Array = T.STRINGS.get(key, [])
+	var row: Array = T.STRINGS.get(key, T2.STRINGS.get(key, []))
 	if row.is_empty():
 		return key
 	return row[lang_idx] if lang_idx < row.size() and row[lang_idx] != "" else row[0]
@@ -493,6 +521,14 @@ func new_run() -> void:
 func _begin_run() -> void:
 	Foes.hp_mult = diff().hp
 	player = Hero.create()
+	player.xp_level = _hero_level
+	for id in _skills_arg:
+		Skills.learn(player, id)
+	for id in _equip_arg:
+		Items.give(player, id)
+		Items.toggle(player, id)
+	Hero.refresh(player)
+	player.hp = player.max_hp
 	level_num = _start_level
 	kills = 0
 	run_time = 0.0
@@ -556,8 +592,23 @@ func save_run() -> void:
 	cf.save(WORLD_PATH % world_slot)
 
 
+## The biome of level n. The first time through they come in order; every
+## later cycle shuffles them (the same way for the same world).
 func biome_index(n: int) -> int:
-	return int((n - 1) / D.LEVELS_PER_BIOME) % D.BIOMES.size()
+	var nb := D.BIOMES.size()
+	var slot := int((n - 1) / D.LEVELS_PER_BIOME)
+	var cycle := int(slot / nb)
+	if cycle == 0:
+		return slot
+	var order: Array = range(nb)
+	var r := RandomNumberGenerator.new()
+	r.seed = hash([run_seed, cycle])
+	for i in range(nb - 1, 0, -1):
+		var j := r.randi_range(0, i)
+		var tmp: int = order[i]
+		order[i] = order[j]
+		order[j] = tmp
+	return order[slot % nb]
 
 
 func _build_level() -> void:
@@ -584,7 +635,8 @@ func _build_level() -> void:
 		enemies.append(Foes.create(s.kind, s.pos, level_num, rng, s.elite))
 	if _zoo and state != State.TITLE:
 		enemies.clear()
-		var kinds := ["crawler", "hopper", "bat", "spitter", "knight", "shield", "wisp", "archer", "bomber"]
+		var kinds := ["crawler", "hopper", "bat", "spitter", "knight", "shield", "wisp", "archer", "bomber", "toad", "hanged", "choir",
+			"penitent", "wight"]
 		for i in kinds.size():
 			var side := -1.0 if lv.start.x > lv.pixel_size().x * 0.5 else 1.0
 			var e := Foes.create(kinds[i], lv.start + Vector2(side * (50 + i * 40), -120), level_num, rng, i == 4)
@@ -683,7 +735,7 @@ func gain_xp(amount: float, at: Vector2) -> void:
 		p.xp -= Hero.xp_need(p.xp_level)
 		p.xp_level += 1
 		up = true
-		if Items.SLOT_LEVELS.has(p.xp_level):
+		if Items.slot_level(p.xp_level):
 			toast(L("toast_slot"), Color(0.75, 0.9, 1.0))
 	if up:
 		Hero.refresh(p)
@@ -693,6 +745,7 @@ func gain_xp(amount: float, at: Vector2) -> void:
 		audio.play("victory", -6.0, 1.3)
 		burst(Physics.center(p), ["+", "*", "·", "^"], Color(0.6, 0.85, 1.0), 30, 160.0, -90.0)
 		toast(L("toast_level") % [p.xp_level, Hero.HP_PER_LEVEL, int(Hero.DMG_PER_LEVEL * 100.0)], Color(0.6, 0.85, 1.0))
+		toast(L("toast_skill") % key("skills"), Skills.BRANCH_COLORS.shade)
 		save_run()
 
 
@@ -789,10 +842,6 @@ func _unhandled_input(event: InputEvent) -> void:
 			var fs := DisplayServer.window_get_mode() != DisplayServer.WINDOW_MODE_WINDOWED
 			set_setting("window", "windowed" if fs else "borderless")
 			return
-		if k == KEY_EQUAL or k == KEY_KP_ADD or k == KEY_MINUS or k == KEY_KP_SUBTRACT:
-			var step := 1 if (k == KEY_EQUAL or k == KEY_KP_ADD) else -1
-			set_setting("zoom", clampi(int(cfg.get_v("zoom")) + step, 0, world.ZOOMS.size() - 1))
-			return
 	if menu.active():
 		menu.handle(event)
 		return
@@ -803,6 +852,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			menu.open("inventory")
 		elif event.is_action_pressed("g_map"):
 			menu.open("map")
+		elif event.is_action_pressed("g_skills"):
+			menu.open("skills")
 
 
 func aiming_with_mouse() -> bool:
@@ -869,7 +920,12 @@ func _on_focus_lost() -> void:
 
 # ---------------------------------------------------------------- frame
 
-func _physics_process(dt: float) -> void:
+## The game steps once per shown frame, with that frame's real duration, so
+## motion matches the display at any refresh rate. Long frames are split into
+## steps of at most STEP_MAX so fast bodies never pass through walls.
+func _step_frame(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	var dt := minf(delta, 0.05)
 	ctl.poll(dt)
 	if _bot and state == State.PLAY:
 		_bot_input()
@@ -878,7 +934,15 @@ func _physics_process(dt: float) -> void:
 	if ui_check:
 		_ui_check_step()
 	_update_cursor()
+	var n := maxi(1, ceili(dt / STEP_MAX - 0.001))
+	for i in n:
+		_tick(dt / n)
+		if i == 0:
+			ctl.consume_presses()
+	prof_add("physics", t0)
 
+
+func _tick(dt: float) -> void:
 	shake = move_toward(shake, 0.0, dt * 30.0)
 	hurt_flash = move_toward(hurt_flash, 0.0, dt * 2.5)
 	fade = move_toward(fade, 0.0, dt * 2.2)
@@ -922,7 +986,7 @@ func _step_play(dt: float) -> void:
 	Combat.update_projectiles(self, sdt)
 	Combat.update_hazards(self, sdt)
 	Combat.update_shards(self, sdt)
-	Combat.update_pickups(self)
+	Combat.update_pickups(self, sdt)
 	Combat.check_contacts(self)
 	Props.update_arenas(self)
 	Props.update_lanterns(self)
@@ -984,6 +1048,18 @@ func _debug_capture(dt: float) -> void:
 				avg += d / _dts.size()
 				mx = maxf(mx, d)
 			print("avg=%.1fms max=%.1fms" % [avg * 1000.0, mx * 1000.0])
+			if not _bench.is_empty():
+				var sums := [0.0, 0.0, 0.0, 0.0]
+				var peaks := [0.0, 0.0, 0.0, 0.0]
+				for row in _bench:
+					for k in 4:
+						var v: float = row[k] * (1000.0 if k < 2 else 1.0)
+						sums[k] += v / _bench.size()
+						peaks[k] = maxf(peaks[k], v)
+				for k in prof:
+					print("  %-12s %7.3fms/frame  max %6.2fms  n=%d" % [k, prof[k][0] / 1000.0 / _frames_seen, prof[k][2] / 1000.0, prof[k][1]])
+				print("process=%.2f/%.2fms physics=%.2f/%.2fms render_cpu=%.2f/%.2fms gpu=%.2f/%.2fms (avg/max)" % [
+					sums[0], peaks[0], sums[1], peaks[1], sums[2], peaks[2], sums[3], peaks[3]])
 			print("prims=%d" % Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME))
 			print("draws=%d fps=%d menu=%s state=%d level=%d hp=%d kills=%d shards=%d x=%.0f/%.0f" % [
 				Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), Engine.get_frames_per_second(),
@@ -1005,11 +1081,11 @@ func _ui_check_step() -> void:
 		for l in T.LANGS:
 			for m in ["", "new_world", "worlds", "world", "confirm_delete"]:
 				_ui_steps.append([l, "title", m, 0])
-			for m in ["", "pause", "inventory", "shop", "map", "moves"]:
+			for m in ["", "pause", "inventory", "shop", "map", "moves", "skills"]:
 				_ui_steps.append([l, "play", m, 0])
 			for k in 4:
 				_ui_steps.append([l, "play", "settings", k])
-			for key in T.STRINGS:
+			for key in T.STRINGS.keys() + T2.STRINGS.keys():
 				if key.begins_with("hint_"):
 					_ui_steps.append([l, "hint", key.substr(5), 0])
 		_ui_steps.append(["", "done", "", 0])
@@ -1050,6 +1126,18 @@ func _ui_check_step() -> void:
 
 # ---------------------------------------------------------------- API for other scripts
 
+## Adds time to a --shot profile section (no-op otherwise).
+func prof_add(key: String, since_usec: int) -> void:
+	if _shot_path == "":
+		return
+	var d := Time.get_ticks_usec() - since_usec
+	var row: Array = prof.get(key, [0, 0, 0])
+	row[0] += d
+	row[1] += 1
+	row[2] = maxi(row[2], d)
+	prof[key] = row
+
+
 func sfx(name: String, vol_db: float = 0.0, pitch: float = 1.0, vary: float = 0.06) -> void:
 	audio.play(name, vol_db, pitch, vary)
 
@@ -1079,12 +1167,28 @@ func fire(from: Vector2, vel: Vector2, owner: String = "enemy", dmg: float = 1.0
 	Combat.fire(self, from, vel, owner, dmg, grav, kind, delay)
 
 
+func throw_weapon(p: Dictionary, dir: Vector2, free: bool = false) -> void:
+	Combat.throw_weapon(self, p, dir, free)
+
+
+func ground_wave(p: Dictionary) -> void:
+	Combat.ground_wave(self, p)
+
+
+func quake(p: Dictionary) -> void:
+	Combat.quake(self, p)
+
+
+func dash_hits(p: Dictionary) -> void:
+	Combat.dash_hits(self, p)
+
+
 func explode(at: Vector2, radius: float, hurts_player: bool) -> void:
 	Combat.explode(self, at, radius, hurts_player)
 
 
-func add_pillar(x: float, floor_y: float) -> void:
-	Combat.add_pillar(self, x, floor_y)
+func add_pillar(x: float, floor_y: float, kind: String = "fire") -> void:
+	Combat.add_pillar(self, x, floor_y, kind)
 
 
 func remove_enemy(e: Dictionary) -> void:
@@ -1108,6 +1212,14 @@ func add_ghost(p: Dictionary) -> void:
 	if not ghosts.is_empty() and ghosts[-1].life > 0.205:
 		return
 	ghosts.append({"foot": Physics.foot(p), "facing": p.facing, "frame": Hero.frame(p), "life": 0.22})
+
+
+## Tiles changed after the level was built: the minimap repaints their rooms
+## and, when [terrain] (not just gates), the world repaints around them.
+func tiles_changed(list: Array, terrain: bool) -> void:
+	hud.map_tiles_changed(list)
+	if terrain:
+		world.tiles_changed(list)
 
 
 func flash_ink() -> void:
@@ -1150,7 +1262,7 @@ func key(action: String) -> String:
 ## Simple scripted player used for automated testing and screenshots: follows
 ## the room path, jumps over walls and gaps, drops down shafts, fights.
 func _bot_input() -> void:
-	_bot_t += get_physics_process_delta_time()
+	_bot_t += get_process_delta_time()
 	var p := player
 	var held: Dictionary = ctl.held
 	for a in ctl.ACTIONS:

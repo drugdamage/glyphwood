@@ -1,7 +1,8 @@
 ## Player controller: run, variable jump, coyote time, jump buffer, dash,
-## wall slide and wall jump, double jump (Feather charm), swimming, ink knives
-## and the moves: Triple Cut (attack x3), Dash Lunge (attack during a dash),
-## Rising Crescent (up + attack on the ground) and the pogo down-slash.
+## wall slide and wall jump, air jumps (charms, skills), swimming, thrown
+## weapons and the moves: Triple Cut (attack x3), Dash Lunge (attack during a
+## dash), Rising Crescent (up + attack on the ground) and the pogo down-slash,
+## plus the moves learned in the skill tree (skills.gd).
 ## Health slowly comes back once the hero has not been hit for a while.
 ## Experience from kills raises the hero's level for good (until a new game).
 ## The dash only makes the hero invulnerable with the Phantom Step charm.
@@ -12,6 +13,7 @@ const S := preload("res://scripts/sprites.gd")
 const Items := preload("res://scripts/items.gd")
 const Physics := preload("res://scripts/physics.gd")
 const Level := preload("res://scripts/level.gd")
+const Skills := preload("res://scripts/skills.gd")
 
 const RUN := 150.0
 const JUMP := 430.0
@@ -24,8 +26,11 @@ const DASH_COOLDOWN := 0.55
 const ATTACK_TIME := 0.26
 const POGO := 370.0
 const MAX_INK := 99.0
-const KNIFE_COST := 33.0
 const KNIFE_SPEED := 460.0
+## Seconds after a dash during which Iaido makes the next hit a sure crit.
+const IAIDO_TIME := 0.6
+## Running speed bought at the merchant (Haste), per purchase.
+const HASTE_STEP := 0.05
 const LUNGE_SPEED := 430.0
 const LUNGE_TIME := 0.17
 ## Seconds without taking damage before health starts to come back.
@@ -42,8 +47,8 @@ const BASE_CRIT := 0.08
 static func create() -> Dictionary:
 	var p := {
 		"hp": BASE_HP, "base_hp": BASE_HP, "max_hp": BASE_HP, "ink": 0.0, "shards": 0,
-		"weapon": Items.START_WEAPON, "charms": [], "bag": [], "st": {},
-		"xp": 0, "xp_level": 1, "up_hp": 0, "up_dmg": 0,
+		"weapon": Items.START_WEAPON, "throw": Items.START_THROW, "charms": [], "bag": [], "st": {},
+		"xp": 0, "xp_level": 1, "up_hp": 0, "up_dmg": 0, "up_spd": 0, "skills": {},
 	}
 	refresh(p)
 	place(p, Vector2.ZERO)
@@ -53,6 +58,8 @@ static func create() -> Dictionary:
 ## Recomputes stats after equipment, level or upgrade changes.
 static func refresh(p: Dictionary) -> void:
 	p.st = Items.stats(p)
+	Skills.apply(p, p.st)
+	p.st.run *= 1.0 + HASTE_STEP * p.get("up_spd", 0)
 	p.st.dmg_mult *= (1.0 + DMG_PER_LEVEL * (p.xp_level - 1)) * (1.0 + 0.05 * p.up_dmg)
 	p.st.crit += BASE_CRIT
 	p.max_hp = p.base_hp + HP_PER_LEVEL * (p.xp_level - 1) + 10 * p.up_hp + p.st.max_hp
@@ -76,7 +83,8 @@ static func place(p: Dictionary, foot: Vector2) -> void:
 		"throw_t": 0.0, "inv": 0.0, "blink": 0.0, "hurt_t": 0.0, "heal_t": 0.0,
 		"respawn_t": 0.0, "safe": foot - Vector2(size.x * 0.5, size.y), "swim": false,
 		"anim": 0.0, "dead": false, "was_floor": false, "fall_speed": 0.0, "step_t": 0.0,
-		"calm": 0.0, "regen": 0.0, "dash_end": 0.0, "lunge_t": 0.0,
+		"calm": 0.0, "regen": 0.0, "dash_end": 0.0, "lunge_t": 0.0, "slam": false, "dash_hit": {}, "iaido_t": 0.0,
+		"haste_t": 0.0, "toll_n": 0, "chill_t": 0.0,
 	}, true)
 
 
@@ -86,7 +94,7 @@ static func update(g, p: Dictionary, dt: float) -> void:
 	var st: Dictionary = p.st
 	p.anim += dt
 	for k in ["coyote", "jump_buf", "drop_t", "wall_lock", "dash_cd", "atk_t", "combo_t", "inv", "blink", "hurt_t", "heal_t", "throw_t",
-			"dash_end"]:
+			"dash_end", "iaido_t", "haste_t", "chill_t"]:
 		p[k] = maxf(0.0, p[k] - dt)
 
 	if p.dead:
@@ -109,9 +117,9 @@ static func update(g, p: Dictionary, dt: float) -> void:
 		g.sfx("splash", -6.0)
 		g.burst(Physics.center(p), ["~", "'", "."], g.biome.water, 8, 90.0, -80.0)
 
-	# health comes back out of combat (not during a boss fight)
+	# health comes back out of combat (not during a boss fight, without the Tide Pearl)
 	p.calm += dt
-	if p.calm > REGEN_DELAY and p.hp < p.max_hp and g.boss.is_empty():
+	if p.calm > REGEN_DELAY and p.hp < p.max_hp and (g.boss.is_empty() or st.boss_regen):
 		p.regen += p.max_hp * REGEN_RATE * st.regen * dt
 		if p.regen >= 1.0:
 			var n := int(p.regen)
@@ -124,8 +132,8 @@ static func update(g, p: Dictionary, dt: float) -> void:
 	if just.attack and (p.dash_t > 0.0 or p.dash_end > 0.0) and p.atk_t <= 0.0 and p.lunge_t <= 0.0:
 		p.dash_t = 0.0
 		p.dash_end = 0.0
-		p.lunge_t = LUNGE_TIME
-		p.inv = maxf(p.inv, LUNGE_TIME)
+		p.lunge_t = LUNGE_TIME * (1.6 if st.long_lunge else 1.0)
+		p.inv = maxf(p.inv, p.lunge_t)
 		_start_attack(g, p, "lunge")
 		g.shake_add(2.5)
 	if p.lunge_t > 0.0:
@@ -133,6 +141,9 @@ static func update(g, p: Dictionary, dt: float) -> void:
 		p.vel = Vector2(p.facing * LUNGE_SPEED, 0.0)
 		Physics.move(p, g.lv, dt)
 		g.add_ghost(p)
+		# the long lunge cuts twice: once on the way, once at the end
+		if st.long_lunge and p.lunge_t < LUNGE_TIME * 0.6 and not p.atk_hit.has("second"):
+			p.atk_hit = {"second": true}
 		if p.lunge_t <= 0.0:
 			p.vel.x *= 0.3
 		_after_move(g, p)
@@ -148,7 +159,9 @@ static func update(g, p: Dictionary, dt: float) -> void:
 		if p.sliding:
 			p.facing = -p.facing
 		p.dash_t = DASH_TIME
-		p.dash_cd = DASH_COOLDOWN
+		p.dash_cd = DASH_COOLDOWN * st.dash_cd
+		p.dash_hit = {}
+		p.slam = false
 		if not p.on_floor:
 			p.air_dash = false
 		if st.dash_inv:
@@ -163,15 +176,19 @@ static func update(g, p: Dictionary, dt: float) -> void:
 		p.vel = Vector2(p.facing * DASH_SPEED, 0.0)
 		Physics.move(p, g.lv, dt)
 		g.add_ghost(p)
+		if st.shoulder:
+			g.dash_hits(p)
 		if p.dash_t <= 0.0:
 			p.vel.x *= 0.35
 			p.dash_end = 0.2
+			if st.iaido:
+				p.iaido_t = IAIDO_TIME
 		_after_move(g, p)
 		return
 
 	# horizontal movement
 	var dirx := int(held.right) - int(held.left)
-	var run_speed := RUN * (0.7 if p.swim else 1.0)
+	var run_speed: float = RUN * st.run * (0.7 if p.swim else 1.0) * (1.25 if p.haste_t > 0.0 else 1.0) * (0.6 if p.chill_t > 0.0 else 1.0)
 	if p.hurt_t > 0.0:
 		p.vel.x = move_toward(p.vel.x, 0.0, 500.0 * dt)
 	elif p.wall_lock <= 0.0:
@@ -183,7 +200,7 @@ static func update(g, p: Dictionary, dt: float) -> void:
 	if p.on_floor:
 		p.coyote = 0.1
 		p.air_dash = true
-		p.air_jumps = 1 if st.double_jump else 0
+		p.air_jumps = st.air_jumps
 		if absf(p.vel.x) > 40.0:
 			p.step_t -= dt
 			if p.step_t <= 0.0:
@@ -259,11 +276,19 @@ static func update(g, p: Dictionary, dt: float) -> void:
 		if kind == "up" and p.on_floor:
 			kind = "rise"
 		_start_attack(g, p, kind)
+	# Quake: a down-cut in the air becomes a dive that shakes the ground on landing
+	if p.slam:
+		p.vel.x = move_toward(p.vel.x, 0.0, 600.0 * dt)
+		p.vel.y = maxf(p.vel.y, MAX_FALL)
+		g.add_ghost(p)
+		if p.swim or p.sliding:
+			p.slam = false
 
-	# ink knife
+	# thrown weapon
 	if just.throw and p.throw_t <= 0.0:
-		if p.ink >= KNIFE_COST:
-			p.ink -= KNIFE_COST
+		var cost: float = st.throw_ink * st.ink_cost
+		if p.ink >= cost:
+			p.ink -= cost
 			p.throw_t = 0.3
 			var dir := Vector2(p.facing, 0)
 			if g.aiming_with_mouse():
@@ -271,9 +296,7 @@ static func update(g, p: Dictionary, dt: float) -> void:
 				p.facing = 1 if dir.x >= 0.0 else -1
 			elif held.up:
 				dir = Vector2(0, -1)
-			var from := Physics.center(p) + Vector2(p.facing * 6.0, -4.0)
-			g.fire(from, dir * KNIFE_SPEED, "hero", st.dmg * 2.0 * st.dmg_mult)
-			g.sfx("throw")
+			g.throw_weapon(p, dir)
 		else:
 			g.sfx("error", -8.0)
 			g.flash_ink()
@@ -291,6 +314,14 @@ static func _start_attack(g, p: Dictionary, kind: String) -> void:
 		# each cut steps forward a little; the finisher lunges
 		if p.on_floor:
 			p.vel.x += p.facing * (190.0 if p.combo == 2 else 60.0)
+		if p.combo == 2:
+			if st.juggernaut and p.on_floor:
+				g.ground_wave(p)
+			if st.blade_storm:
+				g.throw_weapon(p, Vector2(p.facing, 0), true)
+	if kind == "down" and st.quake and not p.on_floor:
+		p.slam = true
+		g.sfx("dash", -6.0, 0.6)
 	p.atk_len = ATTACK_TIME / st.speed
 	match kind:
 		"lunge":
@@ -317,7 +348,10 @@ static func _start_attack(g, p: Dictionary, kind: String) -> void:
 
 
 static func _after_move(g, p: Dictionary) -> void:
-	if p.on_floor and not p.was_floor and p.fall_speed > 260.0:
+	if p.slam and p.on_floor:
+		p.slam = false
+		g.quake(p)
+	elif p.on_floor and not p.was_floor and p.fall_speed > 260.0:
 		g.burst(Physics.foot(p), [".", ",", "'"], g.biome.edge, 6, 70.0)
 		g.sfx("land", -6.0)
 	p.was_floor = p.on_floor

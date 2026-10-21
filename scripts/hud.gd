@@ -7,8 +7,12 @@ extends Node2D
 const D := preload("res://scripts/data.gd")
 const Level := preload("res://scripts/level.gd")
 const Items := preload("res://scripts/items.gd")
+const Skills := preload("res://scripts/skills.gd")
 const Hero := preload("res://scripts/hero.gd")
 const Physics := preload("res://scripts/physics.gd")
+
+## Size of the crosshair relative to the interface size.
+const CROSSHAIR := 0.62
 
 var game
 var font: Font
@@ -27,46 +31,49 @@ var _combo_seen := 0
 var _map_img: Image
 var _map_tex: ImageTexture
 var _map_lv = null
-var _map_seen := -1
+var _map_painted := {}
+## The canvas item the drawing helpers draw on (self, or the status layer).
+var _ci: CanvasItem
+var _status_ci: Node2D
+var _status_key_last: Array = []
+## Clipped health blade shapes by rect and fill (health changes rarely).
+var _blade_cache := {}
 var _map_rect := Rect2()
 var _map_ci: Node2D
 
 
-## Paints the tiles of explored rooms into a small image, one pixel per tile.
-## Rebuilt only when a new room is seen or a wall breaks.
-static func paint_map(img: Image, lv, b: Dictionary) -> void:
-	img.fill(Color(0, 0, 0, 0))
+## Paints one room's tiles into the map image, one pixel per tile.
+static func paint_room(img: Image, lv, b: Dictionary, r: Dictionary) -> void:
 	var air: Color = b.top
 	air = Color(air.r, air.g, air.b, 0.16)
 	var edge: Color = b.top
-	for r in lv.rooms:
-		if r == null or not r.seen:
-			continue
-		for y in range(r.y0, r.y0 + D.ROOM_H):
-			for x in range(r.x0, r.x0 + D.ROOM_W):
-				var tt: int = lv.tiles[y * lv.w + x]
-				var c := Color(0, 0, 0, 0)
-				match tt:
-					Level.AIR:
-						c = air
-					Level.WATER:
-						c = Color(0.3, 0.45, 0.9, 0.8)
-					Level.LAVA:
-						c = Color(1.0, 0.45, 0.15, 0.95)
-					Level.SPIKES:
-						c = Color(0.95, 0.3, 0.25, 0.9)
-					Level.ONEWAY:
-						c = Color(edge.r, edge.g, edge.b, 0.55)
-					Level.GATE:
-						c = Color(0.9, 0.88, 0.8, 0.9)
-					_:
-						if not lv.solid(x, y - 1) or not lv.solid(x, y + 1) or not lv.solid(x - 1, y) or not lv.solid(x + 1, y):
-							c = Color(edge.r, edge.g, edge.b, 0.85)
-						else:
-							c = Color(0.0, 0.0, 0.0, 0.35)
-				img.set_pixel(x, y, c)
+	for y in range(r.y0, r.y0 + D.ROOM_H):
+		for x in range(r.x0, r.x0 + D.ROOM_W):
+			var tt: int = lv.tiles[y * lv.w + x]
+			var c := Color(0, 0, 0, 0)
+			match tt:
+				Level.AIR:
+					c = air
+				Level.WATER:
+					c = Color(0.3, 0.45, 0.9, 0.8)
+				Level.LAVA:
+					c = Color(1.0, 0.45, 0.15, 0.95)
+				Level.SPIKES:
+					c = Color(0.95, 0.3, 0.25, 0.9)
+				Level.ONEWAY:
+					c = Color(edge.r, edge.g, edge.b, 0.55)
+				Level.GATE:
+					c = Color(0.9, 0.88, 0.8, 0.9)
+				_:
+					if not lv.solid(x, y - 1) or not lv.solid(x, y + 1) or not lv.solid(x - 1, y) or not lv.solid(x + 1, y):
+						c = Color(edge.r, edge.g, edge.b, 0.85)
+					else:
+						c = Color(0.0, 0.0, 0.0, 0.35)
+			img.set_pixel(x, y, c)
 
 
+## The explored terrain as a texture. Rooms are painted once when first seen
+## and again only when their tiles change (a wall breaks, a gate closes).
 func map_texture() -> ImageTexture:
 	var lv = game.lv
 	if lv == null:
@@ -74,20 +81,33 @@ func map_texture() -> ImageTexture:
 	if _map_lv != lv or _map_img == null:
 		_map_lv = lv
 		_map_img = Image.create(lv.w, lv.h, false, Image.FORMAT_RGBA8)
+		_map_img.fill(Color(0, 0, 0, 0))
 		_map_tex = null
-		_map_seen = -1
-	var key: int = game.rooms_seen * 1000 + game.lv_changes
-	if key != _map_seen:
-		_map_seen = key
-		paint_map(_map_img, lv, game.biome)
-		if _map_tex == null:
-			_map_tex = ImageTexture.create_from_image(_map_img)
-		else:
-			_map_tex.update(_map_img)
+		_map_painted = {}
+	var dirty := false
+	for r in lv.rooms:
+		if r != null and r.seen and not _map_painted.has(r):
+			_map_painted[r] = true
+			paint_room(_map_img, lv, game.biome, r)
+			dirty = true
+	if _map_tex == null:
+		_map_tex = ImageTexture.create_from_image(_map_img)
+	elif dirty:
+		_map_tex.update(_map_img)
 	return _map_tex
 
 
+## Rooms holding these tiles are painted again on the next frame.
+func map_tiles_changed(list: Array) -> void:
+	var lv = game.lv
+	for tp in list:
+		var r = lv.room_at_tile(tp.x, tp.y)
+		if r != null:
+			_map_painted.erase(r)
+
+
 func setup(g, f: Font, b: Font) -> void:
+	_ci = self
 	game = g
 	font = f
 	bold = b
@@ -95,6 +115,10 @@ func setup(g, f: Font, b: Font) -> void:
 	_map_ci.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_map_ci.draw.connect(_draw_map_content)
 	add_child(_map_ci)
+	_status_ci = Node2D.new()
+	_status_ci.show_behind_parent = true
+	_status_ci.draw.connect(_draw_status_static)
+	add_child(_status_ci)
 
 
 func _process(delta: float) -> void:
@@ -103,17 +127,36 @@ func _process(delta: float) -> void:
 	_combo_pop = maxf(0.0, _combo_pop - delta * 4.0)
 	queue_redraw()
 	_map_ci.queue_redraw()
+	var p: Dictionary = game.player
+	if game.is_title() or p.is_empty():
+		if _status_key_last != []:
+			_status_key_last = []
+			_status_ci.queue_redraw()
+		return
+	# the pale trail behind the health blade catches up after a hit
+	_hp_trail = maxf(_hp_trail - delta * p.max_hp * 0.6, float(p.hp)) if _hp_trail > p.hp else float(p.hp)
+	var key := _status_key(p)
+	if key != _status_key_last:
+		_status_key_last = key
+		_status_ci.queue_redraw()
 
 
 func _draw() -> void:
+	var t0 := Time.get_ticks_usec()
+	_draw_hud()
+	game.prof_add("hud", t0)
+
+
+func _draw_hud() -> void:
+	_ci = self
 	var vp := get_viewport_rect().size
 	u = vp.y / 900.0 * float(game.cfg.get_v("ui_scale"))
 	if game.hurt_flash > 0.0:
-		draw_rect(Rect2(Vector2.ZERO, vp), Color(0.85, 0.05, 0.05, game.hurt_flash * 0.16))
+		_ci.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.85, 0.05, 0.05, game.hurt_flash * 0.16))
 	if not game.is_title() and not game.player.is_empty():
 		_draw_play(vp)
 	if game.fade > 0.0:
-		draw_rect(Rect2(Vector2.ZERO, vp), Color(0, 0, 0, game.fade))
+		_ci.draw_rect(Rect2(Vector2.ZERO, vp), Color(0, 0, 0, game.fade))
 	if game.cfg.get_v("show_fps"):
 		var fps := "%d FPS" % Engine.get_frames_per_second()
 		_text(Vector2(vp.x - 90 * u, vp.y - 12 * u), fps, int(13 * u), Color(0.6, 0.7, 0.65))
@@ -122,7 +165,7 @@ func _draw() -> void:
 func _text(pos: Vector2, text: String, size: int, color: Color, f: Font = null) -> float:
 	var fnt := f if f != null else font
 	size = maxi(size, 4)
-	draw_string(fnt, pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, color)
+	_ci.draw_string(fnt, pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, color)
 	var w := fnt.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
 	if game.ui_check and color.a > 0.05 and not get_viewport_rect().encloses(Rect2(pos.x, pos.y - size * 0.75, w, size * 0.95)):
 		game.ui_issue("hud", text)
@@ -160,8 +203,8 @@ func rich(pos: Vector2, text: String, size: int, color: Color, measure_only: boo
 		var cw := _width(cap, size, bold)
 		if not measure_only:
 			var r := Rect2(x, pos.y - size * 0.95, cw + size * 0.8, size * 1.3)
-			draw_rect(r, Color(0.95, 0.9, 0.75, 0.14 * color.a))
-			draw_rect(r, Color(0.95, 0.9, 0.75, 0.55 * color.a), false, maxf(1.0, u))
+			_ci.draw_rect(r, Color(0.95, 0.9, 0.75, 0.14 * color.a))
+			_ci.draw_rect(r, Color(0.95, 0.9, 0.75, 0.55 * color.a), false, maxf(1.0, u))
 			_text(Vector2(x + size * 0.4, pos.y), cap, size, Color(1.0, 0.92, 0.65, color.a), bold)
 		x += cw + size * 0.8
 		i = close + 1
@@ -181,9 +224,7 @@ func hint_text(id: String) -> String:
 
 func _draw_play(vp: Vector2) -> void:
 	var p: Dictionary = game.player
-	for i in 10:
-		draw_rect(Rect2(0, i * 10.0 * u, vp.x, 10.0 * u), Color(0, 0, 0, 0.5 * (1.0 - i / 10.0)))
-	_draw_status(p)
+	_draw_status_live(p)
 	_draw_minimap(vp)
 	_draw_combo(vp)
 	_draw_level_up(vp)
@@ -200,55 +241,63 @@ func _draw_play(vp: Vector2) -> void:
 ## blood turning slowly around them and a bone diamond in the middle. The ring
 ## tightens and reddens while a combo is running.
 func _draw_crosshair(m: Vector2) -> void:
+	var k := u * CROSSHAIR
 	var bone := Color(0.9, 0.84, 0.72, 0.95)
 	var ink := Color(0.03, 0.0, 0.01, 0.85)
 	var heat := clampf(game.hit_combo / 8.0, 0.0, 1.0)
 	var blood := Color(0.55, 0.05, 0.07, 0.85).lerp(Color(0.95, 0.15, 0.1, 0.95), heat)
-	var rr := (13.0 - 2.0 * heat) * u
+	var rr := (13.0 - 2.0 * heat) * k
 	var spin := t * (0.5 + heat * 2.0)
-	for k in 4:
-		var a0 := spin + k * TAU / 4.0 + 0.32
-		draw_arc(m, rr, a0, a0 + TAU / 4.0 - 0.64, 8, ink, 3.2 * u, true)
-		draw_arc(m, rr, a0, a0 + TAU / 4.0 - 0.64, 8, blood, 1.5 * u, true)
-	for k in 4:
-		var d := Vector2.from_angle(k * TAU / 4.0)
+	for q in 4:
+		var a0 := spin + q * TAU / 4.0 + 0.32
+		_ci.draw_arc(m, rr, a0, a0 + TAU / 4.0 - 0.64, 6, ink, maxf(1.5, 3.2 * k), true)
+		_ci.draw_arc(m, rr, a0, a0 + TAU / 4.0 - 0.64, 6, blood, maxf(1.0, 1.5 * k), true)
+	for q in 4:
+		var d := Vector2.from_angle(q * TAU / 4.0)
 		var n := d.orthogonal()
-		var root := m + d * 23.0 * u
-		var thorn := PackedVector2Array([m + d * 4.5 * u, root + n * 3.0 * u, root - d * 3.0 * u, root - n * 3.0 * u])
+		var root := m + d * 23.0 * k
+		var thorn := PackedVector2Array([m + d * 4.5 * k, root + n * 3.0 * k, root - d * 3.0 * k, root - n * 3.0 * k])
 		var edge := thorn.duplicate()
 		edge.append(thorn[0])
-		draw_polyline(edge, ink, 1.6 * u, true)
-		draw_colored_polygon(thorn, bone)
+		_ci.draw_polyline(edge, ink, maxf(1.0, 1.6 * k), true)
+		_ci.draw_colored_polygon(thorn, bone)
 		# small bone studs on the ring between the thorns
-		var sd := Vector2.from_angle(k * TAU / 4.0 + TAU / 8.0) * rr
-		var stud := PackedVector2Array([m + sd * 1.2, m + sd + sd.orthogonal().normalized() * 1.8 * u, m + sd * 0.8,
-			m + sd - sd.orthogonal().normalized() * 1.8 * u])
-		draw_colored_polygon(stud, bone.darkened(0.15))
-	var dia := PackedVector2Array([m + Vector2(0, -2.6) * u, m + Vector2(1.9, 0) * u, m + Vector2(0, 2.6) * u, m + Vector2(-1.9, 0) * u])
+		var sd := Vector2.from_angle(q * TAU / 4.0 + TAU / 8.0) * rr
+		var stud := PackedVector2Array([m + sd * 1.2, m + sd + sd.orthogonal().normalized() * 1.8 * k, m + sd * 0.8,
+			m + sd - sd.orthogonal().normalized() * 1.8 * k])
+		_ci.draw_colored_polygon(stud, bone.darkened(0.15))
+	var dia := PackedVector2Array([m + Vector2(0, -2.6) * k, m + Vector2(1.9, 0) * k, m + Vector2(0, 2.6) * k, m + Vector2(-1.9, 0) * k])
 	var dedge := dia.duplicate()
 	dedge.append(dia[0])
-	draw_polyline(dedge, ink, 2.0 * u, true)
-	draw_colored_polygon(dia, blood.lerp(bone, 0.4))
+	_ci.draw_polyline(dedge, ink, maxf(1.0, 2.0 * k), true)
+	_ci.draw_colored_polygon(dia, blood.lerp(bone, 0.4))
 
 
 func _bar(r: Rect2, f: float, col: Color, back: Color) -> void:
-	draw_rect(r, back)
-	draw_rect(Rect2(r.position, Vector2(r.size.x * clampf(f, 0.0, 1.0), r.size.y)), col)
-	draw_rect(r, Color(0.42, 0.36, 0.33, 0.8), false, maxf(1.0, u))
+	_ci.draw_rect(r, back)
+	_ci.draw_rect(Rect2(r.position, Vector2(r.size.x * clampf(f, 0.0, 1.0), r.size.y)), col)
+	_ci.draw_rect(r, Color(0.42, 0.36, 0.33, 0.8), false, maxf(1.0, u))
 
 
 ## A bar shaped like a blade (pointed at both ends), [f] full, lighter on top.
 func _blade(r: Rect2, f: float, top: Color, bottom: Color) -> void:
 	if f <= 0.0:
 		return
-	var shape := _blade_shape(r)
-	var cut := PackedVector2Array([r.position - Vector2(1, 1), Vector2(r.position.x + r.size.x * minf(f, 1.0), r.position.y - 1),
-		Vector2(r.position.x + r.size.x * minf(f, 1.0), r.end.y + 1), Vector2(r.position.x - 1, r.end.y + 1)])
-	for poly in Geometry2D.intersect_polygons(shape, cut):
+	var key := "%s|%.4f" % [r, f]
+	var polys: Array = _blade_cache.get(key, [])
+	if not _blade_cache.has(key):
+		var shape := _blade_shape(r)
+		var cut := PackedVector2Array([r.position - Vector2(1, 1), Vector2(r.position.x + r.size.x * minf(f, 1.0), r.position.y - 1),
+			Vector2(r.position.x + r.size.x * minf(f, 1.0), r.end.y + 1), Vector2(r.position.x - 1, r.end.y + 1)])
+		polys = Geometry2D.intersect_polygons(shape, cut)
+		if _blade_cache.size() > 64:
+			_blade_cache.clear()
+		_blade_cache[key] = polys
+	for poly in polys:
 		var cols := PackedColorArray()
 		for q in poly:
 			cols.append(top.lerp(bottom, clampf((q.y - r.position.y) / r.size.y, 0.0, 1.0)))
-		draw_polygon(poly, cols)
+		_ci.draw_polygon(poly, cols)
 
 
 func _blade_shape(r: Rect2) -> PackedVector2Array:
@@ -270,30 +319,69 @@ func _draw_heart(c: Vector2, frac: float) -> void:
 	var fi := int(fs * 0.55)
 	_text(c + Vector2(-_width("♥", fi, bold) * 0.5 - 2 * u, fi * 0.2), "♥", fi, Color(0.2, 0.0, 0.02, 0.8), bold)
 	# the dagger, slanted through the heart
-	draw_set_transform(c, -0.6, Vector2.ONE)
+	_ci.draw_set_transform(c, -0.6, Vector2.ONE)
 	var dfs := int(19 * u)
-	draw_string(bold, Vector2(-_width("†", dfs, bold) * 0.5, dfs * 0.32), "†", HORIZONTAL_ALIGNMENT_LEFT, -1, dfs, Color(0.7, 0.66, 0.6))
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	_ci.draw_string(bold, Vector2(-_width("†", dfs, bold) * 0.5, dfs * 0.32), "†", HORIZONTAL_ALIGNMENT_LEFT, -1, dfs, Color(0.7, 0.66, 0.6))
+	_ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	if frac <= 0.35:
 		for k in 2:
 			var ph := fposmod(t * 0.9 + k * 0.5, 1.0)
-			draw_circle(c + Vector2((k - 0.5) * 6.0 * u, 9.0 * u + ph * 16.0 * u), 1.4 * u * (1.0 - ph * 0.5),
+			_ci.draw_circle(c + Vector2((k - 0.5) * 6.0 * u, 9.0 * u + ph * 16.0 * u), 1.4 * u * (1.0 - ph * 0.5),
 				Color(0.6, 0.03, 0.05, 1.0 - ph))
 
 
-func _draw_status(p: Dictionary) -> void:
+## Where the health blade sits.
+func _hp_rect() -> Rect2:
+	return Rect2(26.0 * u + 26 * u, 30.0 * u - 1 * u, 250.0 * u, 17 * u)
+
+
+## What the status panel shows; it is painted again only when this changes.
+func _status_key(p: Dictionary) -> Array:
+	var low: bool = float(p.hp) / p.max_hp <= 0.25
+	var flash: bool = game.ink_flash > 0.0 and int(t * 16.0) % 2 == 0
+	return [get_viewport_rect().size, u, p.hp, p.max_hp, int(_hp_trail), int(p.ink * 18.0 / Hero.MAX_INK), flash, p.xp, p.xp_level,
+		p.shards, p.weapon, p.charms.duplicate(), Items.charm_slots(p), game.lang, game.key("throw"), int(t * 10.0) if low else -1,
+		p.throw, Skills.free_points(p), game.key("skills")]
+
+
+## The parts of the status panel that move every frame: the beating heart,
+## blood dripping from the blade below half health, the regeneration mark.
+func _draw_status_live(p: Dictionary) -> void:
+	var frac: float = clampf(float(p.hp) / p.max_hp, 0.0, 1.0)
+	_draw_heart(Vector2(26.0 * u + 7 * u, 30.0 * u + 7 * u), frac)
+	var hr := _hp_rect()
+	if frac < 0.5:
+		for k in 3:
+			var ph := fposmod(t * (0.7 + k * 0.13) + k * 0.37, 1.0)
+			var dx := hr.position.x + hr.size.x * frac * (0.2 + 0.3 * k)
+			var top := hr.end.y - 2 * u
+			_ci.draw_line(Vector2(dx, top), Vector2(dx, top + 4 * u * minf(ph * 3.0, 1.0)), Color(0.45, 0.02, 0.04, 0.9), maxf(1.0, 1.4 * u))
+			if ph > 0.33:
+				var f := (ph - 0.33) * 1.5
+				_ci.draw_circle(Vector2(dx, top + 4 * u + f * f * 22 * u), 1.4 * u, Color(0.55, 0.03, 0.05, 1.0 - f))
+	if p.calm > Hero.REGEN_DELAY and p.hp < p.max_hp and game.boss.is_empty():
+		_text(Vector2(hr.end.x + 6 * u, 30.0 * u + 12 * u), "+", int(15 * u), Color(0.62, 0.78, 0.55, 0.45 + 0.35 * sin(t * 5.0)), bold)
+
+
+## The still parts of the status panel, cached in their own canvas item.
+func _draw_status_static() -> void:
+	if game == null or game.is_title() or game.player.is_empty():
+		return
+	var p: Dictionary = game.player
+	var vp := get_viewport_rect().size
+	_ci = _status_ci
+	for i in 10:
+		_ci.draw_rect(Rect2(0, i * 10.0 * u, vp.x, 10.0 * u), Color(0, 0, 0, 0.5 * (1.0 - i / 10.0)))
 	var x := 26.0 * u
 	var y := 30.0 * u
 	var fs := int(15 * u)
 	var bw := 250.0 * u
 	var frac: float = clampf(float(p.hp) / p.max_hp, 0.0, 1.0)
 	# health: a blade of dark blood with a pale trail that catches up after a hit
-	_hp_trail = maxf(_hp_trail - get_process_delta_time() * p.max_hp * 0.6, float(p.hp)) if _hp_trail > p.hp else float(p.hp)
 	var low: bool = frac <= 0.25
-	_draw_heart(Vector2(x + 7 * u, y + 7 * u), frac)
-	var hr := Rect2(x + 26 * u, y - 1 * u, bw, 17 * u)
+	var hr := _hp_rect()
 	var shape := _blade_shape(hr)
-	draw_colored_polygon(shape, Color(0.05, 0.01, 0.015, 0.92))
+	_ci.draw_colored_polygon(shape, Color(0.05, 0.01, 0.015, 0.92))
 	_blade(hr, _hp_trail / p.max_hp, Color(0.72, 0.62, 0.52, 0.55), Color(0.45, 0.36, 0.3, 0.55))
 	var pulse := 0.8 + 0.2 * sin(t * 9.0) if low else 1.0
 	_blade(hr, frac, Color(0.66, 0.05, 0.07) * pulse, Color(0.24, 0.0, 0.03))
@@ -301,33 +389,21 @@ func _draw_status(p: Dictionary) -> void:
 	var iron := Color(0.5, 0.44, 0.41)
 	for k in range(1, 10):
 		var rx := hr.position.x + hr.size.x * k / 10.0
-		draw_line(Vector2(rx, hr.position.y + 2 * u), Vector2(rx, hr.end.y - 2 * u), Color(0, 0, 0, 0.5), maxf(1.0, u))
+		_ci.draw_line(Vector2(rx, hr.position.y + 2 * u), Vector2(rx, hr.end.y - 2 * u), Color(0, 0, 0, 0.5), maxf(1.0, u))
 		var sh := (9.0 if k % 5 == 0 else 6.0) * u
 		var sy := hr.position.y
 		var spike := PackedVector2Array([Vector2(rx - 2.4 * u, sy + u), Vector2(rx, sy - sh), Vector2(rx + 2.4 * u, sy + u)])
-		draw_colored_polygon(spike, iron)
-		draw_polyline(spike, Color(0, 0, 0, 0.7), maxf(1.0, 0.8 * u), true)
-	# below half health the blade bleeds from its underside
-	if frac < 0.5:
-		for k in 3:
-			var ph := fposmod(t * (0.7 + k * 0.13) + k * 0.37, 1.0)
-			var dx := hr.position.x + hr.size.x * frac * (0.2 + 0.3 * k)
-			var top := hr.end.y - 2 * u
-			draw_line(Vector2(dx, top), Vector2(dx, top + 4 * u * minf(ph * 3.0, 1.0)), Color(0.45, 0.02, 0.04, 0.9), maxf(1.0, 1.4 * u))
-			if ph > 0.33:
-				var f := (ph - 0.33) * 1.5
-				draw_circle(Vector2(dx, top + 4 * u + f * f * 22 * u), 1.4 * u, Color(0.55, 0.03, 0.05, 1.0 - f))
+		_ci.draw_colored_polygon(spike, iron)
+		_ci.draw_polyline(spike, Color(0, 0, 0, 0.7), maxf(1.0, 0.8 * u), true)
 	var rim := Color(0.75, 0.15, 0.12) if low and int(t * 4.0) % 2 == 0 else Color(0.42, 0.36, 0.33)
 	var outline := shape.duplicate()
 	outline.append(shape[0])
-	draw_polyline(outline, rim, maxf(1.0, 1.3 * u))
+	_ci.draw_polyline(outline, rim, maxf(1.0, 1.3 * u))
 	var ht := "%d / %d" % [p.hp, p.max_hp]
 	var hs := int(12 * u)
 	var tx := hr.get_center().x - _width(ht, hs, bold) * 0.5
 	_text(Vector2(tx + u, hr.position.y + 13 * u), ht, hs, Color(0, 0, 0, 0.8), bold)
 	_text(Vector2(tx, hr.position.y + 12 * u), ht, hs, Color(0.88, 0.82, 0.72), bold)
-	if p.calm > Hero.REGEN_DELAY and p.hp < p.max_hp and game.boss.is_empty():
-		_text(Vector2(hr.end.x + 6 * u, y + 12 * u), "+", fs, Color(0.62, 0.78, 0.55, 0.45 + 0.35 * sin(t * 5.0)), bold)
 	# level and experience: a thin line of tarnished gold
 	y += 26 * u
 	var need := Hero.xp_need(p.xp_level)
@@ -337,10 +413,14 @@ func _draw_status(p: Dictionary) -> void:
 	_bar(xr, float(p.xp) / need, Color(0.7, 0.55, 0.25), Color(0.06, 0.04, 0.03, 0.9))
 	for ex in [xr.position.x, xr.end.x]:
 		var dc := Vector2(ex, xr.get_center().y)
-		draw_colored_polygon(PackedVector2Array([dc + Vector2(0, -4) * u, dc + Vector2(3, 0) * u, dc + Vector2(0, 4) * u,
+		_ci.draw_colored_polygon(PackedVector2Array([dc + Vector2(0, -4) * u, dc + Vector2(3, 0) * u, dc + Vector2(0, 4) * u,
 			dc + Vector2(-3, 0) * u]), Color(0.62, 0.5, 0.3))
 	var xt := "%d/%d %s" % [p.xp, need, game.L("xp")]
-	_text(Vector2(xr.end.x + 8 * u, y + 9 * u), xt, int(11 * u), Color(0.6, 0.54, 0.42))
+	var xw := _text(Vector2(xr.end.x + 8 * u, y + 9 * u), xt, int(11 * u), Color(0.6, 0.54, 0.42))
+	var pts := Skills.free_points(p)
+	if pts > 0:
+		# unspent skill points: a small gold mark with the key that opens the tree
+		_text(Vector2(xr.end.x + 18 * u + xw, y + 9 * u), "✦ %d %s" % [pts, game.key("skills")], int(11 * u), Color(1.0, 0.82, 0.4), bold)
 	# ink (for knives), labelled with its key: one slanted blade per sixth of a knife
 	y += 24 * u
 	var ink_col := Color(0.5, 0.42, 0.78)
@@ -360,24 +440,27 @@ func _draw_status(p: Dictionary) -> void:
 	y += 38.0 * u
 	x = 26.0 * u
 	var wd: Dictionary = Items.def(p.weapon)
-	x += _icon(Vector2(x, y), wd.glyph, wd.color, fs) + 10.0 * u
+	x += _icon(Vector2(x, y), wd.glyph, wd.color, fs) + 4.0 * u
+	var td: Dictionary = Items.def(p.throw)
+	x += _icon(Vector2(x, y), td.glyph, td.color, fs) + 10.0 * u
 	for i in Items.charm_slots(p):
 		if i < p.charms.size():
 			var cd: Dictionary = Items.def(p.charms[i])
 			x += _icon(Vector2(x, y), cd.glyph, cd.color, fs) + 4.0 * u
 		else:
 			x += _icon(Vector2(x, y), "·", Color(0.3, 0.32, 0.3), fs) + 4.0 * u
+	_ci = self
 
 
 ## One ink charge: a small dagger hanging point down, its tip at [base].
 func _dagger(base: Vector2, c: Color, lit: bool) -> void:
 	var blade := PackedVector2Array([base + Vector2(-1.6, -7) * u, base + Vector2(1.6, -7) * u, base + Vector2(0, 1) * u])
 	if lit:
-		draw_circle(base + Vector2(0, -4) * u, 4.5 * u, Color(c.r, c.g, c.b, 0.12))
-	draw_colored_polygon(blade, c)
-	draw_line(base + Vector2(-2.3, -7.5) * u, base + Vector2(2.3, -7.5) * u, c.darkened(0.25), maxf(1.0, 1.3 * u))
-	draw_line(base + Vector2(0, -8) * u, base + Vector2(0, -11) * u, c.darkened(0.45), maxf(1.0, 1.3 * u))
-	draw_circle(base + Vector2(0, -11.5) * u, 1.1 * u, c.darkened(0.3))
+		_ci.draw_circle(base + Vector2(0, -4) * u, 4.5 * u, Color(c.r, c.g, c.b, 0.12))
+	_ci.draw_colored_polygon(blade, c)
+	_ci.draw_line(base + Vector2(-2.3, -7.5) * u, base + Vector2(2.3, -7.5) * u, c.darkened(0.25), maxf(1.0, 1.3 * u))
+	_ci.draw_line(base + Vector2(0, -8) * u, base + Vector2(0, -11) * u, c.darkened(0.45), maxf(1.0, 1.3 * u))
+	_ci.draw_circle(base + Vector2(0, -11.5) * u, 1.1 * u, c.darkened(0.3))
 
 
 ## An equipment slot framed like a lancet window, with a small cross on its point.
@@ -385,14 +468,14 @@ func _icon(pos: Vector2, g: String, c: Color, fs: int) -> float:
 	var w := fs * 1.6
 	var r := Rect2(pos.x, pos.y - fs * 1.05, w, fs * 1.45)
 	var arch := _arch(r)
-	draw_colored_polygon(arch, Color(0.02, 0.01, 0.015, 0.75))
-	draw_colored_polygon(_arch(Rect2(r.position + Vector2(2, 2) * u, r.size - Vector2(4, 4) * u)), Color(c.r, c.g, c.b, 0.07))
+	_ci.draw_colored_polygon(arch, Color(0.02, 0.01, 0.015, 0.75))
+	_ci.draw_colored_polygon(_arch(Rect2(r.position + Vector2(2, 2) * u, r.size - Vector2(4, 4) * u)), Color(c.r, c.g, c.b, 0.07))
 	var edge := arch.duplicate()
 	edge.append(arch[0])
-	draw_polyline(edge, Color(0.42, 0.36, 0.33).lerp(c, 0.3), maxf(1.0, 1.3 * u), true)
+	_ci.draw_polyline(edge, Color(0.42, 0.36, 0.33).lerp(c, 0.3), maxf(1.0, 1.3 * u), true)
 	var apex := Vector2(r.get_center().x, r.position.y - r.size.x * 0.42 * 0.866)
-	draw_line(apex - Vector2(0, 5 * u), apex + Vector2(0, u), Color(0.42, 0.36, 0.33), maxf(1.0, u))
-	draw_line(apex - Vector2(2.2 * u, 3.2 * u), apex + Vector2(2.2 * u, -3.2 * u), Color(0.42, 0.36, 0.33), maxf(1.0, u))
+	_ci.draw_line(apex - Vector2(0, 5 * u), apex + Vector2(0, u), Color(0.42, 0.36, 0.33), maxf(1.0, u))
+	_ci.draw_line(apex - Vector2(2.2 * u, 3.2 * u), apex + Vector2(2.2 * u, -3.2 * u), Color(0.42, 0.36, 0.33), maxf(1.0, u))
 	var gw := _width(g, fs, bold)
 	_text(Vector2(pos.x + (w - gw) * 0.5, pos.y), g, fs, c, bold)
 	return w
@@ -422,9 +505,9 @@ func _draw_minimap(vp: Vector2) -> void:
 	var y0 := 24.0 * u
 	_map_rect = Rect2(x0, y0, size.x, size.y)
 	var frame := _map_rect.grow(6 * u)
-	draw_rect(frame, Color(0, 0, 0, 0.55))
+	_ci.draw_rect(frame, Color(0, 0, 0, 0.55))
 	var ac: Color = game.biome.top
-	draw_rect(frame, Color(ac.r, ac.g, ac.b, 0.35), false, maxf(1.0, u))
+	_ci.draw_rect(frame, Color(ac.r, ac.g, ac.b, 0.35), false, maxf(1.0, u))
 	for corner in [frame.position, Vector2(frame.end.x, frame.position.y), Vector2(frame.position.x, frame.end.y), frame.end]:
 		_text(corner + Vector2(-_width("+", int(12 * u), bold) * 0.5, 4 * u), "+", int(12 * u), Color(ac.r, ac.g, ac.b, 0.7), bold)
 	var label := "%s · %s" % [game.biome_name(), game.L("level") % game.level_num]
@@ -502,7 +585,8 @@ func _draw_combo(vp: Vector2) -> void:
 	var heat := clampf(n / 30.0, 0.0, 1.0)
 	var c := Color(1.0, 0.85, 0.4).lerp(Color(1.0, 0.3, 0.2), heat)
 	c.a = a
-	var fs := int((34 + _combo_pop * 12) * u)
+	# a few fixed sizes: every new font size has to be rasterised once
+	var fs := int((34 + snappedf(_combo_pop, 0.34) * 12) * u)
 	var txt := str(n)
 	var x := vp.x - 60 * u
 	var y := vp.y * 0.42
@@ -519,8 +603,10 @@ func _draw_level_up(vp: Vector2) -> void:
 	if lt <= 0.0:
 		return
 	var a := clampf(minf((2.6 - lt) * 4.0, lt * 1.5), 0.0, 1.0)
-	_center(vp.y * 0.26, game.L("level_up"), int((44 + (2.6 - lt) * 4.0) * u), Color(0.6, 0.85, 1.0, a), bold)
-	_center(vp.y * 0.26 + 30 * u, game.L("lv") % game.player.xp_level, int(18 * u), Color(0.85, 0.92, 1.0, a * 0.9), bold)
+	# below the biome banner when both show at once (a level gained at the door)
+	var y := vp.y * (0.48 if _banner_t < 3.2 else 0.26)
+	_center(y, game.L("level_up"), int((44 + snappedf((2.6 - lt) * 4.0, 2.0)) * u), Color(0.6, 0.85, 1.0, a), bold)
+	_center(y + 30 * u, game.L("lv") % game.player.xp_level, int(18 * u), Color(0.85, 0.92, 1.0, a * 0.9), bold)
 
 
 const ROOM_MARKS := {"exit": ">", "boss": "B", "shop": "$", "arena": "!", "treasure": "C", "vault": "C"}
@@ -575,8 +661,8 @@ func _draw_hint(vp: Vector2) -> void:
 	var x := (vp.x - w) * 0.5
 	var pad := 14.0 * u
 	var box := Rect2(x - pad, y - fs * 1.35, w + pad * 2.0, fs * 2.1)
-	draw_rect(box, Color(0.02, 0.03, 0.03, 0.72 * _hint_a))
-	draw_rect(box, Color(0.9, 0.85, 0.6, 0.35 * _hint_a), false, maxf(1.0, u))
+	_ci.draw_rect(box, Color(0.02, 0.03, 0.03, 0.72 * _hint_a))
+	_ci.draw_rect(box, Color(0.9, 0.85, 0.6, 0.35 * _hint_a), false, maxf(1.0, u))
 	_text(Vector2(box.position.x + 6 * u, box.position.y + 13 * u), "?", int(12 * u), Color(1.0, 0.85, 0.4, _hint_a), bold)
 	rich(Vector2(x, y), text, fs, Color(0.92, 0.94, 0.9, _hint_a))
 
@@ -592,13 +678,13 @@ func _draw_boss(vp: Vector2) -> void:
 	var name: String = game.L("boss_" + b.kind)
 	_text(Vector2(x, y - 10 * u), name.to_upper(), fs, Color(1.0, 0.6, 0.5), bold)
 	var r := Rect2(x, y, w, 12.0 * u)
-	draw_rect(r, Color(0.15, 0.04, 0.04, 0.85))
+	_ci.draw_rect(r, Color(0.15, 0.04, 0.04, 0.85))
 	var f := clampf(float(b.hp) / b.max_hp, 0.0, 1.0)
-	draw_rect(Rect2(r.position, Vector2(r.size.x * f, r.size.y)), Color(0.85, 0.22, 0.2))
-	draw_rect(Rect2(r.position, Vector2(r.size.x * f, r.size.y * 0.35)), Color(1.0, 0.5, 0.4, 0.6))
-	draw_rect(r, Color(1.0, 0.75, 0.6, 0.7), false, maxf(1.0, u))
+	_ci.draw_rect(Rect2(r.position, Vector2(r.size.x * f, r.size.y)), Color(0.85, 0.22, 0.2))
+	_ci.draw_rect(Rect2(r.position, Vector2(r.size.x * f, r.size.y * 0.35)), Color(1.0, 0.5, 0.4, 0.6))
+	_ci.draw_rect(r, Color(1.0, 0.75, 0.6, 0.7), false, maxf(1.0, u))
 	var mid := r.position.x + r.size.x * 0.5
-	draw_line(Vector2(mid, r.position.y), Vector2(mid, r.end.y), Color(1.0, 0.85, 0.6, 0.6), maxf(1.0, u))
+	_ci.draw_line(Vector2(mid, r.position.y), Vector2(mid, r.end.y), Color(1.0, 0.85, 0.6, 0.6), maxf(1.0, u))
 
 
 func _draw_toasts(vp: Vector2) -> void:
@@ -610,6 +696,6 @@ func _draw_toasts(vp: Vector2) -> void:
 		var c: Color = tt.color
 		c.a = a
 		var w := rich(Vector2.ZERO, tt.text, fs, c, true)
-		draw_rect(Rect2(20 * u, y - fs * 1.2, w + 24 * u, fs * 1.8), Color(0, 0, 0, 0.55 * a))
+		_ci.draw_rect(Rect2(20 * u, y - fs * 1.2, w + 24 * u, fs * 1.8), Color(0, 0, 0, 0.55 * a))
 		rich(Vector2(32 * u, y), tt.text, fs, c)
 		y -= fs * 2.1

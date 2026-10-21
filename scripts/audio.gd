@@ -12,6 +12,9 @@ const TRACKS := {
 	"wood": {"bpm": 72, "root": 110.0, "scale": [0, 2, 3, 5, 7, 8, 11], "prog": [0, 5, 0, 4, 0, 5, 6, 4], "style": "calm", "bars": 16},
 	"hollow": {"bpm": 64, "root": 82.41, "scale": [0, 1, 3, 5, 7, 8, 10], "prog": [0, 5, 0, 6], "style": "bells", "bars": 8},
 	"ember": {"bpm": 96, "root": 130.81, "scale": [0, 2, 3, 5, 7, 8, 11], "prog": [0, 5, 3, 4], "style": "drive", "bars": 8},
+	"mire": {"bpm": 60, "root": 73.42, "scale": [0, 2, 3, 5, 7, 8, 10], "prog": [0, 3, 0, 4, 0, 3, 5, 4], "style": "pluck", "bars": 16},
+	"cathedral": {"bpm": 54, "root": 65.41, "scale": [0, 2, 3, 5, 7, 8, 11], "prog": [0, 5, 3, 4, 0, 5, 6, 4], "style": "bells", "bars": 16},
+	"crypt": {"bpm": 66, "root": 92.5, "scale": [0, 1, 3, 5, 6, 8, 10], "prog": [0, 1, 0, 5], "style": "calm", "bars": 8},
 	"boss": {"bpm": 136, "root": 110.0, "scale": [0, 1, 3, 5, 7, 8, 10], "prog": [0, 0, 5, 6], "style": "boss", "bars": 8},
 }
 
@@ -49,7 +52,7 @@ func setup() -> void:
 	_amb = _player("Ambience")
 	_rng.seed = 1234
 	_make_sfx()
-	_pending = ["title", "wood", "hollow", "ember", "boss"]
+	_pending = ["title", "wood", "hollow", "ember", "boss", "mire", "cathedral", "crypt"]
 	_thread = Thread.new()
 	_thread.start(_render_queue, Thread.PRIORITY_LOW)
 
@@ -381,6 +384,11 @@ func _make_sfx() -> void:
 		var f: float = 392.0 * [1.0, 1.26, 1.5, 2.0, 1.5, 2.0][i]
 		_tone(b, f, f, 0.18, 3, i * 0.13, 0.9 if i == 5 else 0.3, 0.005, 2.0)
 	sfx.victory = _wav(b)
+	# a funeral bell: a low strike with inharmonic partials that ring on
+	b = _buf(1.4)
+	for pr in [[1.0, 0.3], [2.4, 0.14], [3.0, 0.1], [4.2, 0.06]]:
+		_tone(b, 196.0 * pr[0], 196.0 * pr[0] * 0.995, pr[1], 0, 0, -1, 0.002, 2.5)
+	sfx.bell = _wav(b)
 
 
 # ---------------------------------------------------------------- music
@@ -391,7 +399,7 @@ func _render_queue() -> void:
 	for name in _pending:
 		var buf: PackedFloat32Array = _compose(name)
 		_store.call_deferred(true, name, _wav(buf, true, 0.8))
-	for name in ["wood", "hollow", "ember"]:
+	for name in ["wood", "hollow", "ember", "mire", "cathedral", "crypt"]:
 		_store.call_deferred(false, name, _wav(_make_ambience(name), true, 0.9))
 
 
@@ -600,10 +608,20 @@ func _make_ambience(name: String) -> PackedFloat32Array:
 					lp2 += (lp - lp2) * 0.5
 					if pass_i == 1:
 						b[i] = lp2 * 0.5 * swell
-				"hollow":
+				"hollow", "cathedral":
 					lp += (randf_range(-1.0, 1.0) - lp) * 0.012
 					if pass_i == 1:
-						b[i] = lp * 1.2 * swell + sin(t * 55.0 * TAU) * 0.035
+						b[i] = lp * 1.2 * swell + sin(t * (55.0 if name == "hollow" else 41.2) * TAU) * 0.035
+				"mire":
+					lp += (randf_range(-1.0, 1.0) - lp) * 0.03
+					lp2 += (lp - lp2) * 0.3
+					if pass_i == 1:
+						b[i] = lp2 * 0.7 * swell
+				"crypt":
+					# a thin wind that howls through the vaults
+					lp += (randf_range(-1.0, 1.0) - lp) * (0.04 + 0.03 * sin(t / 8.0 * TAU * 2.0))
+					if pass_i == 1:
+						b[i] = lp * 1.1 * swell
 				_:
 					lp += (randf_range(-1.0, 1.0) - lp) * 0.02
 					if pass_i == 1:
@@ -617,6 +635,25 @@ func _make_ambience(name: String) -> PackedFloat32Array:
 				var f := rng.randf_range(2200.0, 3600.0)
 				for c in rng.randi_range(2, 4):
 					_tone(b, f, f * 1.25, 0.05, 0, t0 + c * 0.11, 0.07, 0.005, 2.0)
+		"mire":
+			# frogs croaking in the reeds
+			for k in 9:
+				var t2 := rng.randf_range(0.0, 7.4)
+				var f3 := rng.randf_range(110.0, 190.0)
+				for c in rng.randi_range(2, 3):
+					_tone(b, f3, f3 * 0.8, 0.09, 0, t2 + c * 0.16, 0.1, 0.004, 1.0)
+		"cathedral":
+			# water dripping from the vaults
+			for k in 10:
+				var t3 := rng.randf_range(0.0, 7.6)
+				var f4 := rng.randf_range(1400.0, 2400.0)
+				_tone(b, f4, f4 * 0.6, 0.07, 0, t3, 0.06, 0.001, 2.0)
+		"crypt":
+			# ice cracking somewhere
+			for k in 12:
+				var i1 := int(rng.randf_range(0.0, 7.9) * RATE)
+				for j in 60:
+					b[(i1 + j) % n] += rng.randf_range(-0.35, 0.35) * (1.0 - j / 60.0) * (1.0 if j % 7 < 3 else 0.2)
 		"hollow":
 			for k in 6:
 				var t1 := rng.randf_range(0.0, 7.5)
