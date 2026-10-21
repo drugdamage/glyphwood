@@ -16,10 +16,12 @@ const EDGE_FLOOR := ROOM_H - 5
 const DOOR_H := 7
 const SHAFT_W := 4
 
-## Two levels per biome; the second one ends with the biome's boss. After the
+## Three levels per biome; the last one ends with the biome's boss. After the
 ## last biome the world starts over deeper, with the biomes in a new order.
-const LEVELS_PER_BIOME := 2
-const FINAL_LEVEL := 12
+const LEVELS_PER_BIOME := 3
+const FINAL_LEVEL := 18
+## Depth after which enemies grow faster: the first levels are a gentle start.
+const RAMP_FROM := 4
 
 ## look: which family of backdrop, back wall and rock details a biome borrows.
 const BIOMES := [
@@ -117,6 +119,13 @@ const ENEMIES := {
 }
 
 const BOSSES := ["warden", "wraith", "colossus", "hangman", "abbess", "frost_king"]
+
+
+## How far into the descent a level is, for enemy health and damage: one step
+## per level at first, then steeper from RAMP_FROM on.
+static func depth(level_num: int) -> float:
+	var late := maxf(0.0, level_num - RAMP_FROM)
+	return (level_num - 1) + 0.75 * late + 0.02 * late * late
 
 ## Hand-made side rooms (ROOM_W x ROOM_H). Used for treasure rooms when one fits.
 ## Legend:

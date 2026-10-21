@@ -37,8 +37,8 @@ godot --path . -- --play --bot --seed=42 --level=2 --time=10 --shot=out.png
 | `--bot` | A simple bot plays (useful to test levels) |
 | `--god` | The hero takes no damage |
 | `--seed=N` | Fixed seed: same level layout every time |
-| `--level=N` | Start at level N (two levels per biome; even levels end with a boss) |
-| `--boss` | Start next to the boss arena (with an even `--level`) |
+| `--level=N` | Start at level N (three levels per biome; every third level ends with a boss) |
+| `--boss` | Start next to the boss arena (with a `--level` divisible by 3) |
 | `--zoo` | Spawn one enemy of every type next to the start |
 | `--menu=NAME` | Open a menu: `settings`, `inventory`, `map`, `pause`, `shop`, `sell`, `moves`, `skills`, `worlds`, `new_world` |
 | `--hero=N` | Start with a hero of level N (N - 1 skill points) |

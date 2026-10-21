@@ -1,10 +1,13 @@
 ## Weapons in the hero's hand: a small silhouette per weapon kind (sword,
-## great sword, spear, mace, dagger, katana) with a dark rim, and the pose that
-## swings it with the attacks.
+## great sword, spear, mace, dagger, katana, rapier, scythe, halberd, axe) with
+## a dark rim, and the pose that swings it with the attacks.
 extends RefCounted
 
 ## Resting angle of each weapon kind (radians, facing right; +y is down).
-const REST := {"sword": 1.05, "great": -2.45, "spear": -1.35, "mace": -2.3, "dagger": 1.3, "katana": 2.55}
+const REST := {"sword": 1.05, "great": -2.45, "spear": -1.35, "mace": -2.3, "dagger": 1.3, "katana": 2.55, "rapier": 0.9,
+	"scythe": -1.75, "halberd": -1.4, "axe": -2.35}
+## Kinds swung from high over the shoulder and kept there in the air.
+const HEAVY := ["great", "mace", "scythe", "halberd", "axe"]
 
 
 ## The angle the weapon points at and how far the hand reaches out, from the
@@ -17,13 +20,13 @@ static func pose(p: Dictionary, kind: String) -> Array:
 		k = 1.0 - (1.0 - k) * (1.0 - k)
 		match p.atk_kind:
 			"side":
-				if kind == "spear" or (kind == "dagger" and p.combo != 2):
+				if kind == "spear" or (kind in ["dagger", "rapier"] and p.combo != 2):
 					a = 0.05
 					reach = 9.0 * sin(k * PI)
 				elif p.combo == 1:
 					a = lerpf(1.2, -1.75, k)
 				else:
-					a = lerpf(-2.0 if kind in ["great", "mace"] else -1.7, 1.15, k)
+					a = lerpf(-2.0 if kind in HEAVY else -1.7, 1.15, k)
 			"up", "rise":
 				a = lerpf(0.1, -2.3, k)
 			"down":
@@ -42,7 +45,7 @@ static func pose(p: Dictionary, kind: String) -> Array:
 		a = -2.0
 	elif p.sliding:
 		a = -1.6
-	elif not p.on_floor and kind != "great" and kind != "mace":
+	elif not p.on_floor and kind not in HEAVY:
 		a -= 0.35
 	else:
 		a += sin(p.anim * (9.0 if absf(p.vel.x) > 20.0 else 1.8)) * 0.06
@@ -107,6 +110,42 @@ static func draw(ci: CanvasItem, kind: String, at: Vector2, a: float, f: float, 
 			ci.draw_line(Vector2(-6, 0), Vector2(-0.5, 0), Color(0.12, 0.08, 0.1), 1.9)
 			for k in 3:
 				ci.draw_line(Vector2(-5.2 + k * 1.7, -0.9), Vector2(-4.4 + k * 1.7, 0.9), Color(0.75, 0.15, 0.15), 0.6)
+		"rapier":
+			ci.draw_line(Vector2(1, 0), Vector2(17 * ln, 0), dark, 1.9)
+			ci.draw_line(Vector2(1, 0), Vector2(17 * ln, 0), col, 0.9)
+			ci.draw_arc(Vector2(0.6, 0), 2.6, -1.4, 1.4, 8, iron, 1.1)
+			ci.draw_line(Vector2(0.4, -3.2), Vector2(0.4, 3.2), iron, 0.9)
+			ci.draw_line(Vector2(-4, 0), Vector2(0, 0), grip, 1.5)
+			ci.draw_circle(Vector2(-4.6, 0), 1.1, iron)
+		"scythe":
+			ci.draw_line(Vector2(-12, 0), Vector2(14 * ln, 0), dark, 2.6)
+			ci.draw_line(Vector2(-12, 0), Vector2(14 * ln, 0), Color(0.36, 0.26, 0.2), 1.4)
+			var arc := PackedVector2Array()
+			var inner := PackedVector2Array()
+			for k in 9:
+				var q := k / 8.0
+				var ang := -0.2 - q * 2.0
+				arc.append(Vector2(14 * ln, 0) + Vector2(cos(ang), sin(ang)) * Vector2(3.0, 12.0 * ln) * (1.0 - q * 0.15))
+				inner.append(Vector2(14 * ln, 0) + Vector2(cos(ang), sin(ang)) * Vector2(1.2, 9.0 * ln) * (1.0 - q * 0.05))
+			inner.reverse()
+			arc.append_array(inner)
+			_rim_poly(ci, arc, col, dark)
+			ci.draw_circle(Vector2(14 * ln, 0), 1.3, iron)
+		"halberd":
+			ci.draw_line(Vector2(-12, 0), Vector2(15 * ln, 0), dark, 2.6)
+			ci.draw_line(Vector2(-12, 0), Vector2(15 * ln, 0), Color(0.4, 0.3, 0.22), 1.4)
+			_rim_poly(ci, PackedVector2Array([Vector2(15 * ln, -1.4), Vector2(21 * ln, 0), Vector2(15 * ln, 1.4)]), col, dark)
+			_rim_poly(ci, PackedVector2Array([Vector2(10 * ln, 0.6), Vector2(9 * ln, 6.5), Vector2(12 * ln, 7.5), Vector2(14.5 * ln, 0.6)]), col,
+				dark)
+			_rim_poly(ci, PackedVector2Array([Vector2(12 * ln, -0.6), Vector2(11 * ln, -4.0), Vector2(13.5 * ln, -0.6)]), iron, dark)
+		"axe":
+			ci.draw_line(Vector2(-5, 0), Vector2(13, 0), dark, 2.8)
+			ci.draw_line(Vector2(-5, 0), Vector2(13, 0), grip, 1.6)
+			var head := PackedVector2Array([Vector2(8.5, -1.2), Vector2(9.5, -7.5), Vector2(14.5, -8.5), Vector2(15.5, -3.0),
+				Vector2(14.5, 1.0), Vector2(10.5, 1.4)])
+			_rim_poly(ci, head, col, dark)
+			ci.draw_line(Vector2(14.3, -7.6), Vector2(15.1, -2.8), hi, 0.7)
+			_rim_poly(ci, PackedVector2Array([Vector2(10, 1.2), Vector2(11, 3.6), Vector2(12.4, 1.2)]), iron, dark)
 		_:
 			blade = PackedVector2Array([Vector2(1, -1.3), Vector2(12 * ln, -1.0), Vector2(15 * ln, 0), Vector2(12 * ln, 1.0), Vector2(1, 1.3)])
 			_rim_poly(ci, blade, col, dark)

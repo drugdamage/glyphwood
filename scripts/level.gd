@@ -49,8 +49,9 @@ func build(level_num: int, b: Dictionary, rng: RandomNumberGenerator, with_boss:
 	_level = level_num
 	biome = b
 	boss_level = with_boss
-	gw = 4 if level_num < 5 else 5
-	gh = 2 if level_num == 1 else 3
+	# levels grow as the descent goes on: wider from the third, taller from the fifth
+	gw = 4 if level_num < 3 else (5 if level_num < 7 else 6)
+	gh = 2 if level_num == 1 else (3 if level_num < 5 else 4)
 	w = gw * RW
 	h = gh * RH
 	tiles = PackedByteArray()
@@ -60,9 +61,11 @@ func build(level_num: int, b: Dictionary, rng: RandomNumberGenerator, with_boss:
 	rooms.resize(gw * gh)
 	_make_path()
 	_make_side_rooms()
+	# a lantern every three or four rooms of the path, and one before the exit
 	path[0].lantern = true
-	if path.size() >= 4:
-		path[path.size() / 2].lantern = true
+	var stretches := maxi(1, int(ceil((path.size() - 2) / 3.5)))
+	for k in range(1, stretches):
+		path[int(k * (path.size() - 1) / float(stretches))].lantern = true
 	if path.size() >= 3:
 		path[-2].lantern = true
 	for r in rooms:
@@ -130,6 +133,19 @@ func _make_path() -> void:
 	path[-1].kind = "boss" if boss_level else "exit"
 	if path.size() >= 4:
 		path[_rng.randi_range(1, path.size() - 2)].kind = "arena"
+	# long paths get a second arena, in whichever half has none yet
+	if path.size() >= 10:
+		var half := path.size() / 2
+		var first := false
+		for i in range(1, half):
+			first = first or path[i].kind == "arena"
+		var lo := half if first else 1
+		var hi := path.size() - 2 if first else half - 1
+		for attempt in 6:
+			var r: Dictionary = path[_rng.randi_range(lo, hi)]
+			if r.kind == "normal":
+				r.kind = "arena"
+				break
 
 
 func _make_side_rooms() -> void:
@@ -471,9 +487,9 @@ func _arena(r: Dictionary, boss: bool) -> void:
 		var lift := Vector2(0, 90) if D.ENEMIES[biome.boss].fly else Vector2.ZERO
 		waves.append([{"kind": biome.boss, "pos": _foot(x0 + RW / 2, y0 + D.EDGE_FLOOR) - lift, "elite": false}])
 	else:
-		for wv in 2 + (1 if _level > 2 else 0):
+		for wv in 2 + (1 if _level > 3 else 0) + (1 if _level > 9 else 0):
 			var list: Array = []
-			for i in 2 + wv + int(_level / 3):
+			for i in mini(7, 2 + wv + int(_level / 4)):
 				list.append(_spawn_def(r, _rng.randi_range(5, RW - 6), true))
 			waves.append(list)
 	var rect := Rect2((x0 + 4) * D.TILE, (y0 + 2) * D.TILE, (RW - 8) * D.TILE, (RH - 3) * D.TILE)
@@ -515,14 +531,14 @@ func _spawn_def(r: Dictionary, lx: int, ground_only: bool = false) -> Dictionary
 	var pos := _foot(r.x0 + lx, r.y0 + f[lx])
 	if fly:
 		pos.y -= _rng.randf_range(3.0, 6.0) * D.TILE
-	return {"kind": kind, "pos": pos, "elite": _rng.randf() < 0.06 + 0.02 * _level}
+	return {"kind": kind, "pos": pos, "elite": _rng.randf() < minf(0.4, 0.05 + 0.015 * _level)}
 
 
 func _enemies(r: Dictionary) -> void:
-	var count := _rng.randi_range(2, 3) + int(_level / 2)
+	var count := _rng.randi_range(2, 3) + int(_level / 3)
 	if r.kind == "start":
 		count = 1
-	count = mini(count, 6)
+	count = mini(count, 7)
 	var used: Array = []
 	for i in count:
 		for attempt in 8:

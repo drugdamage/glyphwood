@@ -1173,7 +1173,8 @@ func _draw_inventory(vp: Vector2, accent: Color) -> void:
 				d2.reach, game.L("class_" + d2.class)]
 			_text_fit(Vector2(lx, dy + 40 * u + dh), ws, int(14 * u), w - 60 * u, Color(0.65, 0.72, 0.68))
 		elif d2.slot == "throw":
-			var ts := "%s ×%.1f   %s %d" % [game.L("stat_dmg"), d2.mult, game.L("ink"), int(d2.ink * p.st.ink_cost)]
+			var tdmg: float = d2.dmg * p.st.throw_dmg / p.st.throw_base
+			var ts := "%s %d   %s %d" % [game.L("stat_dmg"), int(round(tdmg)), game.L("ink"), int(d2.ink * p.st.ink_cost)]
 			_text_fit(Vector2(lx, dy + 40 * u + dh), ts, int(14 * u), w - 60 * u, Color(0.65, 0.72, 0.68))
 	var st: Dictionary = p.st
 	var summary := "%s    %s %d/%d    %s %d    %s ×%.2f    %s %d%%    ◆ %d" % [

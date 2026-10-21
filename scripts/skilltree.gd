@@ -130,8 +130,10 @@ static func draw(m, vp: Vector2, accent: Color) -> void:
 	m._text(Vector2(core.get_center().x - m._w(cl, int(12 * u)) * 0.5, core.end.y - 12 * u), cl, int(12 * u), Color(0.6, 0.58, 0.55))
 	# fork marks between the two sides
 	for b in Skills.BRANCHES:
-		for tier in [2, 4]:
+		for tier in range(1, Skills.TIERS + 1):
 			var ids := Skills.tier_nodes(b, tier)
+			if ids.size() < 2:
+				continue
 			var mid: Vector2 = (pos[ids[0]] + pos[ids[1]]) * 0.5
 			var orr: String = g.L("sk_or")
 			m._text(Vector2(mid.x - m._w(orr, int(11 * u)) * 0.5, mid.y + 4 * u), orr, int(11 * u), Color(0.55, 0.5, 0.48))

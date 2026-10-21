@@ -12,7 +12,11 @@ const START_THROW := "ink_knife"
 ## Weapon stats: dmg (per hit), speed (attack rate multiplier), reach (hitbox scale),
 ## kind (how it looks in the hand, see renderer._draw_weapon) and class, which
 ## the skill branches favour: "heavy" (Bulwark), "light" (Artificer), "blade" (Shadow).
-## Throwing weapons: mult (damage as a multiple of the weapon's), ink (cost).
+## Optional weapon traits: burn, crush (breaks shields), ink_hit (ink per hit), crit,
+## chill, leech (share of max health healed per hit), execute (bonus damage to foes
+## below EXECUTE_AT health) and sweep (the side cuts also reach behind the hero).
+## Throwing weapons: dmg (fixed damage at hero level 1, grows with the hero's
+## level, not with the melee weapon), ink (cost).
 const ITEMS := {
 	"rusty_blade": {"slot": "weapon", "glyph": "/", "color": Color(0.75, 0.7, 0.62), "price": 0,
 		"dmg": 10, "speed": 1.0, "reach": 1.0, "kind": "sword", "class": "blade"},
@@ -28,12 +32,25 @@ const ITEMS := {
 		"dmg": 27, "speed": 0.62, "reach": 1.2, "crush": true, "kind": "mace", "class": "heavy"},
 	"widow_fangs": {"slot": "weapon", "glyph": "‡", "color": Color(0.75, 0.55, 0.95), "price": 160,
 		"dmg": 7, "speed": 1.65, "reach": 0.78, "ink_hit": 1.5, "kind": "dagger", "class": "light"},
-	"night_katana": {"slot": "weapon", "glyph": ")", "color": Color(0.9, 0.3, 0.35), "price": 210,
-		"dmg": 14, "speed": 1.3, "reach": 1.12, "crit": 0.1, "kind": "katana", "class": "blade"},
-	"ink_knife": {"slot": "throw", "glyph": "»", "color": Color(0.65, 0.75, 1.0), "price": 0, "mult": 2.0, "ink": 33.0},
-	"bone_boomerang": {"slot": "throw", "glyph": "<", "color": Color(0.92, 0.86, 0.72), "price": 150, "mult": 1.5, "ink": 33.0},
-	"thorn_chakram": {"slot": "throw", "glyph": "✶", "color": Color(0.6, 0.95, 0.55), "price": 160, "mult": 1.3, "ink": 33.0},
-	"bile_flask": {"slot": "throw", "glyph": "ò", "color": Color(0.55, 0.9, 0.3), "price": 170, "mult": 2.6, "ink": 49.5},
+	"night_katana": {"slot": "weapon", "glyph": ")", "color": Color(0.9, 0.3, 0.35), "price": 230,
+		"dmg": 14, "speed": 1.15, "reach": 1.12, "kind": "katana", "class": "blade"},
+	"pilgrim_sword": {"slot": "weapon", "glyph": "/", "color": Color(0.82, 0.78, 0.66), "price": 150,
+		"dmg": 15, "speed": 1.0, "reach": 1.12, "kind": "sword", "class": "blade"},
+	"frost_brand": {"slot": "weapon", "glyph": "/", "color": Color(0.65, 0.88, 1.0), "price": 200,
+		"dmg": 13, "speed": 1.05, "reach": 1.05, "chill": true, "kind": "sword", "class": "blade"},
+	"bloodletter": {"slot": "weapon", "glyph": "!", "color": Color(0.9, 0.2, 0.25), "price": 210,
+		"dmg": 9, "speed": 1.45, "reach": 1.08, "leech": 0.01, "kind": "rapier", "class": "blade"},
+	"bone_scythe": {"slot": "weapon", "glyph": "Г", "color": Color(0.88, 0.84, 0.74), "price": 240,
+		"dmg": 17, "speed": 0.85, "reach": 1.3, "sweep": true, "kind": "scythe", "class": "heavy"},
+	"bell_halberd": {"slot": "weapon", "glyph": "ŧ", "color": Color(0.75, 0.7, 0.5), "price": 220,
+		"dmg": 19, "speed": 0.8, "reach": 1.6, "kind": "halberd", "class": "heavy"},
+	"headsman_axe": {"slot": "weapon", "glyph": "Þ", "color": Color(0.72, 0.68, 0.7), "price": 250,
+		"dmg": 30, "speed": 0.58, "reach": 1.15, "execute": true, "kind": "axe", "class": "heavy"},
+	"ink_knife": {"slot": "throw", "glyph": "»", "color": Color(0.65, 0.75, 1.0), "price": 0, "dmg": 14.0, "ink": 33.0},
+	"bone_boomerang": {"slot": "throw", "glyph": "<", "color": Color(0.92, 0.86, 0.72), "price": 150, "dmg": 8.0, "ink": 33.0},
+	"thorn_chakram": {"slot": "throw", "glyph": "✶", "color": Color(0.6, 0.95, 0.55), "price": 160, "dmg": 9.0, "ink": 33.0},
+	"bile_flask": {"slot": "throw", "glyph": "ò", "color": Color(0.55, 0.9, 0.3), "price": 170, "dmg": 16.0, "ink": 49.5},
+	"grave_javelin": {"slot": "throw", "glyph": "—", "color": Color(0.8, 0.74, 0.62), "price": 190, "dmg": 22.0, "ink": 49.5},
 	"heart_glyph": {"slot": "charm", "glyph": "♥", "color": Color(1.0, 0.35, 0.45), "price": 110, "max_hp": 30},
 	"phantom_step": {"slot": "charm", "glyph": "»", "color": Color(0.6, 0.85, 1.0), "price": 150, "dash_inv": true},
 	"feather": {"slot": "charm", "glyph": "∫", "color": Color(0.95, 0.95, 0.8), "price": 160, "air_jumps": 1},
@@ -67,6 +84,9 @@ const BOSS_DROPS := {"warden": "root_crown", "wraith": "moon_lens", "colossus": 
 ## Every SLOT_EVERY hero levels add a charm slot, up to MAX_CHARMS in all.
 const SLOT_EVERY := 5
 const MAX_CHARMS := 8
+## Weapons with execute deal EXECUTE_MULT damage to foes below this share of health.
+const EXECUTE_AT := 0.3
+const EXECUTE_MULT := 1.6
 
 
 static func charm_slots(p: Dictionary) -> int:
@@ -120,12 +140,14 @@ static func stats(p: Dictionary) -> Dictionary:
 	var st := {
 		"dmg": float(w.get("dmg", 10)), "speed": float(w.get("speed", 1.0)), "reach": float(w.get("reach", 1.0)),
 		"burn": w.get("burn", false), "crush": w.get("crush", false), "ink_hit": float(w.get("ink_hit", 1.0)),
-		"kind": w.get("kind", "sword"), "class": w.get("class", "blade"),
-		"throw_mult": float(th.get("mult", 2.0)), "throw_ink": float(th.get("ink", 33.0)),
-		"max_hp": 0, "regen": 1.0, "dash_inv": false, "air_jumps": 0,
+		"kind": w.get("kind", "sword"), "class": w.get("class", "blade"), "leech": float(w.get("leech", 0.0)),
+		"execute": w.get("execute", false), "sweep": w.get("sweep", false),
+		"throw_base": float(th.get("dmg", 14.0)), "throw_mult": 1.0, "throw_ink": float(th.get("ink", 33.0)),
+		"max_hp": 0, "hp_mult": 1.0, "regen": 1.0, "dash_inv": false, "air_jumps": 0,
 		"magnet": 1.0, "lifesteal": 0.0, "thorns": 0, "shard_mult": 1.0, "ink_gain": 1.0, "inv_time": 1.0,
 		"dmg_mult": 1.0, "crit": float(w.get("crit", 0.0)), "crit_mult": 2.0, "run": 1.0, "armor": 1.0, "rage": 1.0,
-		"crit_burn": false, "toll": 0, "dash_cd": 1.0, "chain": false, "ink_cost": 1.0, "orbs": 1.0, "boss_regen": false, "chill": false,
+		"crit_burn": false, "toll": 0, "dash_cd": 1.0, "chain": false, "ink_cost": 1.0, "orbs": 1.0, "boss_regen": false,
+		"chill": w.get("chill", false),
 	}
 	for id in p.charms:
 		var c: Dictionary = def(id)
@@ -139,6 +161,7 @@ static func stats(p: Dictionary) -> Dictionary:
 		st.ink_gain *= float(c.get("ink_gain", 1.0))
 		st.inv_time *= float(c.get("inv_time", 1.0))
 		st.dmg_mult *= float(c.get("dmg_mult", 1.0))
+		st.throw_mult *= float(c.get("dmg_mult", 1.0))
 		st.crit += float(c.get("crit", 0.0))
 		st.run *= float(c.get("run", 1.0))
 		st.armor *= float(c.get("armor", 1.0))

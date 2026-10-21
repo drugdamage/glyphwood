@@ -9,6 +9,7 @@ const Level := preload("res://scripts/level.gd")
 const Physics := preload("res://scripts/physics.gd")
 const Hero := preload("res://scripts/hero.gd")
 const Foes := preload("res://scripts/foes.gd")
+const Items := preload("res://scripts/items.gd")
 
 const INK_PER_HIT := 11.0
 ## How long a staggered boss stands dazed, and how much more damage it takes meanwhile.
@@ -20,13 +21,26 @@ const SHOT_LOOK := {
 	"wave": ["^", Color(0.7, 1.0, 0.5)], "rock": ["o", Color(0.7, 0.55, 0.45)], "ember": ["*", Color(1.0, 0.55, 0.2)],
 	"knife": ["»", Color(0.65, 0.75, 1.0)], "shot": ["*", Color(1.0, 0.55, 0.4)],
 	"boomerang": ["<", Color(0.92, 0.86, 0.72)], "chakram": ["✶", Color(0.6, 0.95, 0.55)], "flask": ["ò", Color(0.55, 0.9, 0.3)],
+	"javelin": ["—", Color(0.8, 0.74, 0.62)],
 	"hwave": ["^", Color(1.0, 0.8, 0.55)], "frost": ["*", Color(0.7, 0.9, 1.0)], "bell": ["o", Color(0.95, 0.8, 0.45)],
 	"bile": ["@", Color(0.55, 0.8, 0.3)], "hook": ["J", Color(0.72, 0.72, 0.78)], "noose": ["O", Color(0.7, 0.62, 0.45)],
 }
 ## Thrown weapon item -> projectile kind.
-const THROW_KIND := {"ink_knife": "knife", "bone_boomerang": "boomerang", "thorn_chakram": "chakram", "bile_flask": "flask"}
+const THROW_KIND := {"ink_knife": "knife", "bone_boomerang": "boomerang", "thorn_chakram": "chakram", "bile_flask": "flask",
+	"grave_javelin": "javelin"}
 ## Every TOLL_EVERY melee hit rings the Funeral Bell for triple damage.
 const TOLL_EVERY := 5
+## Blade Storm's free throw deals this share of a normal throw.
+const STORM_DMG := 0.6
+## Ink Siphon gives back per hit of a thrown weapon, and at most per throw.
+const SIPHON_INK := 8.0
+const SIPHON_MAX := 16.0
+## Rend: the Triple Cut finisher hits this much harder and sets foes bleeding.
+const REND_DMG := 1.3
+## Philosopher's Stone: ink back per kill.
+const STONE_INK := 10.0
+## Burning foes take this much more damage with Venom Glass.
+const VENOM_DMG := 1.25
 
 
 # ---------------------------------------------------------------- melee
@@ -46,7 +60,7 @@ static func attack_hits(g, p: Dictionary, box: Rect2) -> void:
 	match p.atk_kind:
 		"side":
 			if finisher:
-				mult = 2.2
+				mult = 2.2 * (REND_DMG if st.rend else 1.0)
 				crit_bonus = 0.15
 		"lunge":
 			mult = 1.8
@@ -71,7 +85,13 @@ static func attack_hits(g, p: Dictionary, box: Rect2) -> void:
 					m *= 3.0
 					g.sfx("bell", -4.0, 1.4)
 					burst(g, Physics.center(e), ["o", "O", "·"], Color(0.95, 0.8, 0.45), 10, 140.0)
+			if st.execute and e.hp < e.max_hp * Items.EXECUTE_AT:
+				m *= Items.EXECUTE_MULT
 			hurt_enemy(g, e, st.dmg * st.dmg_mult * m, kdir, true, crit_bonus)
+			if st.leech > 0.0:
+				heal_player(g, st.leech, false)
+			if g.enemies.has(e) and finisher and st.rend:
+				e.burn = maxf(e.burn, 2.5)
 			if g.enemies.has(e) and st.chill:
 				e.chill = 2.0
 			if g.enemies.has(e) and st.crush and not e.boss:
@@ -121,11 +141,12 @@ static func attack_hits(g, p: Dictionary, box: Rect2) -> void:
 			p.vel.y = minf(p.vel.y, 0.0)
 
 
-## Damage multiplier from the hero's state: Blood Rosary and Last Stand at low health.
+## Damage multiplier from the hero's state: Blood Rosary and Last Stand at low
+## health, Dance of Death after a kill.
 static func damage_bonus(p: Dictionary) -> float:
 	var st: Dictionary = p.st
 	var low: bool = p.hp <= p.max_hp * 0.35
-	var m := 1.0
+	var m := Hero.DANCE_DMG if p.dance_t > 0.0 else 1.0
 	if low:
 		m *= st.rage
 		if st.last_stand:
@@ -149,8 +170,10 @@ static func hurt_enemy(g, e: Dictionary, dmg: float, kdir: Vector2, melee: bool 
 	var crit := false
 	var p: Dictionary = g.player
 	var sure: bool = melee and p.iaido_t > 0.0
+	if p.st.venom and e.burn > 0.0:
+		dmg *= VENOM_DMG
 	if melee and (sure or g.rng.randf() < p.st.crit + crit_bonus):
-		dmg *= 2.0
+		dmg *= p.st.crit_mult
 		crit = true
 		p.iaido_t = 0.0
 		g.on_crit(Physics.center(e))
@@ -237,11 +260,15 @@ static func kill_enemy(g, e: Dictionary) -> void:
 		heal_player(g, 0.08)
 	if st.chain:
 		heal_player(g, 0.04)
+	var p: Dictionary = g.player
 	if st.reaper:
-		var p: Dictionary = g.player
 		p.dash_cd = 0.0
 		p.air_dash = true
 		p.haste_t = 1.5
+	if st.philosopher:
+		p.ink = minf(Hero.MAX_INK, p.ink + STONE_INK)
+	if st.death_dance:
+		p.dance_t = Hero.DANCE_TIME
 	if not e.boss and g.rng.randf() < 0.2 * st.orbs:
 		g.pickups.append({"kind": "orb", "pos": Physics.center(e)})
 	if e.kind == "bomber":
@@ -263,14 +290,16 @@ static func _wisp_hidden(e: Dictionary) -> bool:
 
 # ---------------------------------------------------------------- player damage
 
-## Heals a share of max health, with a small effect.
-static func heal_player(g, share: float) -> void:
+## Heals a share of max health, with a small effect (and the healing pose
+## unless [pose] is false, so a leeching weapon does not interrupt the swing).
+static func heal_player(g, share: float, pose: bool = true) -> void:
 	var p: Dictionary = g.player
 	if p.dead or p.hp >= p.max_hp:
 		return
 	p.hp = mini(p.max_hp, p.hp + maxi(1, int(round(p.max_hp * share))))
-	p.heal_t = 0.2
-	burst(g, Physics.center(p), ["+", "·"], Color(0.55, 1.0, 0.6), 8, 80.0, -60.0)
+	if pose:
+		p.heal_t = 0.2
+	burst(g, Physics.center(p), ["+", "·"], Color(0.55, 1.0, 0.6), 3 if not pose else 8, 80.0, -60.0)
 
 
 ## units is the size of the hit: 1 is a normal blow. Damage grows with depth.
@@ -350,18 +379,20 @@ static func fire(g, from: Vector2, vel: Vector2, owner: String, dmg: float, grav
 	if owner == "hero" and kind == "shot":
 		kind = "knife"
 	var pr := {"pos": from, "vel": vel, "life": 4.0, "owner": owner, "dmg": dmg, "grav": grav,
-		"kind": kind, "delay": delay, "t": 0.0, "hits": {}, "pierce": 0, "bounce": 0}
+		"kind": kind, "delay": delay, "t": 0.0, "hits": {}, "back": {}, "pierce": 0, "bounce": 0}
 	g.projectiles.append(pr)
 	if delay <= 0.0 and owner == "enemy":
 		burst(g, from, ["·"], SHOT_LOOK.get(kind, SHOT_LOOK.shot)[1], 4, 60.0)
 	return pr
 
 
-## Hurls the hero's throwing weapon. free: launched by Blade Storm (no ink, no twin).
+## Hurls the hero's throwing weapon. free: launched by Blade Storm (no ink, no
+## twin, weaker). Thrown damage is the weapon's own and grows with the hero's
+## level (Hero.refresh), so it does not ride on a heavy melee weapon.
 static func throw_weapon(g, p: Dictionary, dir: Vector2, free: bool = false) -> void:
 	var st: Dictionary = p.st
 	var kind: String = THROW_KIND.get(p.get("throw", "ink_knife"), "knife")
-	var dmg: float = st.dmg * st.dmg_mult * st.throw_mult * damage_bonus(p)
+	var dmg: float = st.throw_dmg * damage_bonus(p) * (STORM_DMG if free else 1.0)
 	var from := Physics.center(p) + Vector2(p.facing * 6.0, -4.0)
 	var dirs: Array = [dir]
 	if st.twin_throw and not free:
@@ -382,6 +413,10 @@ static func throw_weapon(g, p: Dictionary, dir: Vector2, free: bool = false) -> 
 				pr.bounce = 3
 			"flask":
 				pr = fire(g, from, d * 330.0 + Vector2(0, -130.0), "hero", dmg * k, 700.0, kind)
+			"javelin":
+				pr = fire(g, from, d * 560.0, "hero", dmg * k, 0.0, kind)
+				pr.pierce = 99
+				pr.life = 1.4
 			_:
 				pr = fire(g, from, d * Hero.KNIFE_SPEED, "hero", dmg * k, 0.0, kind)
 		if st.ricochet:
@@ -390,13 +425,14 @@ static func throw_weapon(g, p: Dictionary, dir: Vector2, free: bool = false) -> 
 	g.sfx("throw", -4.0 if free else 0.0, 0.8 if kind == "flask" else 1.0)
 
 
-## Juggernaut: a ripple of broken ground runs along the floor from the finisher.
+## Juggernaut: a ripple of broken ground runs a short way along the floor from
+## the finisher (at most every Hero.WAVE_COOLDOWN seconds).
 static func ground_wave(g, p: Dictionary) -> void:
 	var st: Dictionary = p.st
 	var pr := fire(g, Physics.foot(p) + Vector2(p.facing * 14.0, -6.0), Vector2(p.facing * 300.0, 0.0), "hero",
-		st.dmg * st.dmg_mult * 1.2, 0.0, "hwave")
+		st.dmg * st.dmg_mult * 0.8, 0.0, "hwave")
 	pr.pierce = 99
-	pr.life = 0.9
+	pr.life = 0.5
 	g.sfx("slam", -6.0, 1.3)
 
 
@@ -450,9 +486,12 @@ static func _hero_shot_hits(g, pr: Dictionary) -> void:
 		if pr.kind == "flask":
 			_burst_flask(g, pr)
 			return
-		# a boomerang can hit the same foe again on its way back
-		pr.hits[e.id] = pr.t + (0.35 if pr.kind == "boomerang" else 99.0)
-		if Foes.blocks(e, pr.pos.x, "side") and pr.kind != "chakram":
+		# a boomerang can hit the same foe once more, on its way back
+		var again: bool = pr.kind == "boomerang" and not pr.back.has(e.id)
+		if again:
+			pr.back[e.id] = true
+		pr.hits[e.id] = maxf(pr.t + 0.3, 0.45) if again else 99.0
+		if Foes.blocks(e, pr.pos.x, "side") and pr.kind != "chakram" and pr.kind != "javelin":
 			g.sfx("clink", -4.0)
 			if pr.kind != "boomerang":
 				g.projectiles.erase(pr)
@@ -466,9 +505,10 @@ static func _hero_shot_hits(g, pr: Dictionary) -> void:
 				e.burn = 2.5
 			if st.chill:
 				e.chill = 2.0
-		if st.siphon:
+		if st.siphon and pr.get("siphoned", 0.0) < SIPHON_MAX:
 			var p: Dictionary = g.player
-			p.ink = minf(Hero.MAX_INK, p.ink + 12.0)
+			pr.siphoned = pr.get("siphoned", 0.0) + SIPHON_INK
+			p.ink = minf(Hero.MAX_INK, p.ink + SIPHON_INK)
 		if pr.pierce <= 0:
 			g.projectiles.erase(pr)
 			return

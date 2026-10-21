@@ -1124,7 +1124,13 @@ func _draw_projectile(pr: Dictionary) -> void:
 			_glyph(pr.pos, "^", look[1], 1.7)
 			_glyph(pr.pos + Vector2(-signf(pr.vel.x) * 6.0, 2.0), "^", Color(look[1].r, look[1].g, look[1].b, 0.5), 1.2)
 			return
-	if pr.kind == "arrow" or pr.kind == "knife":
+	if pr.kind == "javelin":
+		# a shaft of two dashes behind the point
+		var dirv: Vector2 = pr.vel.normalized()
+		_glyph(pr.pos - dirv * 7.0, "-", look[1], 1.4)
+		_glyph(pr.pos - dirv * 14.0, "-", Color(look[1].r, look[1].g, look[1].b, 0.7), 1.3)
+		g = ">" if pr.vel.x >= 0.0 else "<"
+	elif pr.kind == "arrow" or pr.kind == "knife":
 		var a: float = pr.vel.angle()
 		g = _tangent_glyph(a + PI * 0.5) if pr.kind == "arrow" else ("»" if pr.vel.x >= 0.0 else "«")
 		if pr.kind == "knife" and absf(pr.vel.y) > absf(pr.vel.x):

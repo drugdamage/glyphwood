@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-21
+
+### Added
+
+- **Six new weapons**, each with its own silhouette in the hand: Pilgrim's
+  Sword, Frost Brand (chills), Bloodletter (a rapier that heals a little on
+  every hit), Bone Scythe (wide sweeps that also cut behind you), Bell-Tower
+  Halberd (the longest reach) and Headsman's Axe (+60% damage to foes below a
+  third of their health). A new throwing weapon, the **Grave Javelin**, flies
+  fast through every foe and shield in a line.
+- **A bigger skill tree.** Every branch grows to seven tiers with a third fork
+  and a new capstone: *Bulwark* gets Bastion or Rend and Titan, *Alchemist*
+  Venom Glass or Quicksilver and the Philosopher's Stone, *Shade* Shadow Step
+  or Hemorrhage and the Dance of Death. Vitality and Keen Edge go to eight
+  ranks. Maxing everything now takes 37 points instead of 25.
+
+### Changed
+
+- **Longer biomes and levels.** Each biome has three levels (the boss waits at
+  the end of the third), so a full cycle is 18 levels. Levels grow wider and
+  taller as you go down, long levels get a second arena, and lanterns stand
+  every three or four rooms. Saved worlds keep their level number, which may
+  now fall in a different biome.
+- **Difficulty curve.** The first levels are a gentle start; from the fourth
+  level on, enemy health and damage climb faster. Bosses grow with depth from
+  the first one (they used to stay the same until the second cycle). Rooms
+  and arenas hold a few more foes, and elites appear more often deeper down.
+- **Hard and Nightmare are really hard.** Hard: enemies hit 50% harder, have
+  45% more health, move 8% faster and are elite more often; health returns
+  slower. Nightmare: 2.2 times the damage, twice the health, 16% faster, many
+  elites, health returns at half speed.
+- **Slower growth.** Each hero level gives +4% damage (was 6%) and needs more
+  experience; Keen Edge gives +3% per rank (was 4%). Burning damage now grows
+  with your blows so fire stays useful deep down.
+- **Thrown weapons have their own damage**, which grows with the hero's level,
+  instead of a multiple of the melee weapon's: a great sword no longer turns
+  every knife into a cannon. Ink Knife 14, Bone Boomerang 8, Thorn Chakram 9,
+  Bile Flask 16, Grave Javelin 22 at level 1, +6% per level.
+- **Bone Boomerang** hits each foe at most twice per throw (once out, once
+  back) instead of every third of a second while it overlaps, so it no longer
+  shreds bosses.
+- **Night Katana** loses its extra critical chance and swings a bit slower.
+- **Blade Storm** (free throw on the Triple Cut finisher) fires at most every
+  2.5 s and at 60% damage. **Juggernaut**'s ground wave is shorter, weaker and
+  rolls at most every 1.5 s. **Siphon** gives 8 ink per hit, at most 16 per
+  throw.
+
 ## [0.8.0] - 2026-10-21
 
 ### Added
@@ -338,7 +385,8 @@ First public release.
 - Bundled DejaVu Sans Mono font, used in the Web build (where system fonts are
   unavailable) and as a fallback for glyphs missing from the system font.
 
-[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/drugdamage/glyphwood/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/drugdamage/glyphwood/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/drugdamage/glyphwood/compare/v0.6.3...v0.7.0
 [0.6.3]: https://github.com/drugdamage/glyphwood/compare/v0.6.1...v0.6.3

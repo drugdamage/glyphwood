@@ -40,12 +40,13 @@ const MAX_WORLDS := 5
 ## Bumped when the saved hero changes shape; older saves are not continued.
 const RUN_VERSION := 2
 const DIFFICULTIES := ["easy", "normal", "hard", "nightmare"]
-## Enemy damage and health, share of carried shards lost on a fall, experience.
+## Enemy damage, health and speed, extra chance of elite foes, share of
+## carried shards lost on a fall, experience, and how fast health comes back.
 const DIFF := {
-	"easy": {"dmg": 0.6, "hp": 0.75, "toll": 0.15, "xp": 1.0},
-	"normal": {"dmg": 1.0, "hp": 1.0, "toll": 0.3, "xp": 1.0},
-	"hard": {"dmg": 1.4, "hp": 1.3, "toll": 0.5, "xp": 1.25},
-	"nightmare": {"dmg": 1.9, "hp": 1.6, "toll": 1.0, "xp": 1.5},
+	"easy": {"dmg": 0.6, "hp": 0.75, "speed": 1.0, "elite": 0.0, "toll": 0.15, "xp": 1.0, "regen": 1.3},
+	"normal": {"dmg": 1.0, "hp": 1.0, "speed": 1.0, "elite": 0.0, "toll": 0.3, "xp": 1.0, "regen": 1.0},
+	"hard": {"dmg": 1.5, "hp": 1.45, "speed": 1.08, "elite": 0.06, "toll": 0.5, "xp": 1.2, "regen": 0.75},
+	"nightmare": {"dmg": 2.2, "hp": 2.0, "speed": 1.16, "elite": 0.14, "toll": 1.0, "xp": 1.4, "regen": 0.5},
 }
 const RUN_KEYS := ["hp", "base_hp", "ink", "shards", "weapon", "charms", "bag", "xp", "xp_level", "up_hp", "up_dmg", "throw", "up_spd",
 	"skills"]
@@ -509,6 +510,11 @@ func diff() -> Dictionary:
 	return DIFF.get(difficulty, DIFF.normal)
 
 
+func _apply_difficulty() -> void:
+	Foes.hp_mult = diff().hp
+	Foes.speed_mult = diff().speed
+
+
 ## A new hero without a world slot (debug starts with --play are not saved).
 func new_run() -> void:
 	world_slot = -1
@@ -519,7 +525,7 @@ func new_run() -> void:
 
 
 func _begin_run() -> void:
-	Foes.hp_mult = diff().hp
+	_apply_difficulty()
 	player = Hero.create()
 	player.xp_level = _hero_level
 	for id in _skills_arg:
@@ -551,7 +557,7 @@ func continue_run() -> void:
 		return
 	world_name = cf.get_value("run", "name", "")
 	difficulty = cf.get_value("run", "difficulty", "normal")
-	Foes.hp_mult = diff().hp
+	_apply_difficulty()
 	run_seed = cf.get_value("run", "seed", 0)
 	level_num = cf.get_value("run", "level", 1)
 	kills = cf.get_value("run", "kills", 0)
@@ -632,7 +638,7 @@ func _build_level() -> void:
 		Hero.place(player, Vector2((br.x0 + 6) * D.TILE, (br.y0 + D.EDGE_FLOOR) * D.TILE))
 	enemies.clear()
 	for s in lv.spawns:
-		enemies.append(Foes.create(s.kind, s.pos, level_num, rng, s.elite))
+		enemies.append(Foes.create(s.kind, s.pos, level_num, rng, s.elite or rng.randf() < diff().elite))
 	if _zoo and state != State.TITLE:
 		enemies.clear()
 		var kinds := ["crawler", "hopper", "bat", "spitter", "knight", "shield", "wisp", "archer", "bomber", "toad", "hanged", "choir",
@@ -751,7 +757,7 @@ func gain_xp(amount: float, at: Vector2) -> void:
 
 ## Damage of one normal enemy blow at the current depth.
 func hit_damage() -> float:
-	return 14.0 * (1.0 + 0.12 * (level_num - 1)) * diff().dmg
+	return 14.0 * (1.0 + 0.1 * D.depth(level_num)) * diff().dmg
 
 
 func combo_hit() -> void:

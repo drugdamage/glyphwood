@@ -39,8 +39,16 @@ const REGEN_DELAY := 4.0
 const REGEN_RATE := 0.05
 const BASE_HP := 100
 const HP_PER_LEVEL := 6
-const DMG_PER_LEVEL := 0.06
+const DMG_PER_LEVEL := 0.04
+## Thrown weapons have their own damage, which grows this much per hero level.
+const THROW_PER_LEVEL := 0.06
 const BASE_CRIT := 0.08
+## Shortest time between two free throws of Blade Storm and two Juggernaut waves.
+const STORM_COOLDOWN := 2.5
+const WAVE_COOLDOWN := 1.5
+## Seconds of extra damage after a kill with Dance of Death, and how much.
+const DANCE_TIME := 2.0
+const DANCE_DMG := 1.2
 
 
 ## A fresh hero for a new run.
@@ -62,13 +70,14 @@ static func refresh(p: Dictionary) -> void:
 	p.st.run *= 1.0 + HASTE_STEP * p.get("up_spd", 0)
 	p.st.dmg_mult *= (1.0 + DMG_PER_LEVEL * (p.xp_level - 1)) * (1.0 + 0.05 * p.up_dmg)
 	p.st.crit += BASE_CRIT
-	p.max_hp = p.base_hp + HP_PER_LEVEL * (p.xp_level - 1) + 10 * p.up_hp + p.st.max_hp
+	p.st.throw_dmg = p.st.throw_base * p.st.throw_mult * (1.0 + THROW_PER_LEVEL * (p.xp_level - 1)) * (1.0 + 0.05 * p.up_dmg)
+	p.max_hp = int((p.base_hp + HP_PER_LEVEL * (p.xp_level - 1) + 10 * p.up_hp + p.st.max_hp) * p.st.hp_mult)
 	p.hp = mini(p.hp, p.max_hp)
 
 
 ## Experience needed to go from this level to the next.
 static func xp_need(level: int) -> int:
-	return int(40.0 * pow(level, 1.4))
+	return int(45.0 * pow(level, 1.6))
 
 
 ## Resets position and per-level state.
@@ -84,7 +93,7 @@ static func place(p: Dictionary, foot: Vector2) -> void:
 		"respawn_t": 0.0, "safe": foot - Vector2(size.x * 0.5, size.y), "swim": false,
 		"anim": 0.0, "dead": false, "was_floor": false, "fall_speed": 0.0, "step_t": 0.0,
 		"calm": 0.0, "regen": 0.0, "dash_end": 0.0, "lunge_t": 0.0, "slam": false, "dash_hit": {}, "iaido_t": 0.0,
-		"haste_t": 0.0, "toll_n": 0, "chill_t": 0.0,
+		"haste_t": 0.0, "toll_n": 0, "chill_t": 0.0, "storm_t": 0.0, "wave_t": 0.0, "dance_t": 0.0,
 	}, true)
 
 
@@ -94,7 +103,7 @@ static func update(g, p: Dictionary, dt: float) -> void:
 	var st: Dictionary = p.st
 	p.anim += dt
 	for k in ["coyote", "jump_buf", "drop_t", "wall_lock", "dash_cd", "atk_t", "combo_t", "inv", "blink", "hurt_t", "heal_t", "throw_t",
-			"dash_end", "iaido_t", "haste_t", "chill_t"]:
+			"dash_end", "iaido_t", "haste_t", "chill_t", "storm_t", "wave_t", "dance_t"]:
 		p[k] = maxf(0.0, p[k] - dt)
 
 	if p.dead:
@@ -120,7 +129,7 @@ static func update(g, p: Dictionary, dt: float) -> void:
 	# health comes back out of combat (not during a boss fight, without the Tide Pearl)
 	p.calm += dt
 	if p.calm > REGEN_DELAY and p.hp < p.max_hp and (g.boss.is_empty() or st.boss_regen):
-		p.regen += p.max_hp * REGEN_RATE * st.regen * dt
+		p.regen += p.max_hp * REGEN_RATE * st.regen * g.diff().regen * dt
 		if p.regen >= 1.0:
 			var n := int(p.regen)
 			p.hp = mini(p.max_hp, p.hp + n)
@@ -315,9 +324,11 @@ static func _start_attack(g, p: Dictionary, kind: String) -> void:
 		if p.on_floor:
 			p.vel.x += p.facing * (190.0 if p.combo == 2 else 60.0)
 		if p.combo == 2:
-			if st.juggernaut and p.on_floor:
+			if st.juggernaut and p.on_floor and p.wave_t <= 0.0:
+				p.wave_t = WAVE_COOLDOWN
 				g.ground_wave(p)
-			if st.blade_storm:
+			if st.blade_storm and p.storm_t <= 0.0:
+				p.storm_t = STORM_COOLDOWN
 				g.throw_weapon(p, Vector2(p.facing, 0), true)
 	if kind == "down" and st.quake and not p.on_floor:
 		p.slam = true
@@ -382,7 +393,9 @@ static func hitbox(p: Dictionary) -> Rect2:
 			var lw := 46.0 * reach
 			return Rect2(c.x + (-8.0 if p.facing > 0 else 8.0 - lw), p.pos.y + 2, lw, 24)
 	var wdt := (38.0 if p.combo == 2 else 32.0) * reach
-	return Rect2(c.x + (2.0 if p.facing > 0 else -2.0 - wdt), p.pos.y - 2, wdt, 30)
+	# a sweeping weapon (the scythe) also reaches a little behind the hero
+	var back := wdt * 0.45 if p.st.sweep else 0.0
+	return Rect2(c.x + (2.0 - back if p.facing > 0 else -2.0 - wdt), p.pos.y - 2, wdt + back, 30)
 
 
 static func _on_oneway(p: Dictionary, lv) -> bool:

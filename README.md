@@ -18,9 +18,10 @@ come back in a new order every time you reach the bottom, with procedural
 levels, secret walls, arenas, a merchant and a boss at the end of every biome;
 lanterns are your checkpoints and a small arrow always points the way, while
 every kill grows your hero for good, so a few minutes or a few hours both
-count. A skill tree with three branches and either/or forks, swords, maces,
-daggers, spears and katanas you can see in the hero's hands, knives,
-boomerangs, chakrams and flasks to throw, combos, dash lunges, critical hits
+count. A skill tree with three seven-tier branches and either/or forks;
+swords, rapiers, maces, axes, scythes, halberds, daggers, spears and katanas
+you can see in the hero's hands; knives, boomerangs, chakrams, javelins and
+flasks to throw; combos, dash lunges, critical hits
 and bosses that stagger, several worlds you name yourself with four
 difficulties, keyboard, mouse and gamepad, and seven languages.
 

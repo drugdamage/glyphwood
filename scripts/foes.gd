@@ -24,17 +24,21 @@ const Boss := preload("res://scripts/boss.gd")
 const GRAVITY := 1300.0
 
 static var _next_id := 0
-## Enemy health multiplier of the current world's difficulty (set by main.gd).
+## Enemy health and speed multipliers of the current world's difficulty (set by main.gd).
 static var hp_mult := 1.0
+static var speed_mult := 1.0
+## Burn damage per tick: a base plus a share of the hero's blow, so fire keeps up with depth.
+const BURN_BASE := 3.0
+const BURN_SHARE := 0.15
 
 
 static func create(kind: String, foot: Vector2, level_num: int, rng: RandomNumberGenerator, elite: bool = false) -> Dictionary:
 	var def: Dictionary = D.ENEMIES[kind]
 	var size: Vector2 = def.size
 	var boss := D.BOSSES.has(kind)
-	var scale := 1.0 + 0.22 * (level_num - 1)
+	var scale := 1.0 + 0.16 * D.depth(level_num)
 	if boss:
-		scale = 1.0 + 0.15 * maxf(0.0, level_num - D.FINAL_LEVEL)
+		scale = 1.0 + 0.2 * D.depth(level_num)
 	var hp := int(ceil(def.hp * scale * (2.0 if elite else 1.0) * hp_mult))
 	_next_id += 1
 	return {
@@ -105,7 +109,8 @@ static func update(g, e: Dictionary, dt: float) -> void:
 		e.t2 += dt
 		if e.t2 >= 0.5:
 			e.t2 = 0.0
-			g.hurt_enemy(e, 4.0, Vector2.ZERO, false)
+			var pst: Dictionary = g.player.st
+			g.hurt_enemy(e, BURN_BASE + BURN_SHARE * pst.dmg * pst.dmg_mult, Vector2.ZERO, false)
 			if e.hp <= 0:
 				return
 	if e.boss:
@@ -113,7 +118,7 @@ static func update(g, e: Dictionary, dt: float) -> void:
 		return
 	var p: Dictionary = g.player
 	var to_p: Vector2 = Physics.center(p) - Physics.center(e)
-	var speed: float = D.ENEMIES[e.kind].speed * (1.15 if e.elite else 1.0)
+	var speed: float = D.ENEMIES[e.kind].speed * (1.15 if e.elite else 1.0) * speed_mult
 	var lv = g.lv
 	var sees: bool = not p.dead and absf(to_p.x) < 220.0 and absf(to_p.y) < 70.0
 
