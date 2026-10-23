@@ -578,6 +578,8 @@ func _click(it: Dictionary, pos: Vector2) -> void:
 		it.setf.call(clampf((pos.x - it.bar.position.x) / it.bar.size.x, 0.0, 1.0))
 		_dragging = true
 		game.sfx("menu_move", -8.0)
+	elif it.type == "value" and it.has("left") and it.has("adj"):
+		_adjust(-1 if it.left.has_point(pos) else 1)
 	elif it.type == "tabs":
 		for k in it.tab_rects.size():
 			if it.tab_rects[k].has_point(pos):
@@ -892,7 +894,10 @@ func _draw_rows(x: float, y: float, w: float, row_h: float, from: int = 0) -> fl
 				var v: String = "‹  " + it.value + "  ›" if on else it.value
 				var vs := _fit(v, size, w * 0.5, bold)
 				var vw := _w(v, vs, bold)
-				_text(Vector2(x + w - 20 * u - vw, y + row_h * 0.68), v, vs, Color(1.0, 0.85, 0.5) if on else lc, bold)
+				var vx := x + w - 20 * u - vw
+				_text(Vector2(vx, y + row_h * 0.68), v, vs, Color(1.0, 0.85, 0.5) if on else lc, bold)
+				# clicking the left half of the value steps back, the right half forward
+				it.left = Rect2(vx - 12 * u, y, vw * 0.5 + 12 * u, row_h)
 				_text_fit(Vector2(x + 30 * u, y + row_h * 0.68), it.label, size, w - 66 * u - vw, lc)
 			"text":
 				var typing := on and _typing

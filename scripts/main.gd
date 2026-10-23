@@ -346,9 +346,7 @@ func apply_settings(changed: String = "") -> void:
 	var all := changed == ""
 	var l: String = cfg.get_v("lang")
 	if not T.LANGS.has(l):
-		l = OS.get_locale_language()
-		if not T.LANGS.has(l):
-			l = "en"
+		l = "en"
 	lang = l
 	lang_idx = T.LANGS.find(l)
 	_apply_cjk()

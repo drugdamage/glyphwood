@@ -12,7 +12,7 @@ const WINDOW_CHOICES := ["windowed", "borderless", "fullscreen"]
 const QUALITY_CHOICES := ["low", "medium", "high"]
 
 const DEFAULTS := {
-	"lang": "",
+	"lang": "en",
 	"hints": true,
 	"damage_numbers": true,
 	"shake": 1.0,
