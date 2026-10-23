@@ -396,7 +396,7 @@ func _shop_items() -> Array:
 func _sell_items() -> Array:
 	var out: Array = []
 	for id in game.player.bag:
-		out.append({"type": "buy", "id": id, "price": Items.sell_price(id), "act": _sell.bind(id), "sell": true})
+		out.append({"type": "buy", "id": id, "price": Items.sell_price(id, game.player), "act": _sell.bind(id), "sell": true})
 	out.append(_btn(game.L("m_back"), close))
 	return out
 
