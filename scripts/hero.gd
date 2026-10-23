@@ -61,11 +61,14 @@ const SWAP_COOLDOWN := 1.0
 ## for CHIP of its damage and breaks the guard. Then GUARD_COOLDOWN passes
 ## before the next guard (PARRY_COOLDOWN after a parry).
 const GUARD_MAX := 1.2
-const PARRY_TIME := 0.18
+const PARRY_TIME := 0.15
 const CHIP := 0.35
 const GUARD_COOLDOWN := 0.9
 const PARRY_COOLDOWN := 0.35
 const GUARD_RUN := 0.35
+## The least share of a blow that still gets through all armour, charms and
+## skills (Last Stand comes on top).
+const ARMOR_FLOOR := 0.5
 ## Seconds of extra damage after a kill with Dance of Death, and how much.
 const DANCE_TIME := 2.0
 const DANCE_DMG := 1.2
@@ -98,6 +101,8 @@ static func refresh(p: Dictionary) -> void:
 	p.st.dmg_mult *= (1.0 + DMG_PER_LEVEL * (p.xp_level - 1)) * (1.0 + 0.05 * p.up_dmg)
 	p.st.crit += BASE_CRIT
 	p.st.throw_dmg = p.st.throw_base * p.st.throw_mult * (1.0 + THROW_PER_LEVEL * (p.xp_level - 1)) * (1.0 + 0.05 * p.up_dmg)
+	# armour, charms and skills together never take off more than half a blow
+	p.st.armor = maxf(p.st.armor, ARMOR_FLOOR)
 	p.max_hp = int((p.base_hp + HP_PER_LEVEL * (p.xp_level - 1) + 10 * p.up_hp + p.st.max_hp) * p.st.hp_mult)
 	p.hp = mini(p.hp, p.max_hp)
 

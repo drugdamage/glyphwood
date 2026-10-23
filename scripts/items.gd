@@ -38,7 +38,7 @@ const ITEMS := {
 	"widow_fangs": {"slot": "weapon", "glyph": "‡", "color": Color(0.75, 0.55, 0.95), "price": 160,
 		"dmg": 8, "speed": 2.0, "reach": 0.78, "ink_hit": 1.5, "kind": "dagger", "class": "light"},
 	"night_katana": {"slot": "weapon", "glyph": ")", "color": Color(0.9, 0.3, 0.35), "price": 230,
-		"dmg": 14, "speed": 1.15, "reach": 1.12, "kind": "katana", "class": "blade"},
+		"dmg": 15, "speed": 1.15, "reach": 1.12, "kind": "katana", "class": "blade"},
 	"pilgrim_sword": {"slot": "weapon", "glyph": "/", "color": Color(0.82, 0.78, 0.66), "price": 150,
 		"dmg": 15, "speed": 1.0, "reach": 1.12, "kind": "sword", "class": "blade"},
 	"frost_brand": {"slot": "weapon", "glyph": "/", "color": Color(0.65, 0.88, 1.0), "price": 200,

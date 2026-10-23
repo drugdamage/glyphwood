@@ -47,7 +47,7 @@ static func create(kind: String, foot: Vector2, level_num: int, rng: RandomNumbe
 		"hp": hp, "max_hp": hp, "dir": -1 if rng.randf() < 0.5 else 1,
 		"flash": 0.0, "stun": 0.0, "state": "idle", "t": rng.randf_range(0.5, 1.5), "t2": 0.0,
 		"anim": rng.randf() * 3.0, "home": foot - Vector2(0, size.y * 0.5), "aggro": false,
-		"burn": 0.0, "thorn_t": 0.0, "phase": 1, "fly": def.fly, "chill": 0.0,
+		"burn": 0.0, "thorn_t": 0.0, "parried": 0.0, "phase": 1, "fly": def.fly, "chill": 0.0,
 	}
 
 
@@ -104,6 +104,7 @@ static func update(g, e: Dictionary, dt: float) -> void:
 	e.flash = maxf(0.0, e.flash - dt)
 	e.stun = maxf(0.0, e.stun - dt)
 	e.thorn_t = maxf(0.0, e.thorn_t - dt)
+	e.parried = maxf(0.0, e.get("parried", 0.0) - dt)
 	if e.burn > 0.0:
 		e.burn -= dt
 		e.t2 += dt

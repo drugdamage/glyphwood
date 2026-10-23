@@ -42,8 +42,11 @@ const STONE_INK := 10.0
 ## Burning foes take this much more damage with Venom Glass.
 const VENOM_DMG := 1.25
 ## A parry gives back this much ink; foes right in front reel for PARRY_STUN.
+## The foe that was parried can't be parried again for PARRY_AGAIN seconds
+## (its next blow is only blocked), so walking foes can't be stun-locked.
 const PARRY_INK := 15.0
-const PARRY_STUN := 1.0
+const PARRY_STUN := 0.7
+const PARRY_AGAIN := 3.0
 const PARRY_REACH := 52.0
 
 
@@ -323,7 +326,7 @@ static func hurt_player(g, units: float, src_x: float, spikes: bool = false, gua
 		return
 	var blocked := false
 	if not spikes and guardable and Hero.guards_against(p, src_x):
-		if p.parry_t > 0.0:
+		if p.parry_t > 0.0 and foe.get("parried", 0.0) <= 0.0:
 			parry(g, foe)
 			return
 		units *= Hero.CHIP
@@ -399,6 +402,8 @@ static func parry(g, foe: Dictionary = {}) -> void:
 		else:
 			e.stun = maxf(e.stun, PARRY_STUN)
 			e.vel.x = p.facing * 220.0
+	if not foe.is_empty():
+		foe.parried = PARRY_AGAIN
 	g.hitstop = maxf(g.hitstop, 0.12)
 	g.slowmo = minf(g.slowmo, 0.55)
 	g.shake_add(5.0)
