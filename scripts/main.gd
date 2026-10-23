@@ -138,6 +138,9 @@ var _bot_t := 0.0
 var _start_level := 1
 var _record_dir := ""
 var _record_frame := 0
+## True while --record saves frames (the FPS counter would only show the
+## slowed-down capture rate).
+var recording := false
 var _menu_arg := ""
 ## Debug: starting hero level and learned skills (--hero=, --skills=).
 var _hero_level := 1
@@ -259,6 +262,7 @@ func _parse_cmdline() -> bool:
 			cfg.values.lang = a.substr(7)
 		elif a.begins_with("--record="):
 			_record_dir = a.substr(9)
+			recording = true
 		elif a.begins_with("--menu="):
 			_menu_arg = a.substr(7)
 		elif a.begins_with("--hero="):
@@ -1322,6 +1326,14 @@ func _bot_input() -> void:
 			target_x = (room.x0 + (-4 if room.l else D.ROOM_W + 4)) * ts
 		if not boss.is_empty():
 			target_x = Physics.center(boss).x
+	# in a closed arena, go after the nearest foe instead of the shut gate
+	if boss.is_empty() and in_combat():
+		var best := INF
+		for e in enemies:
+			var ex: float = Physics.center(e).x
+			if absf(ex - c.x) < best and absf(Physics.center(e).y - c.y) < 120.0:
+				best = absf(ex - c.x)
+				target_x = ex
 	var dir := signf(target_x - c.x)
 	if absf(target_x - c.x) < 6.0:
 		dir = 0.0
@@ -1340,6 +1352,9 @@ func _bot_input() -> void:
 			held.attack = not ctl._prev.attack
 			held.up = d.y < -24.0
 			held.down = d.y > 24.0 and not p.on_floor
+			# now and then raise the guard instead, facing the foe
+			held.block = p.on_floor and absf(d.y) < 24.0 and signf(d.x) == p.facing and fmod(_bot_t, 1.7) < 0.3
 			break
 	held.dash = fmod(_bot_t, 2.3) < 0.02
+	held.swap = fmod(_bot_t, 6.0) < 0.02
 	held.interact = not near.is_empty() and near.kind in ["chest", "door"] and fmod(_bot_t, 0.5) < 0.05

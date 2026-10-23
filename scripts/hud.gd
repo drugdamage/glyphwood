@@ -161,7 +161,7 @@ func _draw_hud() -> void:
 		_draw_play(vp)
 	if game.fade > 0.0:
 		_ci.draw_rect(Rect2(Vector2.ZERO, vp), Color(0, 0, 0, game.fade))
-	if game.cfg.get_v("show_fps"):
+	if game.cfg.get_v("show_fps") and not game.recording:
 		var fps := "%d FPS" % Engine.get_frames_per_second()
 		_text(Vector2(vp.x - 90 * u, vp.y - 12 * u), fps, int(13 * u), Color(0.6, 0.7, 0.65))
 
