@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Armour has a ceiling.** Armour, charms and skills together never take off
+  more than half of a blow (Last Stand still comes on top). Before, a fully
+  reforged set with Iron Shroud, Iron Hide, Bastion and Titan let only about
+  a third through.
+- **Parry is harder to farm.** The parry window is 0.15 s instead of 0.18 s,
+  a parried foe reels for 0.7 s instead of 1 s, and the same foe can't be
+  parried again for 3 seconds (its next blow is only blocked), so slow
+  walkers can no longer be stun-locked.
+- Night Katana 14 → 15 damage, so it stays ahead of the cheaper Glyph Saber.
+
+### Performance
+
+- The blood moon is drawn in cached layers: only its clouds, eye and drips
+  are repainted each frame, the halo's heartbeat is a fade. The sky costs
+  about half as much per frame.
+- Water and lava skip the wave maths for the cells that stay empty.
+
 ## [0.11.0] - 2026-10-23
 
 ### Added
