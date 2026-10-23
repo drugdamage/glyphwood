@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-23
+
+### Added
+
+- **Block and parry** (Q or L, gamepad LT). Raise a short guard against blows
+  from the front; you walk slowly behind it and it lasts at most 1.2 seconds.
+  A blow that lands in the first instant is **parried**: no damage, the foe
+  reels, your next hit is a sure critical and enemy shots fly back at them. A
+  late block still lets 35% through and breaks the guard, and there is a short
+  cooldown before the next one, so it is a timing skill, not a free wall.
+  Spikes, pits and hazards ignore it.
+- **A second weapon** (R or U, gamepad L3). The second weapon you pick up goes
+  on your back; the swap key draws it. Drawing takes a quarter of a second,
+  the combo starts over and the next swap waits a second.
+- **Armour.** Nine pieces for the head, body and legs, from the Pilgrim's
+  Hood to Cathedral Plate. Heavier pieces protect more but slow your run and
+  (the plate) your dash, a few add something of their own (more health,
+  crits, ink, thorns). What you wear dyes the hero, and each piece can be
+  reforged three times for shards in the inventory. Armour is sold by the
+  merchant and found like other items.
+- **Cooldown seals** under the health bar for dash, block, the weapon swap,
+  Blade Storm and Juggernaut: they darken while recharging and flash when
+  ready.
+- Block and swap on the Moves screen and in the hints.
+
+### Changed
+
+- **New inventory.** The hero stands in a gothic niche wearing what you
+  equipped, with armour slots on one side and the weapon, second weapon and
+  throwing slots on the other, then the charms and the bag. Equip, carry as
+  second weapon or reforge right from the details line.
+- **Item pictures are drawn, not typed**: every weapon, throwing weapon,
+  charm, armour piece and merchant service has its own small picture in the
+  inventory, the shop and the HUD.
+- **Weapon balance.** The Bell-Tower Halberd no longer beats everything:
+  19 → 17 damage, attack speed ×0.8 → ×0.74, reach ×1.6 → ×1.5. Glyph Saber
+  13 damage at ×1.2 → 11 at ×1.55; Widow's Fangs 7 at ×1.65 → 8 at ×2.0;
+  Bloodletter ×1.45 → ×1.7; Hollow Spear and Ember Brand 12 → 13 damage.
+- **Dash cooldown** 0.55 → 0.9 seconds.
+- Holding attack keeps swinging, and a press just before a swing ends is kept
+  for the next one.
+- Enemy blows hit about 10% harder to make room for armour: without any you
+  take a little more than before, with a full set somewhat less.
+- English is the default language on the first start (change it in Settings).
+
+### Fixed
+
+- You can swim up and leap out of water at the surface instead of having to
+  wall-jump out.
+- Health no longer comes back in the middle of a fight: not on a wall above
+  an arena, not beside a foe that has seen you. Arena gates in open-sky rooms
+  reach the top of the room, so you can't jump over them to escape.
+- The left and right arrows of a setting (language, difficulty, …) step back
+  and forward instead of always going forward.
+- The shop shows what reforged armour really sells for.
+
 ## [0.10.0] - 2026-10-21
 
 ### Changed
@@ -412,7 +468,8 @@ First public release.
 - Bundled DejaVu Sans Mono font, used in the Web build (where system fonts are
   unavailable) and as a fallback for glyphs missing from the system font.
 
-[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/drugdamage/glyphwood/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/drugdamage/glyphwood/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/drugdamage/glyphwood/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/drugdamage/glyphwood/compare/v0.7.0...v0.8.0
