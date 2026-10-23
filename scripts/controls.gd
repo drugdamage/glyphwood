@@ -3,7 +3,8 @@
 ## device (so hints show the right buttons and the mouse can aim).
 extends RefCounted
 
-const ACTIONS := ["left", "right", "up", "down", "jump", "attack", "dash", "throw", "interact", "inventory", "map", "skills", "pause"]
+const ACTIONS := ["left", "right", "up", "down", "jump", "attack", "dash", "throw", "block", "swap", "interact", "inventory", "map",
+	"skills", "pause"]
 
 ## Two rebindable slots per action. "k:<physical keycode>" or "m:<mouse button>".
 const DEFAULTS := {
@@ -15,6 +16,8 @@ const DEFAULTS := {
 	"attack": ["k:%d" % KEY_J, "m:%d" % MOUSE_BUTTON_LEFT],
 	"dash": ["k:%d" % KEY_SHIFT, "m:%d" % MOUSE_BUTTON_RIGHT],
 	"throw": ["k:%d" % KEY_K, "k:%d" % KEY_F],
+	"block": ["k:%d" % KEY_Q, "k:%d" % KEY_L],
+	"swap": ["k:%d" % KEY_R, "k:%d" % KEY_U],
 	"interact": ["k:%d" % KEY_E, ""],
 	"inventory": ["k:%d" % KEY_TAB, "k:%d" % KEY_I],
 	"map": ["k:%d" % KEY_M, ""],
@@ -32,6 +35,8 @@ const PAD := {
 	"attack": [[JOY_BUTTON_X], []],
 	"dash": [[JOY_BUTTON_RIGHT_SHOULDER], [[JOY_AXIS_TRIGGER_RIGHT, 1]]],
 	"throw": [[JOY_BUTTON_Y], []],
+	"block": [[], [[JOY_AXIS_TRIGGER_LEFT, 1]]],
+	"swap": [[JOY_BUTTON_LEFT_STICK], []],
 	"interact": [[JOY_BUTTON_B], []],
 	"inventory": [[JOY_BUTTON_BACK], []],
 	"map": [[JOY_BUTTON_RIGHT_STICK], []],
@@ -42,9 +47,12 @@ const PAD := {
 const PAD_NAMES := {
 	JOY_BUTTON_A: "A", JOY_BUTTON_B: "B", JOY_BUTTON_X: "X", JOY_BUTTON_Y: "Y",
 	JOY_BUTTON_LEFT_SHOULDER: "LB", JOY_BUTTON_RIGHT_SHOULDER: "RB", JOY_BUTTON_BACK: "Back",
-	JOY_BUTTON_START: "Start", JOY_BUTTON_RIGHT_STICK: "R3", JOY_BUTTON_DPAD_UP: "D-pad ↑",
+	JOY_BUTTON_START: "Start", JOY_BUTTON_RIGHT_STICK: "R3", JOY_BUTTON_LEFT_STICK: "L3", JOY_BUTTON_DPAD_UP: "D-pad ↑",
 	JOY_BUTTON_DPAD_DOWN: "D-pad ↓", JOY_BUTTON_DPAD_LEFT: "D-pad ←", JOY_BUTTON_DPAD_RIGHT: "D-pad →",
 }
+
+## Gamepad labels for actions on a stick or a trigger.
+const PAD_LABELS := {"left": "L-stick", "right": "L-stick", "dash": "RB", "block": "LT"}
 
 const KEY_GLYPHS := {KEY_LEFT: "←", KEY_RIGHT: "→", KEY_UP: "↑", KEY_DOWN: "↓"}
 
@@ -64,6 +72,15 @@ func setup(saved: Dictionary) -> void:
 	for a in saved:
 		if binds.has(a) and saved[a] is Array and saved[a].size() == 2:
 			binds[a] = [str(saved[a][0]), str(saved[a][1])]
+	# actions added after the bindings were saved keep only the default keys
+	# that no saved action already uses
+	for a in ACTIONS:
+		if saved.has(a) or saved.is_empty():
+			continue
+		for i in 2:
+			for other in saved:
+				if binds.has(other) and other != a and binds[other].has(binds[a][i]):
+					binds[a][i] = ""
 	for a in ACTIONS:
 		held[a] = false
 		just[a] = false
@@ -202,10 +219,8 @@ static func bind_label(b: String, lang_mouse: Array) -> String:
 func label(action: String, lang_mouse: Array) -> String:
 	if device == "pad":
 		var btns: Array = PAD[action][0]
-		if action in ["left", "right"]:
-			return "L-stick"
-		if action == "dash":
-			return "RB"
+		if PAD_LABELS.has(action):
+			return PAD_LABELS[action]
 		return PAD_NAMES.get(btns[0], "?") if not btns.is_empty() else "?"
 	var b: Array = binds[action]
 	if device == "mouse":

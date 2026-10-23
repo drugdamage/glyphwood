@@ -1,6 +1,8 @@
-## Items, equipment and the stats they give. The hero has one weapon slot, one
-## throwing slot and CHARM_SLOTS charm slots (one more every fifth hero level);
-## everything else found during a run sits in the bag.
+## Items, equipment and the stats they give. The hero has two weapon slots
+## (the second is drawn with the swap key), one throwing slot, three armour
+## pieces (head, body, legs) that can be reforged for shards, and CHARM_SLOTS
+## charm slots (one more every fifth hero level); everything else found during
+## a run sits in the bag.
 ## Names and descriptions are in strings_world.gd as "item_<id>" and "item_<id>_d".
 extends RefCounted
 
@@ -8,7 +10,7 @@ const CHARM_SLOTS := 3
 const START_WEAPON := "rusty_blade"
 const START_THROW := "ink_knife"
 
-## slot: "weapon", "throw" or "charm". price: shards in the shop (0 = never sold).
+## slot: "weapon", "throw", "armor" or "charm". price: shards in the shop (0 = never sold).
 ## Weapon stats: dmg (per hit), speed (attack rate multiplier), reach (hitbox scale),
 ## kind (how it looks in the hand, see renderer._draw_weapon) and class, which
 ## the skill branches favour: "heavy" (Bulwark), "light" (Artificer), "blade" (Shadow).
@@ -17,6 +19,9 @@ const START_THROW := "ink_knife"
 ## below EXECUTE_AT health) and sweep (the side cuts also reach behind the hero).
 ## Throwing weapons: dmg (fixed damage at hero level 1, grows with the hero's
 ## level, not with the melee weapon), ink (cost).
+## Armour: part ("head", "body" or "legs"), armor (share of damage still taken;
+## reforging cuts the rest), and what it weighs: run (speed) and dash_cd. The
+## colour also dyes that part of the hero.
 const ITEMS := {
 	"rusty_blade": {"slot": "weapon", "glyph": "/", "color": Color(0.75, 0.7, 0.62), "price": 0,
 		"dmg": 10, "speed": 1.0, "reach": 1.0, "kind": "sword", "class": "blade"},
@@ -51,6 +56,23 @@ const ITEMS := {
 	"thorn_chakram": {"slot": "throw", "glyph": "✶", "color": Color(0.6, 0.95, 0.55), "price": 160, "dmg": 9.0, "ink": 33.0},
 	"bile_flask": {"slot": "throw", "glyph": "ò", "color": Color(0.55, 0.9, 0.3), "price": 170, "dmg": 16.0, "ink": 49.5},
 	"grave_javelin": {"slot": "throw", "glyph": "—", "color": Color(0.8, 0.74, 0.62), "price": 190, "dmg": 22.0, "ink": 49.5},
+	"pilgrim_hood": {"slot": "armor", "part": "head", "glyph": "∩", "color": Color(0.6, 0.48, 0.4), "price": 80, "armor": 0.96,
+		"ink_gain": 1.1},
+	"iron_sallet": {"slot": "armor", "part": "head", "glyph": "n", "color": Color(0.66, 0.66, 0.72), "price": 150, "armor": 0.92,
+		"max_hp": 8, "run": 0.98},
+	"plague_mask": {"slot": "armor", "part": "head", "glyph": "v", "color": Color(0.86, 0.8, 0.64), "price": 170, "armor": 0.95,
+		"crit": 0.04},
+	"gambeson": {"slot": "armor", "part": "body", "glyph": "#", "color": Color(0.55, 0.42, 0.36), "price": 90, "armor": 0.93},
+	"chain_hauberk": {"slot": "armor", "part": "body", "glyph": "8", "color": Color(0.6, 0.62, 0.68), "price": 170, "armor": 0.87,
+		"run": 0.97},
+	"cathedral_plate": {"slot": "armor", "part": "body", "glyph": "Ж", "color": Color(0.78, 0.78, 0.86), "price": 260, "armor": 0.82,
+		"max_hp": 15, "run": 0.92, "dash_cd": 1.12},
+	"wanderer_boots": {"slot": "armor", "part": "legs", "glyph": "L", "color": Color(0.5, 0.38, 0.32), "price": 90, "armor": 0.97,
+		"run": 1.04},
+	"iron_greaves": {"slot": "armor", "part": "legs", "glyph": "Л", "color": Color(0.62, 0.62, 0.68), "price": 150, "armor": 0.92,
+		"run": 0.97},
+	"thorned_sabatons": {"slot": "armor", "part": "legs", "glyph": "Ψ", "color": Color(0.6, 0.52, 0.46), "price": 160, "armor": 0.94,
+		"thorns": 10},
 	"heart_glyph": {"slot": "charm", "glyph": "♥", "color": Color(1.0, 0.35, 0.45), "price": 110, "max_hp": 30},
 	"phantom_step": {"slot": "charm", "glyph": "»", "color": Color(0.6, 0.85, 1.0), "price": 150, "dash_inv": true},
 	"feather": {"slot": "charm", "glyph": "∫", "color": Color(0.95, 0.95, 0.8), "price": 160, "air_jumps": 1},
@@ -80,6 +102,14 @@ const ITEMS := {
 ## Charms dropped by bosses (never in shops or chests).
 const BOSS_DROPS := {"warden": "root_crown", "wraith": "moon_lens", "colossus": "ember_heart", "hangman": "gallows_knot",
 	"abbess": "tide_pearl", "frost_king": "frost_crown"}
+
+## The three armour parts, top to bottom.
+const PARTS := ["head", "body", "legs"]
+## Armour can be reforged UPGRADE_MAX times; each time cuts the damage it
+## lets through by UPGRADE_STEP of its own protection and adds UPGRADE_HP health.
+const UPGRADE_MAX := 3
+const UPGRADE_STEP := 0.12
+const UPGRADE_HP := 4
 
 ## Every SLOT_EVERY hero levels add a charm slot, up to MAX_CHARMS in all.
 const SLOT_EVERY := 5
@@ -119,14 +149,47 @@ static func service_price(p: Dictionary, id: String, level_num: int) -> int:
 const HASTE_MAX := 6
 
 
-## What the merchant pays for an item from the bag.
-static func sell_price(id: String) -> int:
+## What the merchant pays for an item from the bag (half of what was spent
+## reforging it comes back too).
+static func sell_price(id: String, p: Dictionary = {}) -> int:
 	var d := def(id)
 	if d.is_empty() or id == START_WEAPON or id == START_THROW:
 		return 4
 	if d.price <= 0:
 		return 140
-	return maxi(10, int(d.price * 0.4))
+	var back := 0
+	for k in upgrade_level(p, id):
+		back += upgrade_price(id, k) / 2
+	return maxi(10, int(d.price * 0.4)) + back
+
+
+## How many times a piece of armour was reforged.
+static func upgrade_level(p: Dictionary, id: String) -> int:
+	return int(p.get("armor_up", {}).get(id, 0))
+
+
+## Shards to reforge a piece of armour from level [lvl] to the next.
+static func upgrade_price(id: String, lvl: int) -> int:
+	return int(def(id).get("price", 100) * 0.6 * (lvl + 1))
+
+
+## Reforges an armour piece if the hero can pay; returns false otherwise.
+static func upgrade(p: Dictionary, id: String) -> bool:
+	var lvl := upgrade_level(p, id)
+	var price := upgrade_price(id, lvl)
+	if def(id).get("slot", "") != "armor" or lvl >= UPGRADE_MAX or p.shards < price:
+		return false
+	p.shards -= price
+	if not p.has("armor_up"):
+		p.armor_up = {}
+	p.armor_up[id] = lvl + 1
+	return true
+
+
+## Share of damage a piece of armour lets through, after reforging.
+static func armor_factor(p: Dictionary, id: String) -> float:
+	var cut := 1.0 - float(def(id).get("armor", 1.0))
+	return 1.0 - cut * (1.0 + UPGRADE_STEP * upgrade_level(p, id))
 
 
 static func def(id: String) -> Dictionary:
@@ -149,6 +212,18 @@ static func stats(p: Dictionary) -> Dictionary:
 		"crit_burn": false, "toll": 0, "dash_cd": 1.0, "chain": false, "ink_cost": 1.0, "orbs": 1.0, "boss_regen": false,
 		"chill": w.get("chill", false),
 	}
+	for part in PARTS:
+		var aid: String = p.get("armor", {}).get(part, "")
+		if aid == "":
+			continue
+		var a: Dictionary = def(aid)
+		st.armor *= armor_factor(p, aid)
+		st.max_hp += int(a.get("max_hp", 0)) + UPGRADE_HP * upgrade_level(p, aid)
+		st.run *= float(a.get("run", 1.0))
+		st.dash_cd *= float(a.get("dash_cd", 1.0))
+		st.ink_gain *= float(a.get("ink_gain", 1.0))
+		st.crit += float(a.get("crit", 0.0))
+		st.thorns += int(a.get("thorns", 0))
 	for id in p.charms:
 		var c: Dictionary = def(id)
 		st.max_hp += int(c.get("max_hp", 0))
@@ -177,11 +252,18 @@ static func stats(p: Dictionary) -> Dictionary:
 
 
 static func owns(p: Dictionary, id: String) -> bool:
-	return p.weapon == id or p.get("throw", "") == id or p.charms.has(id) or p.bag.has(id)
+	return p.weapon == id or p.get("weapon2", "") == id or p.get("throw", "") == id or p.charms.has(id) or p.bag.has(id) \
+		or p.get("armor", {}).values().has(id)
 
 
-## Adds an item to the hero. Charms go straight into a free slot, weapons into
-## the bag (or replace the starting one). Returns true if it was auto-equipped.
+## The armour piece worn on [part], or "".
+static func worn(p: Dictionary, part: String) -> String:
+	return p.get("armor", {}).get(part, "")
+
+
+## Adds an item to the hero. Charms and armour go straight into a free slot,
+## weapons replace the starting one or fill the empty second slot, anything
+## else goes into the bag. Returns true if it was auto-equipped.
 static func give(p: Dictionary, id: String) -> bool:
 	var d := def(id)
 	if d.is_empty() or owns(p, id):
@@ -189,9 +271,15 @@ static func give(p: Dictionary, id: String) -> bool:
 	if d.slot == "charm" and p.charms.size() < charm_slots(p):
 		p.charms.append(id)
 		return true
+	if d.slot == "armor" and worn(p, d.part) == "":
+		p.armor[d.part] = id
+		return true
 	if d.slot == "weapon" and p.weapon == START_WEAPON:
 		p.bag.append(p.weapon)
 		p.weapon = id
+		return true
+	if d.slot == "weapon" and p.get("weapon2", "") == "":
+		p.weapon2 = id
 		return true
 	if d.slot == "throw" and p.throw == START_THROW:
 		p.bag.append(p.throw)
@@ -202,10 +290,28 @@ static func give(p: Dictionary, id: String) -> bool:
 
 
 ## Equips or unequips an owned item. Returns false if nothing changed.
+## A weapon from the bag goes into the main hand; the second weapon goes back
+## into the bag.
 static func toggle(p: Dictionary, id: String) -> bool:
 	var d := def(id)
 	if d.is_empty():
 		return false
+	if d.slot == "armor":
+		if worn(p, d.part) == id:
+			p.armor[d.part] = ""
+			p.bag.append(id)
+			return true
+		if not p.bag.has(id):
+			return false
+		p.bag.erase(id)
+		if worn(p, d.part) != "":
+			p.bag.append(worn(p, d.part))
+		p.armor[d.part] = id
+		return true
+	if d.slot == "weapon" and p.get("weapon2", "") == id:
+		p.weapon2 = ""
+		p.bag.append(id)
+		return true
 	if d.slot == "weapon" or d.slot == "throw":
 		var key: String = d.slot
 		if p[key] == id or not p.bag.has(id):
@@ -225,12 +331,35 @@ static func toggle(p: Dictionary, id: String) -> bool:
 	return true
 
 
+## Puts a weapon from the bag into the second slot (the old one goes back).
+static func equip_second(p: Dictionary, id: String) -> bool:
+	if def(id).get("slot", "") != "weapon" or not p.bag.has(id):
+		return false
+	p.bag.erase(id)
+	if p.get("weapon2", "") != "":
+		p.bag.append(p.weapon2)
+	p.weapon2 = id
+	return true
+
+
+## Trades the weapon in hand for the second one; false if there is none.
+static func swap_weapons(p: Dictionary) -> bool:
+	if p.get("weapon2", "") == "":
+		return false
+	var w: String = p.weapon
+	p.weapon = p.weapon2
+	p.weapon2 = w
+	return true
+
+
 ## Sells an item from the bag; returns the shards paid, or 0.
 static func sell(p: Dictionary, id: String) -> int:
 	if not p.bag.has(id):
 		return 0
+	var price := sell_price(id, p)
 	p.bag.erase(id)
-	var price := sell_price(id)
+	if p.has("armor_up"):
+		p.armor_up.erase(id)
 	p.shards += price
 	return price
 

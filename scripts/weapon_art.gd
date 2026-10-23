@@ -5,6 +5,9 @@
 ## cross cut through it), and the pose that swings it with the attacks.
 extends RefCounted
 
+const Items := preload("res://scripts/items.gd")
+const Physics := preload("res://scripts/physics.gd")
+
 ## Resting angle of each weapon kind (radians, facing right; +y is down).
 const REST := {"sword": 1.05, "great": -2.45, "spear": -1.35, "mace": -2.3, "dagger": 1.3, "katana": 2.55, "rapier": 0.9,
 	"scythe": -1.75, "halberd": -1.4, "axe": -2.35}
@@ -37,6 +40,10 @@ static func pose(p: Dictionary, kind: String) -> Array:
 			"lunge":
 				a = 0.0
 				reach = 7.0
+	elif p.get("guard", false):
+		# held upright in front of the body
+		a = -1.3
+		reach = 6.0
 	elif p.slam:
 		a = PI * 0.5
 	elif p.dash_t > 0.0:
@@ -52,6 +59,35 @@ static func pose(p: Dictionary, kind: String) -> Array:
 	else:
 		a += sin(p.anim * (9.0 if absf(p.vel.x) > 20.0 else 1.8)) * 0.06
 	return [a, reach]
+
+
+## The weapon in the hero's hand, drawn by the renderer [r] on its dynamic layer.
+static func draw_held(r, p: Dictionary, tint: Color) -> void:
+	var d: Dictionary = Items.def(p.weapon)
+	var kind: String = d.get("kind", "sword")
+	var po := pose(p, kind)
+	var a: float = po[0]
+	var f: float = p.facing
+	var shoulder := Physics.foot(p) + Vector2(f * 4.0, -15.0)
+	var hand: Vector2 = shoulder + Vector2(cos(a) * f, sin(a)) * (4.5 + po[1])
+	var col: Color = d.get("color", Color(0.85, 0.9, 1.0)) * tint
+	col.a = 1.0
+	draw(r._dyn, kind, r.sp(hand), a, f, r.s, col, p.st.reach)
+	if kind == "dagger":
+		# the off hand holds a second fang, reversed
+		draw(r._dyn, kind, r.sp(Physics.foot(p) + Vector2(-f * 3.0, -13.0)), a + 2.4, f, r.s, col * 0.8, p.st.reach)
+
+
+## The second weapon slung across the back, darker, behind the hero.
+static func draw_back(r, p: Dictionary, tint: Color) -> void:
+	if p.get("weapon2", "") == "":
+		return
+	var d: Dictionary = Items.def(p.weapon2)
+	var f: float = p.facing
+	var col: Color = d.get("color", Color(0.85, 0.9, 1.0)) * tint * 0.7
+	col.a = 1.0
+	var at := Physics.foot(p) + Vector2(-f * 3.0, -9.0)
+	draw(r._dyn, d.get("kind", "sword"), r.sp(at), -2.05, f, r.s * 0.85, col, 1.0)
 
 
 ## Blackened iron, worn gold, bone and a blood-red gem, shared by every hilt.

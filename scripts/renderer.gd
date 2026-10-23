@@ -1230,25 +1230,23 @@ func _draw_hero() -> void:
 		tint = Color(0.6, 1.0, 0.7)
 	if game.level_up_t > 2.0:
 		tint = Color(0.7, 0.9, 1.0)
-	_sprite(Hero.frame(p), Physics.foot(p), p.facing, S.HERO_PAL, {}, S.HERO.a, tint, false, false, S.HERO.scale)
-	_draw_weapon(p, tint)
+	WeaponArt.draw_back(self, p, tint)
+	_sprite(Hero.frame(p), Physics.foot(p), p.facing, Hero.palette(p), {}, S.HERO.a, tint, false, false, S.HERO.scale)
+	WeaponArt.draw_held(self, p, tint)
+	if p.guard:
+		_draw_guard(p)
 
 
-## The equipped weapon in the hero's hand (weapon_art.gd).
-func _draw_weapon(p: Dictionary, tint: Color) -> void:
-	var d: Dictionary = Items.def(p.weapon)
-	var kind: String = d.get("kind", "sword")
-	var pose := WeaponArt.pose(p, kind)
-	var a: float = pose[0]
-	var f: float = p.facing
-	var shoulder := Physics.foot(p) + Vector2(f * 4.0, -15.0)
-	var hand: Vector2 = shoulder + Vector2(cos(a) * f, sin(a)) * (4.5 + pose[1])
-	var col: Color = d.get("color", Color(0.85, 0.9, 1.0)) * tint
-	col.a = 1.0
-	WeaponArt.draw(_dyn, kind, sp(hand), a, f, s, col, p.st.reach)
-	if kind == "dagger":
-		# the off hand holds a second fang, reversed
-		WeaponArt.draw(_dyn, kind, sp(Physics.foot(p) + Vector2(-f * 3.0, -13.0)), a + 2.4, f, s, col * 0.8, p.st.reach)
+## The raised guard: an arc of bright glyphs in front of the hero, golden
+## while a blow would still be parried.
+func _draw_guard(p: Dictionary) -> void:
+	var c := Physics.center(p) + Vector2(p.facing * 9.0, -2.0)
+	var parry: bool = p.parry_t > 0.0
+	var col := Color(1.0, 0.85, 0.4) if parry else Color(0.75, 0.82, 0.9, 0.55 + 0.2 * sin(t * 14.0))
+	for k in 5:
+		var a := (k - 2) * 0.32
+		var pt := c + Vector2(cos(a) * p.facing, sin(a)) * 11.0
+		_glyph(pt, ")" if p.facing > 0 else "(", col, 1.15 if parry else 1.0)
 
 
 ## A small arrow circling the hero that points the way to the exit.

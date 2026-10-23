@@ -1,5 +1,5 @@
 ## In-game interface: health and experience bars, ink, shards, equipment,
-## minimap (a small picture of the explored terrain), current goal, combo
+## cooldown seals (dash, guard, weapon swap, skills), minimap (a small picture of the explored terrain), current goal, combo
 ## counter, level banner, tutorial hints with key caps, boss health bar, toasts
 ## and the mouse crosshair. Menus are drawn by menu.gd on top of this.
 extends Node2D
@@ -10,6 +10,7 @@ const Items := preload("res://scripts/items.gd")
 const Skills := preload("res://scripts/skills.gd")
 const Hero := preload("res://scripts/hero.gd")
 const Physics := preload("res://scripts/physics.gd")
+const IconArt := preload("res://scripts/icon_art.gd")
 
 ## Size of the crosshair relative to the interface size.
 const CROSSHAIR := 0.62
@@ -40,6 +41,9 @@ var _status_key_last: Array = []
 var _blade_cache := {}
 var _map_rect := Rect2()
 var _map_ci: Node2D
+## Seconds left of the bright flash a cooldown seal gives when it is ready again.
+var _cd_flash := {}
+var _cd_was := {}
 
 
 ## Paints one room's tiles into the map image, one pixel per tile.
@@ -340,7 +344,8 @@ func _status_key(p: Dictionary) -> Array:
 	var low: bool = float(p.hp) / p.max_hp <= 0.25
 	var flash: bool = game.ink_flash > 0.0 and int(t * 16.0) % 2 == 0
 	return [get_viewport_rect().size, u, p.hp, p.max_hp, int(_hp_trail), int(p.ink * 18.0 / Hero.MAX_INK), flash, p.xp, p.xp_level,
-		p.shards, p.weapon, p.charms.duplicate(), Items.charm_slots(p), game.lang, game.key("throw"), int(t * 10.0) if low else -1,
+		p.shards, p.weapon, p.get("weapon2", ""), p.charms.duplicate(), Items.charm_slots(p), game.lang, game.key("throw"),
+		int(t * 10.0) if low else -1,
 		p.throw, Skills.free_points(p), game.key("skills")]
 
 
@@ -361,6 +366,95 @@ func _draw_status_live(p: Dictionary) -> void:
 				_ci.draw_circle(Vector2(dx, top + 4 * u + f * f * 22 * u), 1.4 * u, Color(0.55, 0.03, 0.05, 1.0 - f))
 	if p.calm > Hero.REGEN_DELAY and p.hp < p.max_hp:
 		_text(Vector2(hr.end.x + 6 * u, 30.0 * u + 12 * u), "+", int(15 * u), Color(0.62, 0.78, 0.55, 0.45 + 0.35 * sin(t * 5.0)), bold)
+	_draw_cooldowns(p)
+
+
+## The moves that recharge, as a row of small seals under the equipment: a
+## dark wedge shows the time left, the seal flashes when ready again, and the
+## key is written under it. The guard seal turns gold while the guard is up.
+func _draw_cooldowns(p: Dictionary) -> void:
+	var st: Dictionary = p.st
+	var seals: Array = [["dash", p.dash_cd, Hero.DASH_COOLDOWN * st.dash_cd],
+		["block", p.guard_cd, Hero.GUARD_COOLDOWN]]
+	if p.get("weapon2", "") != "":
+		seals.append(["swap", p.swap_cd, Hero.SWAP_COOLDOWN])
+	if st.get("blade_storm", false):
+		seals.append(["storm", p.storm_t, Hero.STORM_COOLDOWN])
+	if st.get("juggernaut", false):
+		seals.append(["wave", p.wave_t, Hero.WAVE_COOLDOWN])
+	var dt := get_process_delta_time()
+	var x := 26.0 * u + 11 * u
+	var y := 148.0 * u
+	var r := 10.0 * u
+	for sl in seals:
+		var id: String = sl[0]
+		var left: float = clampf(sl[1] / maxf(0.01, sl[2]), 0.0, 1.0)
+		if _cd_was.get(id, 0.0) > 0.0 and left <= 0.0:
+			_cd_flash[id] = 0.35
+		_cd_was[id] = left
+		_cd_flash[id] = maxf(0.0, _cd_flash.get(id, 0.0) - dt)
+		var c := Vector2(x, y)
+		var ready := left <= 0.0
+		var active: bool = id == "block" and p.guard
+		var tone := Color(1.0, 0.82, 0.4) if active else (Color(0.88, 0.84, 0.76) if ready else Color(0.45, 0.42, 0.4))
+		_ci.draw_circle(c, r + 2.0 * u, Color(0.02, 0.01, 0.015, 0.8))
+		_ci.draw_circle(c, r, Color(0.09, 0.06, 0.07, 0.95))
+		_seal_icon(id, c, r * 0.62, tone)
+		if left > 0.0:
+			# the time still to wait, as a dark wedge that turns like a clock hand
+			var pts := PackedVector2Array([c])
+			var n := maxi(3, int(24 * left))
+			for k in n + 1:
+				var a := -PI * 0.5 + TAU * (1.0 - left) + TAU * left * k / n
+				pts.append(c + Vector2.from_angle(a) * r)
+			_ci.draw_colored_polygon(pts, Color(0.25, 0.0, 0.03, 0.62))
+		var ring := Color(0.42, 0.36, 0.33).lerp(tone, 0.45 if ready else 0.0)
+		if active:
+			# the guard drains around the rim while it is held
+			_ci.draw_arc(c, r + 0.5 * u, -PI * 0.5, -PI * 0.5 + TAU * (1.0 - p.guard_t / Hero.GUARD_MAX), 24, tone, maxf(1.5, 2.2 * u), true)
+		else:
+			_ci.draw_arc(c, r + 0.5 * u, 0.0, TAU, 24, ring, maxf(1.0, 1.3 * u), true)
+		var fl: float = _cd_flash[id]
+		if fl > 0.0:
+			_ci.draw_circle(c, r * (1.0 + (0.35 - fl) * 2.0), Color(1.0, 0.9, 0.6, fl * 1.4), false, maxf(1.0, 1.5 * u), true)
+		# skill seals (Blade Storm, Juggernaut) fire on their own and have no key
+		var ks: String = game.ctl.label(id, game.mouse_names()) if id in ["dash", "block", "swap"] else ""
+		var kfs := int(9 * u)
+		_text(Vector2(x - _width(ks, kfs, bold) * 0.5, y + r + 11 * u), ks, kfs, Color(0.6, 0.56, 0.5, 0.9), bold)
+		x += maxf(30.0 * u, _width(ks, kfs, bold) + 12 * u)
+
+
+## Small picture on a cooldown seal, [k] across, centred on [c].
+func _seal_icon(id: String, c: Vector2, k: float, col: Color) -> void:
+	var w := maxf(1.0, 1.6 * u)
+	match id:
+		"dash":
+			for dx in [-0.45, 0.25]:
+				_ci.draw_polyline(PackedVector2Array([c + Vector2(dx - 0.35, -0.6) * k, c + Vector2(dx + 0.25, 0) * k,
+					c + Vector2(dx - 0.35, 0.6) * k]), col, w, true)
+		"block":
+			var sh := PackedVector2Array([c + Vector2(-0.7, -0.75) * k, c + Vector2(0.7, -0.75) * k, c + Vector2(0.62, 0.15) * k,
+				c + Vector2(0, 0.9) * k, c + Vector2(-0.62, 0.15) * k])
+			_ci.draw_colored_polygon(sh, Color(col.r, col.g, col.b, 0.35))
+			sh.append(sh[0])
+			_ci.draw_polyline(sh, col, w, true)
+			_ci.draw_line(c + Vector2(0, -0.5) * k, c + Vector2(0, 0.55) * k, col, w)
+		"swap":
+			_ci.draw_line(c + Vector2(-0.75, -0.3) * k, c + Vector2(0.65, -0.3) * k, col, w)
+			_ci.draw_polyline(PackedVector2Array([c + Vector2(0.3, -0.65) * k, c + Vector2(0.75, -0.3) * k, c + Vector2(0.3, 0.05) * k]),
+				col, w, true)
+			_ci.draw_line(c + Vector2(0.75, 0.35) * k, c + Vector2(-0.65, 0.35) * k, col, w)
+			_ci.draw_polyline(PackedVector2Array([c + Vector2(-0.3, 0.0) * k, c + Vector2(-0.75, 0.35) * k, c + Vector2(-0.3, 0.7) * k]),
+				col, w, true)
+		"storm":
+			for a in [0.0, TAU / 3.0, TAU * 2.0 / 3.0]:
+				var d := Vector2.from_angle(a - PI * 0.5)
+				_ci.draw_colored_polygon(PackedVector2Array([c + d * 0.9 * k, c + d.orthogonal() * 0.22 * k, c - d.orthogonal() * 0.22 * k]), col)
+		"wave":
+			var pts := PackedVector2Array()
+			for q in 7:
+				pts.append(c + Vector2(-0.8 + q * 0.27, (0.3 if q % 2 == 0 else -0.45)) * k)
+			_ci.draw_polyline(pts, col, w, true)
 
 
 ## The still parts of the status panel, cached in their own canvas item.
@@ -439,16 +533,15 @@ func _draw_status_static() -> void:
 	# equipment, under lancet arches that need room for their points
 	y += 38.0 * u
 	x = 26.0 * u
-	var wd: Dictionary = Items.def(p.weapon)
-	x += _icon(Vector2(x, y), wd.glyph, wd.color, fs) + 4.0 * u
-	var td: Dictionary = Items.def(p.throw)
-	x += _icon(Vector2(x, y), td.glyph, td.color, fs) + 10.0 * u
+	x += _icon(Vector2(x, y), p.weapon, Items.def(p.weapon).color, fs) + 4.0 * u
+	if p.get("weapon2", "") != "":
+		x += _icon(Vector2(x, y), p.weapon2, Items.def(p.weapon2).color.darkened(0.35), fs) + 4.0 * u
+	x += _icon(Vector2(x, y), p.throw, Items.def(p.throw).color, fs) + 10.0 * u
 	for i in Items.charm_slots(p):
 		if i < p.charms.size():
-			var cd: Dictionary = Items.def(p.charms[i])
-			x += _icon(Vector2(x, y), cd.glyph, cd.color, fs) + 4.0 * u
+			x += _icon(Vector2(x, y), p.charms[i], Items.def(p.charms[i]).color, fs) + 4.0 * u
 		else:
-			x += _icon(Vector2(x, y), "·", Color(0.3, 0.32, 0.3), fs) + 4.0 * u
+			x += _icon(Vector2(x, y), "", Color(0.3, 0.32, 0.3), fs) + 4.0 * u
 	_ci = self
 
 
@@ -463,8 +556,9 @@ func _dagger(base: Vector2, c: Color, lit: bool) -> void:
 	_ci.draw_circle(base + Vector2(0, -11.5) * u, 1.1 * u, c.darkened(0.3))
 
 
-## An equipment slot framed like a lancet window, with a small cross on its point.
-func _icon(pos: Vector2, g: String, c: Color, fs: int) -> float:
+## An equipment slot framed like a lancet window, with a small cross on its
+## point and the item's picture inside ("" for an empty slot).
+func _icon(pos: Vector2, id: String, c: Color, fs: int) -> float:
 	var w := fs * 1.6
 	var r := Rect2(pos.x, pos.y - fs * 1.05, w, fs * 1.45)
 	var arch := _arch(r)
@@ -476,8 +570,10 @@ func _icon(pos: Vector2, g: String, c: Color, fs: int) -> float:
 	var apex := Vector2(r.get_center().x, r.position.y - r.size.x * 0.42 * 0.866)
 	_ci.draw_line(apex - Vector2(0, 5 * u), apex + Vector2(0, u), Color(0.42, 0.36, 0.33), maxf(1.0, u))
 	_ci.draw_line(apex - Vector2(2.2 * u, 3.2 * u), apex + Vector2(2.2 * u, -3.2 * u), Color(0.42, 0.36, 0.33), maxf(1.0, u))
-	var gw := _width(g, fs, bold)
-	_text(Vector2(pos.x + (w - gw) * 0.5, pos.y), g, fs, c, bold)
+	if id == "":
+		_ci.draw_circle(r.get_center() + Vector2(0, 2 * u), 1.5 * u, c)
+	else:
+		IconArt.draw(_ci, id, Rect2(r.position.x - 1 * u, r.position.y + 1 * u, w + 2 * u, w + 2 * u), c)
 	return w
 
 

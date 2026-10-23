@@ -41,6 +41,10 @@ const REND_DMG := 1.3
 const STONE_INK := 10.0
 ## Burning foes take this much more damage with Venom Glass.
 const VENOM_DMG := 1.25
+## A parry gives back this much ink; foes right in front reel for PARRY_STUN.
+const PARRY_INK := 15.0
+const PARRY_STUN := 1.0
+const PARRY_REACH := 52.0
 
 
 # ---------------------------------------------------------------- melee
@@ -303,7 +307,9 @@ static func heal_player(g, share: float, pose: bool = true) -> void:
 
 
 ## units is the size of the hit: 1 is a normal blow. Damage grows with depth.
-static func hurt_player(g, units: float, src_x: float, spikes: bool = false) -> void:
+## A raised guard facing [src_x] parries or blocks the blow (Hero.GUARD_MAX),
+## except spikes and anything not [guardable]; [foe] is the attacker, if any.
+static func hurt_player(g, units: float, src_x: float, spikes: bool = false, guardable: bool = true, foe: Dictionary = {}) -> void:
 	var p: Dictionary = g.player
 	if p.dead or p.respawn_t > 0.0:
 		return
@@ -315,6 +321,13 @@ static func hurt_player(g, units: float, src_x: float, spikes: bool = false) -> 
 		if spikes:
 			p.respawn_t = 0.45
 		return
+	var blocked := false
+	if not spikes and guardable and Hero.guards_against(p, src_x):
+		if p.parry_t > 0.0:
+			parry(g, foe)
+			return
+		units *= Hero.CHIP
+		blocked = true
 	var st: Dictionary = p.st
 	var armor: float = st.armor
 	if st.last_stand and p.hp <= p.max_hp * 0.35:
@@ -323,20 +336,30 @@ static func hurt_player(g, units: float, src_x: float, spikes: bool = false) -> 
 	p.hp -= dmg
 	p.calm = 0.0
 	p.regen = 0.0
-	p.inv = 1.1 * p.st.inv_time
-	p.blink = p.inv
-	p.hurt_t = 0.22
 	p.dash_t = 0.0
 	var away := 1.0 if Physics.center(p).x >= src_x else -1.0
-	p.vel = Vector2(away * 190.0, -260.0)
-	g.hitstop = 0.11
-	g.shake_add(8.0)
-	g.hurt_flash = 1.0
-	g.sfx("hurt")
-	burst(g, Physics.center(p), ["*", "x", "·", "+"], Color(1.0, 0.35, 0.3), 12, 170.0)
+	if blocked:
+		# the guard holds but breaks: a short slide back and a moment of safety
+		Hero.drop_guard(p)
+		p.inv = 0.5
+		p.vel = Vector2(away * 150.0, p.vel.y)
+		g.hitstop = 0.06
+		g.shake_add(4.0)
+		g.sfx("clink", -2.0, 0.8)
+		burst(g, Physics.center(p) + Vector2(-away * 10.0, -4.0), ["*", "'", "+"], Color(1.0, 0.9, 0.6), 10, 150.0)
+	else:
+		p.inv = 1.1 * p.st.inv_time
+		p.blink = p.inv
+		p.hurt_t = 0.22
+		p.vel = Vector2(away * 190.0, -260.0)
+		g.hitstop = 0.11
+		g.shake_add(8.0)
+		g.hurt_flash = 1.0
+		g.sfx("hurt")
+		burst(g, Physics.center(p), ["*", "x", "·", "+"], Color(1.0, 0.35, 0.3), 12, 170.0)
 	g.popups.append({"pos": Physics.center(p) + Vector2(0, -18), "text": "-%d" % dmg, "color": Color(1.0, 0.35, 0.3), "life": 0.9,
 		"big": false})
-	if st.vengeance and p.hp > 0:
+	if st.vengeance and p.hp > 0 and not blocked:
 		shockwave(g, Physics.center(p), 70.0, st.dmg * st.dmg_mult * 1.5, Color(1.0, 0.4, 0.3))
 	if p.hp <= 0:
 		p.hp = 0
@@ -356,6 +379,39 @@ static func hurt_player(g, units: float, src_x: float, spikes: bool = false) -> 
 		p.respawn_t = 0.45
 
 
+## A blow met at the very start of the guard: no damage, ink back, the next
+## melee hit is a sure critical (like Iaido) and every foe right in front
+## reels (a boss staggers for a moment).
+static func parry(g, foe: Dictionary = {}) -> void:
+	var p: Dictionary = g.player
+	Hero.drop_guard(p, Hero.PARRY_COOLDOWN)
+	p.inv = maxf(p.inv, 0.4)
+	p.ink = minf(Hero.MAX_INK, p.ink + PARRY_INK)
+	p.iaido_t = maxf(p.iaido_t, Hero.IAIDO_TIME)
+	var c := Physics.center(p)
+	for e in g.enemies:
+		var d: Vector2 = Physics.center(e) - c
+		if e != foe and (absf(d.x) > PARRY_REACH + e.size.x * 0.5 or absf(d.y) > 40.0 or signf(d.x) != p.facing):
+			continue
+		e.flash = 0.12
+		if e.boss:
+			e.stagger = maxf(e.get("stagger", 0.0), 0.5)
+		else:
+			e.stun = maxf(e.stun, PARRY_STUN)
+			e.vel.x = p.facing * 220.0
+	g.hitstop = maxf(g.hitstop, 0.12)
+	g.slowmo = minf(g.slowmo, 0.55)
+	g.shake_add(5.0)
+	g.sfx("clink", 0.0, 1.5)
+	g.sfx("bell", -8.0, 1.8)
+	var at := c + Vector2(p.facing * 10.0, -4.0)
+	for i in 12:
+		var a := (i - 5.5) * 0.22 + (0.0 if p.facing > 0 else PI)
+		g.particles.append({"p": at, "v": Vector2(cos(a), sin(a)) * 230.0, "g": "'" if i % 2 == 0 else "*",
+			"c": Color(1.0, 0.92, 0.6), "life": 0.3, "max": 0.3, "grav": 0.0, "drag": 6.0, "s": 1.0})
+	g.popups.append({"pos": c + Vector2(0, -22), "text": g.L("parry"), "color": Color(1.0, 0.9, 0.55), "life": 0.9, "big": true})
+
+
 static func check_contacts(g) -> void:
 	var p: Dictionary = g.player
 	if p.dead:
@@ -369,7 +425,7 @@ static func check_contacts(g) -> void:
 			if thorns > 0 and e.thorn_t <= 0.0 and p.inv <= 0.0:
 				e.thorn_t = 0.6
 				hurt_enemy(g, e, thorns, Vector2.ZERO)
-			hurt_player(g, 1.5 if e.boss else 1.0, Physics.center(e).x)
+			hurt_player(g, 1.5 if e.boss else 1.0, Physics.center(e).x, false, true, e)
 
 
 # ---------------------------------------------------------------- projectiles and hazards
@@ -611,8 +667,16 @@ static func update_projectiles(g, dt: float) -> void:
 			burst(g, pr.pos, ["·", "*"], col, 5, 80.0)
 			continue
 		if not p.dead and Physics.rect(p).grow(2.0).has_point(pr.pos):
+			# judge the side by where the shot came from, not where it is now
+			var from_x: float = pr.pos.x - signf(pr.vel.x) * 20.0
 			g.projectiles.erase(pr)
-			hurt_player(g, pr.dmg, pr.pos.x)
+			if p.parry_t > 0.0 and Hero.guards_against(p, from_x):
+				# a parried shot flies back at the foes
+				var st: Dictionary = p.st
+				fire(g, pr.pos, -pr.vel * 1.2, "hero", st.dmg * st.dmg_mult, 0.0, pr.kind)
+				parry(g)
+				continue
+			hurt_player(g, pr.dmg, from_x)
 			if pr.kind == "frost":
 				p.chill_t = 1.2
 
@@ -632,7 +696,7 @@ static func update_hazards(g, dt: float) -> void:
 		if hz.t >= hz.warn and hz.t < hz.warn + hz.active:
 			var r := Rect2(hz.x - 10.0, hz.y - 110.0, 20.0, 110.0)
 			if not p.dead and r.intersects(Physics.rect(p)):
-				hurt_player(g, 1, hz.x)
+				hurt_player(g, 1, hz.x, false, false)
 			if g.rng.randf() < 36.0 * dt:
 				g.particles.append({"p": Vector2(hz.x + g.rng.randf_range(-8, 8), hz.y - g.rng.randf_range(0, 100)),
 					"v": Vector2(0, -120), "g": "*", "c": Color(1.0, 0.6, 0.2), "life": 0.4, "max": 0.4,

@@ -16,6 +16,8 @@ const S := preload("res://scripts/sprites.gd")
 const Hud := preload("res://scripts/hud.gd")
 const Skills := preload("res://scripts/skills.gd")
 const SkillTree := preload("res://scripts/skilltree.gd")
+const Inventory := preload("res://scripts/inventory.gd")
+const IconArt := preload("res://scripts/icon_art.gd")
 
 const LOGO := [
 	"  ▄████  ██▓   ▓██   ██▓ ██▓███   ██░ ██  █     █░ ▒█████   ▒█████  ▓█████▄",
@@ -242,7 +244,7 @@ func _build(name: String) -> Array:
 		"sign", "map", "moves":
 			out.append(_btn(game.L("m_ok") if name == "sign" else game.L("m_back"), close))
 		"inventory":
-			out = _inventory_items()
+			out = Inventory.items(self)
 		"shop":
 			out = _shop_items()
 		"sell":
@@ -364,35 +366,6 @@ func _settings_tab() -> Array:
 				game.ctl.reset()
 				game.cfg.set_v("binds", {}), {"small": true, "tip": game.L("tip_reset_binds")}))
 	return out
-
-
-func _inventory_items() -> Array:
-	var p: Dictionary = game.player
-	var out: Array = []
-	out.append({"type": "item", "id": p.weapon, "group": "weapon"})
-	out.append({"type": "item", "id": p.throw, "group": "throw"})
-	for i in Items.charm_slots(p):
-		if i < p.charms.size():
-			out.append({"type": "item", "id": p.charms[i], "group": "charm"})
-		else:
-			out.append({"type": "slot", "group": "charm"})
-	for id in p.bag:
-		out.append({"type": "item", "id": id, "group": "bag"})
-	for it in out:
-		if it.type == "item":
-			it.act = _equip.bind(it.id)
-	return out
-
-
-func _equip(id: String) -> void:
-	var p: Dictionary = game.player
-	if Items.toggle(p, id):
-		Hero.refresh(p)
-		game.sfx("menu_ok")
-	else:
-		game.sfx("error", -6.0)
-		if Items.def(id).slot == "charm":
-			_message(game.L("inv_full"))
 
 
 func _shop_items() -> Array:
@@ -559,6 +532,8 @@ func _handle_mouse(event: InputEventMouse) -> void:
 		return
 	match mb.button_index:
 		MOUSE_BUTTON_LEFT:
+			if top() == "inventory" and i < 0 and Inventory.click(mb.position):
+				return
 			if (top() == "map" or top() == "moves") and i < 0:
 				close()
 			elif i >= 0:
@@ -604,6 +579,12 @@ func _handle_button(event: InputEvent) -> void:
 		close()
 	elif top() == "skills" and sel < items.size() and items[sel].type == "skill" and _dir_pressed(event) != Vector2.ZERO:
 		SkillTree.step(self, _dir_pressed(event))
+	elif top() == "inventory" and _dir_pressed(event) != Vector2.ZERO:
+		SkillTree.step(self, _dir_pressed(event))
+	elif top() == "inventory" and event.is_action_pressed("g_swap") and not echo:
+		Inventory.second(self)
+	elif top() == "inventory" and event.is_action_pressed("g_throw") and not echo:
+		Inventory.reforge(self)
 	elif event.is_action_pressed("g_pause") and not echo:
 		_back()
 	elif event.is_action_pressed("g_up", true):
@@ -814,7 +795,7 @@ func _draw() -> void:
 		"sign":
 			_draw_sign(vp, accent)
 		"inventory":
-			_draw_inventory(vp, accent)
+			Inventory.draw(self, vp, accent)
 		"shop", "sell":
 			_draw_shop(vp, accent)
 		"skills":
@@ -1051,141 +1032,13 @@ func _item_name(id: String) -> String:
 	return game.L("item_" + id)
 
 
-## A framed item picture made of glyphs (sprites.gd ICONS), centred in r.
+## A framed item picture (icon_art.gd), centred in r; an empty frame for "".
 func _draw_icon(r: Rect2, id: String, c: Color, on: bool = false) -> void:
 	draw_rect(r, Color(0, 0, 0, 0.5))
 	draw_rect(Rect2(r.position, Vector2(r.size.x, r.size.y * 0.45)), Color(c.r, c.g, c.b, 0.07 if not on else 0.14))
 	draw_rect(r, Color(c.r, c.g, c.b, 0.55 if on else 0.3), false, maxf(1.0, u))
-	var icon: Dictionary = S.ICONS.get(id, {})
-	if id == "":
-		return
-	if icon.is_empty():
-		var g: String = Items.def(id).get("glyph", "?")
-		var fs0 := int(r.size.y * 0.55)
-		_text(Vector2(r.get_center().x - _w(g, fs0, bold) * 0.5, r.get_center().y + fs0 * 0.35), g, fs0, c, bold)
-		return
-	var rows: Array = icon.g
-	var masks: Array = icon.m
-	var fs := int(r.size.y / (rows.size() + 0.15))
-	var adv := bold.get_char_size("M".unicode_at(0), fs).x
-	var cols := 0
-	for row in rows:
-		cols = maxi(cols, row.length())
-	var x0 := r.get_center().x - cols * adv * 0.5
-	var y0 := r.get_center().y - rows.size() * fs * 0.5 + fs * 0.78
-	for i in rows.size():
-		var row: String = rows[i]
-		for j in row.length():
-			if row[j] == " ":
-				continue
-			var k := int(masks[i][j])
-			var col: Color = c if k == 0 else S.ICON_PAL[k]
-			if k == 3:
-				col = c.lerp(Color(1, 1, 1), 0.6)
-			draw_char(bold, Vector2(x0 + j * adv, y0 + i * fs), row[j], fs, col)
-
-
-func _draw_inventory(vp: Vector2, accent: Color) -> void:
-	var p: Dictionary = game.player
-	var w := minf(vp.x - 40 * u, 1000.0 * u)
-	var h := minf(vp.y - 60 * u, 680.0 * u)
-	var r := Rect2((vp.x - w) * 0.5, (vp.y - h) * 0.5, w, h)
-	_panel(r, accent)
-	_heading(r.position.y + 48 * u, game.L("m_inventory"), int(30 * u))
-	var fs := int(17 * u)
-	# rows shrink when many charm slots are open
-	var avail := h - 90 * u - 150 * u - 80 * u
-	var row_h := minf(54.0 * u, avail / (2 + Items.charm_slots(p)))
-	var lx := r.position.x + 30 * u
-	var cw := w * 0.46
-	var rx := r.position.x + w * 0.52
-	var y := r.position.y + 90 * u
-	_text(Vector2(lx, y), game.L("inv_weapon").to_upper(), int(13 * u), Color(0.6, 0.66, 0.63), bold)
-	_text(Vector2(rx, y), game.L("inv_bag").to_upper(), int(13 * u), Color(0.6, 0.66, 0.63), bold)
-	var ly := y + 10 * u
-	var by := y + 10 * u
-	var charm_header := false
-	var throw_header := false
-	var bag_col := 0
-	for i in items.size():
-		var it: Dictionary = items[i]
-		var rect: Rect2
-		if it.group == "bag":
-			# the bag is a grid of icons
-			var cell := 62.0 * u
-			var per_row := maxi(1, int(cw / cell))
-			rect = Rect2(rx + (bag_col % per_row) * cell, by + int(bag_col / per_row) * cell, cell - 6 * u, cell - 6 * u)
-			bag_col += 1
-		else:
-			if it.group == "throw" and not throw_header:
-				throw_header = true
-				ly += 20 * u
-				_text(Vector2(lx, ly), game.L("inv_throw").to_upper(), int(13 * u), Color(0.6, 0.66, 0.63), bold)
-				ly += 8 * u
-			if it.group == "charm" and not charm_header:
-				charm_header = true
-				ly += 20 * u
-				_text(Vector2(lx, ly), (game.L("inv_charms") + "  %d/%d" % [p.charms.size(), Items.charm_slots(p)]).to_upper(), int(13 * u),
-					Color(0.6, 0.66, 0.63), bold)
-				ly += 8 * u
-			rect = Rect2(lx, ly, cw, row_h)
-			ly += row_h
-		it.rect = rect
-		var on := i == sel
-		if it.group != "bag":
-			draw_rect(rect.grow(-2 * u), Color(1, 1, 1, 0.09 if on else 0.03))
-			if on:
-				draw_rect(rect.grow(-2 * u), Color(1.0, 0.85, 0.5, 0.6), false, maxf(1.0, u))
-				draw_rect(Rect2(rect.position + Vector2(2, 2) * u, Vector2(4 * u, rect.size.y - 4 * u)), Color(0.6, 0.06, 0.08))
-		if it.type == "slot":
-			_draw_icon(Rect2(rect.position + Vector2(6, 5) * u, Vector2(row_h - 10 * u, row_h - 10 * u)), "", Color(0.3, 0.32, 0.3))
-			_text_fit(Vector2(rect.position.x + row_h + 8 * u, rect.position.y + row_h * 0.62), game.L("inv_empty"), fs, cw - row_h - 16 * u,
-				Color(0.4, 0.43, 0.42))
-			continue
-		var d: Dictionary = Items.def(it.id)
-		if it.group == "bag":
-			_draw_icon(rect, it.id, d.color, on)
-			if on:
-				draw_rect(rect.grow(2 * u), Color(1.0, 0.85, 0.5, 0.8), false, maxf(1.0, u * 1.5))
-			continue
-		_draw_icon(Rect2(rect.position + Vector2(6, 5) * u, Vector2(row_h * 1.25, row_h - 10 * u)), it.id, d.color, on)
-		_text_fit(Vector2(rect.position.x + row_h * 1.25 + 16 * u, rect.position.y + row_h * 0.62), _item_name(it.id), fs,
-			cw - row_h * 1.25 - 26 * u, Color(1, 0.96, 0.88) if on else Color(0.8, 0.84, 0.82), bold if on else font)
-	if p.bag.is_empty():
-		_text(Vector2(rx + 4 * u, by + 30 * u), game.L("inv_empty"), fs, Color(0.4, 0.43, 0.42))
-	# details of the selected item
-	var dy := r.end.y - 150 * u
-	draw_line(Vector2(r.position.x + 24 * u, dy - 14 * u), Vector2(r.end.x - 24 * u, dy - 14 * u), Color(1, 1, 1, 0.1), maxf(1.0, u))
-	if sel < items.size() and items[sel].type == "item":
-		var id: String = items[sel].id
-		var d2: Dictionary = Items.def(id)
-		var action := ""
-		if items[sel].group == "bag" and Items.def(id).slot != "charm":
-			action = game.L("inv_equip")
-		elif items[sel].group == "charm":
-			action = game.L("inv_unequip")
-		elif items[sel].group == "bag":
-			action = game.L("inv_equip")
-		var hw := 0.0
-		if action != "":
-			var hint := "[Enter] " + action
-			hw = _w(hint, int(14 * u), bold) + 20 * u
-			_text(Vector2(r.end.x - 30 * u - _w(hint, int(14 * u), bold), dy + 10 * u), hint, int(14 * u), Color(1.0, 0.85, 0.5), bold)
-		_text_fit(Vector2(lx, dy + 10 * u), _item_name(id), int(20 * u), w - 60 * u - hw, d2.color, bold)
-		var dh := _para(Vector2(lx, dy + 38 * u), game.L("item_" + id + "_d"), w - 60 * u, int(15 * u), Color(0.8, 0.84, 0.82))
-		if d2.slot == "weapon":
-			var ws := "%s %d   %s ×%.2f   %s ×%.2f   %s" % [game.L("stat_dmg"), d2.dmg, game.L("stat_speed"), d2.speed, game.L("stat_reach"),
-				d2.reach, game.L("class_" + d2.class)]
-			_text_fit(Vector2(lx, dy + 40 * u + dh), ws, int(14 * u), w - 60 * u, Color(0.65, 0.72, 0.68))
-		elif d2.slot == "throw":
-			var tdmg: float = d2.dmg * p.st.throw_dmg / p.st.throw_base
-			var ts := "%s %d   %s %d" % [game.L("stat_dmg"), int(round(tdmg)), game.L("ink"), int(d2.ink * p.st.ink_cost)]
-			_text_fit(Vector2(lx, dy + 40 * u + dh), ts, int(14 * u), w - 60 * u, Color(0.65, 0.72, 0.68))
-	var st: Dictionary = p.st
-	var summary := "%s    %s %d/%d    %s %d    %s ×%.2f    %s %d%%    ◆ %d" % [
-		game.L("lv") % p.xp_level, game.L("stat_hp"), p.hp, p.max_hp, game.L("stat_dmg"), int(st.dmg * st.dmg_mult),
-		game.L("stat_speed"), st.speed, game.L("stat_crit"), int(st.crit * 100.0), p.shards]
-	_text_fit(Vector2(lx, r.end.y - 30 * u), summary, int(14 * u), w - 60 * u, Color(0.7, 0.76, 0.73))
+	if id != "":
+		IconArt.draw(self, id, r.grow(-2 * u), c)
 
 
 func _draw_shop(vp: Vector2, _accent: Color) -> void:
@@ -1264,6 +1117,8 @@ func _draw_moves(vp: Vector2, accent: Color) -> void:
 		["move_rise", "%s + %s" % [game.key("up"), game.key("attack")]],
 		["move_pogo", "%s + %s" % [game.key("down"), game.key("attack")]],
 		["move_knife", game.key("throw")],
+		["move_block", game.key("block")],
+		["move_swap", game.key("swap")],
 		["move_crit", ""],
 	]
 	# descriptions wrap, so every row is as tall as its text

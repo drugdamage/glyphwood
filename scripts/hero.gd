@@ -24,6 +24,8 @@ const DASH_SPEED := 400.0
 const DASH_TIME := 0.16
 const DASH_COOLDOWN := 0.9
 const ATTACK_TIME := 0.26
+## How long an attack press waits for the current swing to end.
+const ATTACK_BUFFER := 0.15
 const POGO := 370.0
 const MAX_INK := 99.0
 const KNIFE_SPEED := 460.0
@@ -48,16 +50,39 @@ const BASE_CRIT := 0.08
 ## Shortest time between two free throws of Blade Storm and two Juggernaut waves.
 const STORM_COOLDOWN := 2.5
 const WAVE_COOLDOWN := 1.5
+## The swap key trades the weapon in hand for the second one: the new weapon
+## takes SWAP_DRAW seconds to draw (no attacks meanwhile, the combo starts
+## over), and the next swap waits SWAP_COOLDOWN.
+const SWAP_DRAW := 0.25
+const SWAP_COOLDOWN := 1.0
+## Guard (the block key): it lasts at most GUARD_MAX seconds and the hero
+## walks slowly behind it. A hit from the front in the first PARRY_TIME
+## seconds is parried (no damage, the attacker reels); a later one is blocked
+## for CHIP of its damage and breaks the guard. Then GUARD_COOLDOWN passes
+## before the next guard (PARRY_COOLDOWN after a parry).
+const GUARD_MAX := 1.2
+const PARRY_TIME := 0.18
+const CHIP := 0.35
+const GUARD_COOLDOWN := 0.9
+const PARRY_COOLDOWN := 0.35
+const GUARD_RUN := 0.35
 ## Seconds of extra damage after a kill with Dance of Death, and how much.
 const DANCE_TIME := 2.0
 const DANCE_DMG := 1.2
+
+
+## Per-frame countdowns in the hero record (seconds, stopping at zero).
+const TIMERS := ["coyote", "jump_buf", "atk_buf", "leap_t", "wet_t", "drop_t", "wall_lock", "dash_cd", "atk_t", "combo_t", "inv",
+	"blink", "hurt_t", "heal_t", "throw_t", "guard_cd", "swap_cd", "draw_t", "dash_end", "iaido_t", "haste_t", "chill_t", "storm_t",
+	"wave_t", "dance_t"]
 
 
 ## A fresh hero for a new run.
 static func create() -> Dictionary:
 	var p := {
 		"hp": BASE_HP, "base_hp": BASE_HP, "max_hp": BASE_HP, "ink": 0.0, "shards": 0,
-		"weapon": Items.START_WEAPON, "throw": Items.START_THROW, "charms": [], "bag": [], "st": {},
+		"weapon": Items.START_WEAPON, "weapon2": "", "throw": Items.START_THROW, "charms": [], "bag": [], "st": {},
+		"armor": {"head": "", "body": "", "legs": ""}, "armor_up": {},
 		"xp": 0, "xp_level": 1, "up_hp": 0, "up_dmg": 0, "up_spd": 0, "skills": {},
 	}
 	refresh(p)
@@ -88,8 +113,10 @@ static func place(p: Dictionary, foot: Vector2) -> void:
 	p.merge({
 		"pos": foot - Vector2(size.x * 0.5, size.y), "size": size, "vel": Vector2.ZERO,
 		"on_floor": false, "on_wall": 0, "facing": 1,
-		"coyote": 0.0, "jump_buf": 0.0, "leap_t": 0.0, "wet_t": 0.0, "drop_t": 0.0, "wall_lock": 0.0, "sliding": false, "air_jumps": 0,
+		"coyote": 0.0, "jump_buf": 0.0, "atk_buf": 0.0, "leap_t": 0.0, "wet_t": 0.0, "drop_t": 0.0, "wall_lock": 0.0,
+		"sliding": false, "air_jumps": 0,
 		"dash_t": 0.0, "dash_cd": 0.0, "air_dash": true,
+		"guard": false, "guard_t": 0.0, "guard_cd": 0.0, "parry_t": 0.0, "swap_cd": 0.0, "draw_t": 0.0,
 		"atk_t": 0.0, "atk_len": ATTACK_TIME, "atk_kind": "side", "atk_hit": {}, "combo": 0, "combo_t": 0.0,
 		"throw_t": 0.0, "inv": 0.0, "blink": 0.0, "hurt_t": 0.0, "heal_t": 0.0,
 		"respawn_t": 0.0, "safe": foot - Vector2(size.x * 0.5, size.y), "swim": false,
@@ -104,9 +131,7 @@ static func update(g, p: Dictionary, dt: float) -> void:
 	var just: Dictionary = g.ctl.just
 	var st: Dictionary = p.st
 	p.anim += dt
-	for k in ["coyote", "jump_buf", "leap_t", "wet_t", "drop_t", "wall_lock", "dash_cd", "atk_t", "combo_t", "inv", "blink", "hurt_t",
-			"heal_t", "throw_t",
-			"dash_end", "iaido_t", "haste_t", "chill_t", "storm_t", "wave_t", "dance_t"]:
+	for k in TIMERS:
 		p[k] = maxf(0.0, p[k] - dt)
 
 	if p.dead:
@@ -177,6 +202,7 @@ static func update(g, p: Dictionary, dt: float) -> void:
 			p.facing = dirx
 		if p.sliding:
 			p.facing = -p.facing
+		drop_guard(p)
 		p.dash_t = DASH_TIME
 		p.dash_cd = DASH_COOLDOWN * st.dash_cd
 		p.dash_hit = {}
@@ -205,15 +231,29 @@ static func update(g, p: Dictionary, dt: float) -> void:
 		_after_move(g, p)
 		return
 
+	_update_guard(g, p, dt)
+	if just.swap and p.swap_cd <= 0.0 and p.atk_t <= 0.0 and not p.guard and Items.swap_weapons(p):
+		refresh(p)
+		p.swap_cd = SWAP_COOLDOWN
+		p.draw_t = SWAP_DRAW
+		p.combo = 0
+		p.combo_t = 0.0
+		g.sfx("swing", -8.0, 0.6)
+		g.sfx("clink", -12.0, 1.2)
+		g.popups.append({"pos": Physics.center(p) + Vector2(0, -24), "text": g.L("item_" + p.weapon), "color": Items.def(p.weapon).color,
+			"life": 0.8, "big": false})
+
 	# horizontal movement
 	var dirx := int(held.right) - int(held.left)
 	var run_speed: float = RUN * st.run * (0.7 if p.swim else 1.0) * (1.25 if p.haste_t > 0.0 else 1.0) * (0.6 if p.chill_t > 0.0 else 1.0)
+	if p.guard:
+		run_speed *= GUARD_RUN
 	if p.hurt_t > 0.0:
 		p.vel.x = move_toward(p.vel.x, 0.0, 500.0 * dt)
 	elif p.wall_lock <= 0.0:
 		var accel := 1800.0 if p.on_floor else 1150.0
 		p.vel.x = move_toward(p.vel.x, dirx * run_speed, accel * dt)
-		if dirx != 0 and p.atk_t <= 0.0 and p.throw_t <= 0.0:
+		if dirx != 0 and p.atk_t <= 0.0 and p.throw_t <= 0.0 and not p.guard:
 			p.facing = dirx
 
 	if p.on_floor:
@@ -227,6 +267,7 @@ static func update(g, p: Dictionary, dt: float) -> void:
 				g.sfx("step", -14.0, 1.0, 0.2)
 	if just.jump:
 		p.jump_buf = 0.12
+		drop_guard(p)
 	if g.ctl.released.jump and p.vel.y < 0.0 and not p.swim and p.leap_t <= 0.0:
 		p.vel.y *= 0.45
 
@@ -285,8 +326,12 @@ static func update(g, p: Dictionary, dt: float) -> void:
 	if p.sliding and g.rng.randf() < 20.0 * dt:
 		g.burst(Physics.center(p) + Vector2(wall * 7, -6), ["'", "."], g.biome.edge, 1, 20.0)
 
-	# attack
-	if just.attack and p.atk_t <= 0.0:
+	# attack: a press just before a swing ends is kept for the next one, and
+	# holding the button keeps swinging (fast weapons need no frantic clicking)
+	if just.attack:
+		p.atk_buf = ATTACK_BUFFER
+	if (p.atk_buf > 0.0 or held.attack) and p.atk_t <= 0.0 and p.draw_t <= 0.0 and not p.guard:
+		p.atk_buf = 0.0
 		var kind := "side"
 		if g.aiming_with_mouse():
 			var a: Vector2 = g.aim_vector(p)
@@ -312,7 +357,7 @@ static func update(g, p: Dictionary, dt: float) -> void:
 			p.slam = false
 
 	# thrown weapon
-	if just.throw and p.throw_t <= 0.0:
+	if just.throw and p.throw_t <= 0.0 and not p.guard:
 		var cost: float = st.throw_ink * st.ink_cost
 		if p.ink >= cost:
 			p.ink -= cost
@@ -331,6 +376,43 @@ static func update(g, p: Dictionary, dt: float) -> void:
 	p.fall_speed = p.vel.y
 	Physics.move(p, g.lv, dt, p.drop_t > 0.0)
 	_after_move(g, p)
+
+
+## Raises the guard on a press of the block key, keeps it while the key is
+## held (up to GUARD_MAX) and lowers it when let go.
+static func _update_guard(g, p: Dictionary, dt: float) -> void:
+	var ctl = g.ctl
+	if p.guard:
+		p.guard_t += dt
+		p.parry_t = maxf(0.0, p.parry_t - dt)
+		if not ctl.held.block or p.guard_t >= GUARD_MAX or p.hurt_t > 0.0 or p.swim:
+			drop_guard(p)
+		return
+	if ctl.just.block and p.guard_cd <= 0.0 and p.atk_t <= 0.0 and p.hurt_t <= 0.0 and not p.swim:
+		if g.aiming_with_mouse():
+			p.facing = 1 if g.aim_vector(p).x >= 0.0 else -1
+		p.guard = true
+		p.guard_t = 0.0
+		p.parry_t = PARRY_TIME
+		p.slam = false
+		g.sfx("clink", -10.0, 0.7)
+
+
+## Lowers the guard (if up) and starts its cooldown.
+static func drop_guard(p: Dictionary, cooldown: float = GUARD_COOLDOWN) -> void:
+	if not p.guard:
+		return
+	p.guard = false
+	p.parry_t = 0.0
+	p.guard_cd = maxf(p.guard_cd, cooldown)
+
+
+## True when a blow coming from [src_x] meets the raised guard.
+static func guards_against(p: Dictionary, src_x: float) -> bool:
+	if not p.guard:
+		return false
+	var dx := src_x - Physics.center(p).x
+	return absf(dx) < 3.0 or signf(dx) == p.facing
 
 
 static func _start_attack(g, p: Dictionary, kind: String) -> void:
@@ -446,6 +528,19 @@ static func _safe_ground(p: Dictionary, lv) -> bool:
 	return true
 
 
+## The hero's palette dyed by the armour worn: the helmet colours the head,
+## the body piece the torso and arms, the leg piece the legs.
+static func palette(p: Dictionary) -> Array:
+	var pal: Array = S.HERO_PAL.duplicate()
+	var armor: Dictionary = p.get("armor", {})
+	for pair in [["head", 1], ["body", 0], ["legs", 4]]:
+		var id: String = armor.get(pair[0], "")
+		if id != "":
+			var c: Color = Items.def(id).color
+			pal[pair[1]] = c if pair[0] == "head" else c.darkened(0.12 if pair[0] == "body" else 0.3)
+	return pal
+
+
 ## Picks the sprite frame for the current state.
 static func frame(p: Dictionary) -> Dictionary:
 	var hs: Dictionary = S.HERO
@@ -455,6 +550,8 @@ static func frame(p: Dictionary) -> Dictionary:
 		return hs.heal[0]
 	if p.dash_t > 0.0:
 		return hs.dash[0]
+	if p.guard:
+		return hs.throw[0]
 	if p.throw_t > 0.15:
 		return hs.throw[0]
 	if p.lunge_t > 0.0:

@@ -53,7 +53,7 @@ const DIFF := {
 	"nightmare": {"dmg": 2.2, "hp": 2.0, "speed": 1.16, "elite": 0.14, "toll": 1.0, "xp": 1.4, "regen": 0.5},
 }
 const RUN_KEYS := ["hp", "base_hp", "ink", "shards", "weapon", "charms", "bag", "xp", "xp_level", "up_hp", "up_dmg", "throw", "up_spd",
-	"skills"]
+	"skills", "weapon2", "armor", "armor_up"]
 ## Glyph-level fallbacks for Chinese and Japanese text (system fonts).
 const CJK_FONTS := {
 	"zh": ["PingFang SC", "Hiragino Sans GB", "Heiti SC", "Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "Noto Sans SC",
@@ -533,8 +533,8 @@ func _begin_run() -> void:
 	for id in _skills_arg:
 		Skills.learn(player, id)
 	for id in _equip_arg:
-		Items.give(player, id)
-		Items.toggle(player, id)
+		if not Items.give(player, id):
+			Items.toggle(player, id)
 	Hero.refresh(player)
 	player.hp = player.max_hp
 	level_num = _start_level
@@ -757,9 +757,10 @@ func gain_xp(amount: float, at: Vector2) -> void:
 		save_run()
 
 
-## Damage of one normal enemy blow at the current depth.
+## Damage of one normal enemy blow at the current depth (set with armour in
+## mind: a hero who wears none takes a little more).
 func hit_damage() -> float:
-	return 14.0 * (1.0 + 0.1 * D.depth(level_num)) * diff().dmg
+	return 15.5 * (1.0 + 0.1 * D.depth(level_num)) * diff().dmg
 
 
 ## True while the hero is in a fight: a boss or a closed arena, or a foe
@@ -1194,8 +1195,8 @@ func hurt_enemy(e: Dictionary, dmg: float, kdir: Vector2, _melee: bool = false) 
 	Combat.hurt_enemy(self, e, dmg, kdir, false)
 
 
-func hurt_player(dmg: float, src_x: float, spikes: bool = false) -> void:
-	Combat.hurt_player(self, dmg, src_x, spikes)
+func hurt_player(dmg: float, src_x: float, spikes: bool = false, guardable: bool = true) -> void:
+	Combat.hurt_player(self, dmg, src_x, spikes, guardable)
 
 
 func fire(from: Vector2, vel: Vector2, owner: String = "enemy", dmg: float = 1.0, grav: float = 0.0,
