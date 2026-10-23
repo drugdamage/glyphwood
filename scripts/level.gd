@@ -470,12 +470,15 @@ func _arena(r: Dictionary, boss: bool) -> void:
 		for x in range(RW / 2 - 3, RW / 2 + 3):
 			set_t(x0 + x, y0 + D.EDGE_FLOOR - 8, ONEWAY)
 	var gates: Array = []
-	if r.l:
-		for y in range(D.EDGE_FLOOR - D.DOOR_H, D.EDGE_FLOOR):
-			gates.append(Vector2i(x0 + 1, y0 + y))
-	if r.r:
-		for y in range(D.EDGE_FLOOR - D.DOOR_H, D.EDGE_FLOOR):
-			gates.append(Vector2i(x0 + RW - 2, y0 + y))
+	# under an open sky there is no wall above a side opening, so the gate
+	# rises all the way up: nobody leaps over it to rest outside the fight
+	var gate_top: int = 0 if biome.sky and r.gy == 0 else D.EDGE_FLOOR - D.DOOR_H
+	for side in [0, 1]:
+		if (r.l if side == 0 else r.r):
+			for y in range(gate_top, D.EDGE_FLOOR):
+				var gx: int = x0 + (1 if side == 0 else RW - 2)
+				if at(gx, y0 + y) == AIR:
+					gates.append(Vector2i(gx, y0 + y))
 	if r.u >= 0:
 		for x in range(r.u, r.u + D.SHAFT_W):
 			gates.append(Vector2i(x0 + x, y0 + 1))

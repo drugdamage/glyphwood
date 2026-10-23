@@ -359,7 +359,7 @@ func _draw_status_live(p: Dictionary) -> void:
 			if ph > 0.33:
 				var f := (ph - 0.33) * 1.5
 				_ci.draw_circle(Vector2(dx, top + 4 * u + f * f * 22 * u), 1.4 * u, Color(0.55, 0.03, 0.05, 1.0 - f))
-	if p.calm > Hero.REGEN_DELAY and p.hp < p.max_hp and game.boss.is_empty():
+	if p.calm > Hero.REGEN_DELAY and p.hp < p.max_hp:
 		_text(Vector2(hr.end.x + 6 * u, 30.0 * u + 12 * u), "+", int(15 * u), Color(0.62, 0.78, 0.55, 0.45 + 0.35 * sin(t * 5.0)), bold)
 
 

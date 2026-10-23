@@ -33,6 +33,8 @@ enum State { TITLE, PLAY }
 const STEP_MAX := 1.0 / 120.0
 ## Foes outside this many view sizes around the camera are not simulated.
 const SLEEP_MARGIN := 2.2
+## A foe that has seen the hero this close keeps health from coming back.
+const COMBAT_RANGE := Vector2(260, 180)
 
 ## The 0.4.0 single save; moved into the first world slot on start.
 const RUN_PATH := "user://run.cfg"
@@ -760,6 +762,21 @@ func gain_xp(amount: float, at: Vector2) -> void:
 ## Damage of one normal enemy blow at the current depth.
 func hit_damage() -> float:
 	return 14.0 * (1.0 + 0.1 * D.depth(level_num)) * diff().dmg
+
+
+## True while the hero is in a fight: a boss or a closed arena, or a foe
+## that has seen the hero close by. Health does not come back meanwhile.
+func in_combat() -> bool:
+	if not boss.is_empty():
+		return true
+	for ar in lv.arenas:
+		if ar.state == "active":
+			return true
+	var c := Physics.center(player)
+	for e in enemies:
+		if e.aggro and absf(e.pos.x - c.x) < COMBAT_RANGE.x and absf(e.pos.y - c.y) < COMBAT_RANGE.y:
+			return true
+	return false
 
 
 ## Goes through the open exit (the hero chose to: see _step_play).

@@ -27,6 +27,8 @@ const ATTACK_TIME := 0.26
 const POGO := 370.0
 const MAX_INK := 99.0
 const KNIFE_SPEED := 460.0
+## Speed of swimming up while jump (or up) is held.
+const SWIM_UP := 150.0
 ## Seconds after a dash during which Iaido makes the next hit a sure crit.
 const IAIDO_TIME := 0.6
 ## Running speed bought at the merchant (Haste), per purchase.
@@ -86,13 +88,13 @@ static func place(p: Dictionary, foot: Vector2) -> void:
 	p.merge({
 		"pos": foot - Vector2(size.x * 0.5, size.y), "size": size, "vel": Vector2.ZERO,
 		"on_floor": false, "on_wall": 0, "facing": 1,
-		"coyote": 0.0, "jump_buf": 0.0, "drop_t": 0.0, "wall_lock": 0.0, "sliding": false, "air_jumps": 0,
+		"coyote": 0.0, "jump_buf": 0.0, "leap_t": 0.0, "wet_t": 0.0, "drop_t": 0.0, "wall_lock": 0.0, "sliding": false, "air_jumps": 0,
 		"dash_t": 0.0, "dash_cd": 0.0, "air_dash": true,
 		"atk_t": 0.0, "atk_len": ATTACK_TIME, "atk_kind": "side", "atk_hit": {}, "combo": 0, "combo_t": 0.0,
 		"throw_t": 0.0, "inv": 0.0, "blink": 0.0, "hurt_t": 0.0, "heal_t": 0.0,
 		"respawn_t": 0.0, "safe": foot - Vector2(size.x * 0.5, size.y), "swim": false,
 		"anim": 0.0, "dead": false, "was_floor": false, "fall_speed": 0.0, "step_t": 0.0,
-		"calm": 0.0, "regen": 0.0, "dash_end": 0.0, "lunge_t": 0.0, "slam": false, "dash_hit": {}, "iaido_t": 0.0,
+		"calm": 0.0, "fighting": false, "regen": 0.0, "dash_end": 0.0, "lunge_t": 0.0, "slam": false, "dash_hit": {}, "iaido_t": 0.0,
 		"haste_t": 0.0, "toll_n": 0, "chill_t": 0.0, "storm_t": 0.0, "wave_t": 0.0, "dance_t": 0.0,
 	}, true)
 
@@ -102,7 +104,8 @@ static func update(g, p: Dictionary, dt: float) -> void:
 	var just: Dictionary = g.ctl.just
 	var st: Dictionary = p.st
 	p.anim += dt
-	for k in ["coyote", "jump_buf", "drop_t", "wall_lock", "dash_cd", "atk_t", "combo_t", "inv", "blink", "hurt_t", "heal_t", "throw_t",
+	for k in ["coyote", "jump_buf", "leap_t", "wet_t", "drop_t", "wall_lock", "dash_cd", "atk_t", "combo_t", "inv", "blink", "hurt_t",
+			"heal_t", "throw_t",
 			"dash_end", "iaido_t", "haste_t", "chill_t", "storm_t", "wave_t", "dance_t"]:
 		p[k] = maxf(0.0, p[k] - dt)
 
@@ -122,13 +125,20 @@ static func update(g, p: Dictionary, dt: float) -> void:
 
 	var was_swim: bool = p.swim
 	p.swim = Physics.in_water(p, g.lv)
+	if p.swim:
+		# a moment after bobbing out of the water still counts as swimming for a jump
+		p.wet_t = 0.15
 	if p.swim != was_swim and absf(p.vel.y) > 120.0:
 		g.sfx("splash", -6.0)
 		g.burst(Physics.center(p), ["~", "'", "."], g.biome.water, 8, 90.0, -80.0)
 
-	# health comes back out of combat (not during a boss fight, without the Tide Pearl)
+	# health comes back only out of combat: not in a boss fight or a closed
+	# arena, nor with an angry foe close by (the Tide Pearl heals anyway)
 	p.calm += dt
-	if p.calm > REGEN_DELAY and p.hp < p.max_hp and (g.boss.is_empty() or st.boss_regen):
+	p.fighting = g.in_combat()
+	if p.fighting and not st.boss_regen:
+		p.calm = 0.0
+	if p.calm > REGEN_DELAY and p.hp < p.max_hp:
 		p.regen += p.max_hp * REGEN_RATE * st.regen * g.diff().regen * dt
 		if p.regen >= 1.0:
 			var n := int(p.regen)
@@ -217,7 +227,7 @@ static func update(g, p: Dictionary, dt: float) -> void:
 				g.sfx("step", -14.0, 1.0, 0.2)
 	if just.jump:
 		p.jump_buf = 0.12
-	if g.ctl.released.jump and p.vel.y < 0.0 and not p.swim:
+	if g.ctl.released.jump and p.vel.y < 0.0 and not p.swim and p.leap_t <= 0.0:
 		p.vel.y *= 0.45
 
 	var wall := Physics.wall_side(p, g.lv)
@@ -228,8 +238,14 @@ static func update(g, p: Dictionary, dt: float) -> void:
 			p.drop_t = 0.22
 			p.jump_buf = 0.0
 			p.pos.y += 1.0
-		elif p.swim:
-			p.vel.y = -JUMP * 0.62
+		elif p.swim or p.wet_t > 0.0:
+			# at the surface a jump leaps out onto the bank; deeper down it is a stroke
+			if not p.swim or _at_surface(p, g.lv):
+				p.vel.y = -JUMP * 0.95
+				p.leap_t = 0.25
+				g.burst(Physics.center(p), ["~", "'", "."], g.biome.water, 8, 90.0, -80.0)
+			else:
+				p.vel.y = minf(p.vel.y, -JUMP * 0.62)
 			p.jump_buf = 0.0
 			g.sfx("splash", -14.0, 1.4)
 		elif p.coyote > 0.0:
@@ -259,7 +275,9 @@ static func update(g, p: Dictionary, dt: float) -> void:
 			g.burst(Physics.foot(p), ["~", "'", "`"], Color(0.95, 0.95, 0.8), 8, 70.0)
 
 	if p.swim:
-		p.vel.y = move_toward(p.vel.y, 70.0, 900.0 * dt)
+		# holding jump (or up) swims upward; otherwise the hero slowly sinks
+		var rise: bool = held.jump or held.up
+		p.vel.y = move_toward(p.vel.y, -SWIM_UP if rise else 70.0, 900.0 * dt)
 		p.vel.y = minf(p.vel.y + 220.0 * dt, 110.0)
 	else:
 		var grav := GRAVITY * (1.15 if p.vel.y > 0.0 else 1.0)
@@ -396,6 +414,13 @@ static func hitbox(p: Dictionary) -> Rect2:
 	# a sweeping weapon (the scythe) also reaches a little behind the hero
 	var back := wdt * 0.45 if p.st.sweep else 0.0
 	return Rect2(c.x + (2.0 - back if p.facing > 0 else -2.0 - wdt), p.pos.y - 2, wdt + back, 30)
+
+
+## True when the hero's head is out of the water (or about to break the surface).
+static func _at_surface(p: Dictionary, lv) -> bool:
+	var T := D.TILE
+	var tx := int(floor((p.pos.x + p.size.x * 0.5) / T))
+	return lv.at(tx, int(floor((p.pos.y - 4.0) / T))) != Level.WATER
 
 
 static func _on_oneway(p: Dictionary, lv) -> bool:
