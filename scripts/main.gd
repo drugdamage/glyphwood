@@ -47,6 +47,8 @@ const RUN_PATH := "user://run.cfg"
 ## Each world (a hero with its own seed and difficulty) lives in its own slot.
 const WORLD_PATH := "user://world_%d.cfg"
 const MAX_WORLDS := 5
+## The smallest window the game can be shrunk to.
+const MIN_WINDOW := Vector2i(960, 600)
 ## Bumped when the saved hero changes shape; older saves are not continued.
 const RUN_VERSION := 2
 const DIFFICULTIES := ["easy", "normal", "hard", "nightmare"]
@@ -153,6 +155,13 @@ var _shot_path := ""
 var _fitted := Vector2i.ZERO
 var _shot_time := 1.0
 var _bot := false
+## --browse=keys: arrow presses (u d l r, e for Enter) played into the open
+## menu one every BROWSE_STEP seconds, for recordings.
+var _browse := ""
+var _browse_t := 0.0
+var _browse_i := 0
+const BROWSE_STEP := 0.45
+const BROWSE_KEYS := {"u": KEY_UP, "d": KEY_DOWN, "l": KEY_LEFT, "r": KEY_RIGHT, "e": KEY_ENTER}
 var god := false
 var _bot_t := 0.0
 var _start_level := 1
@@ -195,6 +204,12 @@ func _process(delta: float) -> void:
 	if state == State.PLAY and not player.is_empty():
 		SpriteCache.warm(player.belt)
 	_step_frame(delta)
+	if _browse != "" and menu.active():
+		_browse_t += delta
+		if _browse_t >= BROWSE_STEP:
+			_browse_t = 0.0
+			_press_key(BROWSE_KEYS.get(_browse[_browse_i % _browse.length()], KEY_DOWN))
+			_browse_i += 1
 	_dts.append(delta)
 	if delta > 0.03 and _shot_path != "":
 		print("slow frame %.0fms at %.2fs" % [delta * 1000.0, Time.get_ticks_msec() / 1000.0])
@@ -207,6 +222,15 @@ func _process(delta: float) -> void:
 			RenderingServer.viewport_get_measured_render_time_cpu(vp_rid), RenderingServer.viewport_get_measured_render_time_gpu(vp_rid)])
 		if _bench.size() > 600:
 			_bench.pop_front()
+
+
+func _press_key(code: Key) -> void:
+	for down in [true, false]:
+		var e := InputEventKey.new()
+		e.keycode = code
+		e.physical_keycode = code
+		e.pressed = down
+		Input.parse_input_event(e)
 
 
 func _ready() -> void:
@@ -276,6 +300,8 @@ func _ready() -> void:
 	# pictures drawn small and blown up (the hero in the inventory, the map) keep hard pixels
 	get_viewport().canvas_item_default_texture_filter = Viewport.DEFAULT_CANVAS_ITEM_TEXTURE_FILTER_NEAREST
 	get_tree().root.focus_entered.connect(_on_focus_gained)
+	# smaller windows squeeze the inventory and the skill tree
+	get_window().min_size = MIN_WINDOW
 	get_tree().root.focus_exited.connect(_on_focus_lost)
 
 	if autostart:
@@ -283,7 +309,7 @@ func _ready() -> void:
 	else:
 		show_title()
 	if _menu_arg != "":
-		if _menu_arg in ["shop", "sell"]:
+		if _menu_arg in ["shop", "sell", "inventory"]:
 			shop_prop = {"stock": ["glyph_saber", "bell_halberd", "phantom_step", "lucky_coin", "iron_sallet"]}
 			player.shards = 900
 			for id in ["night_katana", "fang", "moon_lens", "inkwell", "bile_flask", "stone_skin", "black_candle", "wraith_lantern",
@@ -319,6 +345,8 @@ func _parse_cmdline() -> bool:
 			_skills_arg = a.substr(9).split(",")
 		elif a.begins_with("--equip="):
 			_equip_arg = a.substr(8).split(",")
+		elif a.begins_with("--browse="):
+			_browse = a.substr(9)
 		elif a == "--bot":
 			_bot = true
 		elif a == "--god":

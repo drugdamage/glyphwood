@@ -376,7 +376,7 @@ func _settings_tab() -> Array:
 			out.append(_toggle("s_lighting", "lighting"))
 			out.append(_toggle("s_glow", "glow"))
 			out.append(_toggle("s_vignette", "vignette"))
-			out.append(_slider("s_ui_scale", "ui_scale", 0.5, 1.5, 0.01))
+			out.append(_slider("s_ui_scale", "ui_scale", 0.5, Hud.MAX_UI_SCALE, 0.01))
 			out.append(_toggle("s_show_fps", "show_fps"))
 		2:
 			out.append(_slider("s_master", "vol_master", 0.0, 1.0, 0.01))
@@ -874,10 +874,12 @@ func _draw() -> void:
 		"sign":
 			_draw_sign(vp, accent)
 		"inventory":
+			_fit_unit(vp, 840.0, 480.0)
 			Inventory.draw(self, vp, accent)
 		"shop", "sell":
 			_draw_shop(vp, accent)
 		"skills":
+			_fit_unit(vp, 720.0, 640.0)
 			SkillTree.draw(self, vp, accent)
 		"map":
 			_draw_map(vp, accent)
@@ -1036,7 +1038,15 @@ func _draw_tabs(it: Dictionary, r: Rect2, size: int, on: bool) -> void:
 			c, bold if cur else font)
 
 
+## Lowers the interface unit for this frame so that a panel [w] by [h] units
+## big (margins included) fits the screen: a big interface scale in a small
+## window shrinks the large windows instead of cutting them off.
+func _fit_unit(vp: Vector2, w: float, h: float) -> void:
+	u = minf(u, minf(vp.x / w, vp.y / h))
+
+
 func _draw_list(vp: Vector2, title: String, accent: Color, width: float, sub: String = "") -> void:
+	_fit_unit(vp, width + 40.0, 200.0 + items.size() * 40.0 + (60.0 if sub != "" else 0.0))
 	var w := minf(vp.x - 40 * u, width * u)
 	var row_h := 40.0 * u
 	var fs := int(14 * u)
@@ -1359,10 +1369,6 @@ func _draw_map_content() -> void:
 
 
 func _draw_moves(vp: Vector2, accent: Color) -> void:
-	# wider and tighter on short screens, so it all fits above the key hints
-	var tight := vp.y / u < 700.0
-	var w := minf(vp.x - 40 * u, (940.0 if tight else 760.0) * u)
-	var gap := (28.0 if tight else 34.0) * u
 	var moves := [
 		["move_triple", "%s %s %s" % [game.key("attack"), game.key("attack"), game.key("attack")]],
 		["move_lunge", "%s → %s" % [game.key("dash"), game.key("attack")]],
@@ -1374,12 +1380,26 @@ func _draw_moves(vp: Vector2, accent: Color) -> void:
 			game.key("slot3")]],
 		["move_crit", ""],
 	]
-	# descriptions wrap, so every row is as tall as its text
-	var dw := w - 72 * u
-	var ds := int(14 * u)
-	var h := (130.0 if tight else 160.0) * u
-	for m in moves:
-		h += gap + _para_h(game.L(m[0] + "_d"), dw, ds)
+	# wider and tighter on short screens; descriptions wrap, so every row is
+	# as tall as its text, and if it still doesn't fit the whole page shrinks
+	var tight := false
+	var w := 0.0
+	var gap := 0.0
+	var dw := 0.0
+	var ds := 0
+	var h := 0.0
+	for _pass in 3:
+		tight = vp.y / u < 700.0
+		w = minf(vp.x - 40 * u, (940.0 if tight else 760.0) * u)
+		gap = (28.0 if tight else 34.0) * u
+		dw = w - 72 * u
+		ds = int(14 * u)
+		h = (130.0 if tight else 160.0) * u
+		for m in moves:
+			h += gap + _para_h(game.L(m[0] + "_d"), dw, ds)
+		if h <= vp.y - 52 * u:
+			break
+		u *= (vp.y - 52 * u) / h * 0.97
 	var r := Rect2((vp.x - w) * 0.5, maxf(6 * u, (vp.y - 40 * u - h) * 0.5), w, h)
 	_panel(r, accent)
 	_heading(r.position.y + 48 * u, game.L("m_moves"), int(30 * u))
@@ -1405,12 +1425,13 @@ func _world_line(w: Dictionary) -> String:
 
 
 func _draw_worlds(vp: Vector2, accent: Color) -> void:
-	var w := minf(vp.x - 40 * u, 700.0 * u)
-	var row_h := 62.0 * u
 	var n := 0
 	for it in items:
 		if it.type == "world":
 			n += 1
+	_fit_unit(vp, 740.0, 180.0 + n * 62.0 + (items.size() - n) * 40.0)
+	var w := minf(vp.x - 40 * u, 700.0 * u)
+	var row_h := 62.0 * u
 	var h := 120.0 * u + n * row_h + (items.size() - n) * 40.0 * u
 	var r := Rect2((vp.x - w) * 0.5, maxf(16 * u, (vp.y - 40 * u - h) * 0.5), w, h)
 	_panel(r, accent)

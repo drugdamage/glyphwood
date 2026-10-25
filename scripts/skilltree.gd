@@ -76,10 +76,10 @@ static func draw(m, vp: Vector2, accent: Color) -> void:
 	var pt_text: String = g.L("sk_points") % pts
 	var pc := Color(1.0, 0.85, 0.4) if pts > 0 else Color(0.55, 0.58, 0.56)
 	m._text(Vector2(r.end.x - 30 * u - m._w(pt_text, int(16 * u), m.bold), r.position.y + 46 * u), pt_text, int(16 * u), pc, m.bold)
-	var details_h := 118.0 * u
-	var core := Rect2(r.get_center().x - 230 * u, r.end.y - details_h - 128 * u, 460 * u, 104 * u)
-	var top_y := r.position.y + 110 * u
-	var tier_h := (core.position.y - 40 * u - top_y) / (Skills.TIERS - 1)
+	var details_h := 100.0 * u
+	var core := Rect2(r.get_center().x - 230 * u, r.end.y - details_h - 100 * u, 460 * u, 88 * u)
+	var top_y := r.position.y + 100 * u
+	var tier_h := (core.position.y - 28 * u - top_y) / (Skills.TIERS - 1)
 	var col_w := w / 3.0
 	var nr := minf(22.0 * u, tier_h * 0.3)
 	# where each node sits
@@ -89,7 +89,7 @@ static func draw(m, vp: Vector2, accent: Color) -> void:
 		var cx := r.position.x + col_w * (bi + 0.5)
 		for tier in range(1, Skills.TIERS + 1):
 			var ids := Skills.tier_nodes(b, tier)
-			var y := core.position.y - 40 * u - (tier - 1) * tier_h
+			var y := core.position.y - 28 * u - (tier - 1) * tier_h
 			for k in ids.size():
 				var dx := 0.0 if ids.size() == 1 else (k - 0.5) * minf(col_w * 0.46, 120 * u)
 				pos[ids[k]] = Vector2(cx + dx, y)

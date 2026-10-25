@@ -19,6 +19,8 @@ const MIN_TEXT := 9
 ## The smallest UI unit: below it the smallest labels would hit MIN_TEXT and
 ## outgrow the boxes laid out for them.
 const MIN_UNIT := 0.62
+## Above this the big windows (inventory, skill tree) no longer fit a small screen.
+const MAX_UI_SCALE := 1.25
 ## Height of the cooldown seals' centres in UI units, under the weapon belt.
 const SEALS_Y := 178.0
 ## Height of the screen in UI units.
@@ -180,7 +182,7 @@ func _draw_hud() -> void:
 ## tall, so the HUD and menus take the same share of it in a window and in
 ## full screen, whatever the size of the picture's pixels.
 static func scale_for(vp: Vector2, g) -> float:
-	return maxf(vp.y / UI_ROWS * float(g.cfg.get_v("ui_scale")), MIN_UNIT)
+	return maxf(vp.y / UI_ROWS * minf(float(g.cfg.get_v("ui_scale")), MAX_UI_SCALE), MIN_UNIT)
 
 
 func _text(pos: Vector2, text: String, size: int, color: Color, f: Font = null) -> float:

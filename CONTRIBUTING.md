@@ -49,6 +49,7 @@ godot --path . -- --play --bot --seed=42 --level=2 --time=10 --shot=out.png
 | `--shot=file.png` | Save a screenshot after `--time` seconds, print frame timings per section, then quit |
 | `--time=S` | Delay for `--shot` (default 1 s) |
 | `--record=dir` | Save every third frame as PNG into `dir` |
+| `--browse=keys` | Press arrow keys (`u d l r`, `e` for Enter) into the open menu, one every 0.45 s |
 | `--nopost` | Disable the post-processing shader |
 | `--uiscale=X` | Interface size for this run, e.g. `1.3` |
 | `--uicheck[=X]` | Open every menu in every language (at interface size X) and print text that leaves its panel or the window, then quit |

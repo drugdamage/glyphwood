@@ -7,7 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.12.0] - 2026-10-25
+## [0.12.1] - 2026-10-25
+
+### Changed
+
+- The app icon is the G of the title logo, drawn the same way, and sits on
+  a tile with the usual margin so it is no bigger than other icons.
+- Interface size goes up to 125 % (was 150 %), and the window can't be made
+  smaller than 960 × 600.
+- A short README; the gameplay GIF now shows several biomes, the inventory,
+  the skill tree, buying in the shop and a boss fight.
+
+### Fixed
+
+- With a big interface in a small window the inventory, the skill tree,
+  the pause menu, the world list and the moves page were cut off or
+  squeezed; they now shrink to fit the screen. The skill tree gives its
+  tiers more room.
 
 ### Changed
 
@@ -658,7 +674,8 @@ First public release.
 - Bundled DejaVu Sans Mono font, used in the Web build (where system fonts are
   unavailable) and as a fallback for glyphs missing from the system font.
 
-[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.12.1...HEAD
+[0.12.1]: https://github.com/drugdamage/glyphwood/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/drugdamage/glyphwood/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/drugdamage/glyphwood/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/drugdamage/glyphwood/compare/v0.10.0...v0.11.0
