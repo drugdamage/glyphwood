@@ -7,6 +7,175 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-25
+
+### Changed
+
+- **Glyphwood is now drawn in pixels.** The text picture is gone: the whole
+  game is small, grimy pixels in the spirit of White Knuckle, from the world
+  to the HUD, the inventory and every menu. The game is drawn at a low
+  resolution and blown up without smoothing, then graded dark (bruised violet
+  in the shade, a sickly warm in the light), cut to a few colours with an
+  ordered dither and roughened by a faint grain. It runs faster than the text
+  picture did (about 500 frames a second instead of 300–400 on the same Mac
+  with V-Sync off).
+  - The hero, every foe and every boss are hand-drawn pixel sprites with a
+    dark outline: a horned knight in blackened steel and a tattered crimson
+    cloak, a corpse rat with its spine through the skin, a ghoul, skeletons
+    with shields and bows, a black knight, a penitent with a scourge of
+    hooks, the Gravemaw's ribs and skull, the Wraith's hood, the Colossus's
+    molten core and the rest. Foes die in a burst of their own pixels.
+  - Rock, brick, ledges, spikes and back walls are pixel textures; lanterns,
+    chests, the merchant, lore stones, the exit arch, torches, graves,
+    candles, pews, reeds and the other decorations are small pixel pictures;
+    chains, vines, roots, banners, webs, icicles, grass, water, lava and
+    gates are drawn pixel by pixel.
+  - The backdrop is pixel shapes: a mountain ridge with ruined chapels, bare
+    crooked trees, cave teeth, lava falls, and pillars with hanging chains.
+  - Every weapon has pixel art of its own, held in a fist at the end of an
+    arm that swings with every cut, and its icon is the same picture: a
+    notched rusty sword, a curved saber with glowing glyphs, a black
+    greatsword with a red vein, a spear with a hollow leaf head, a black
+    flamberge with a molten edge, a tombstone on a haft, a curved spider
+    fang, a katana with a red edge, a cross-hilted sword with prayer beads, a
+    blade of ice with icicles, a long blade with a blood-red fuller and
+    quillons swept like a bat's wings, a bone scythe
+    with a skull, a halberd with a bronze bell and a headsman's axe with a
+    cross cut through it. They turn in steps of their own pixels, so they
+    stay crisp at every angle; heavy weapons are held upright before the body
+    instead of over the face, swords point forward and down, and a weapon at
+    rest stays still instead of flicking up and down as the hero walks.
+  - Armour changes the hero's shape, not only its colour: the Pilgrim's Hood
+    is a pointed cowl with the face in shadow, the Iron Sallet is now the
+    **Iron Helm**, a pointed helm with a nasal bar, the Plague Mask a beaked
+    mask under a dark hood; the Gambeson is quilted, the Chain Hauberk is
+    mail under a crimson surcoat and the Cathedral Plate a ridged
+    breastplate with faulds. Without a helmet the hero wears a lower,
+    rounder horned helm.
+  - Every item picture is pixel art: helmets and body armour as they are
+    worn, boots, thrown weapons, every charm and the merchant's services.
+  - Blocking raises a crimson heater shield with a pale bend across it; its
+    rim burns gold while a blow would still be parried.
+  - The guide dagger is drawn in pixels too.
+  - Sword swings are crescents of short pixel strokes along the arc, thin
+    and faint at the tail, thick and bright at the head, like the glyphs of
+    the text picture; thrown weapons, bolts, fire pillars, warnings, foes'
+    health bars, the scarf and every spark and shard are pixels too.
+  - Text in the HUD and menus is crisp, without smoothing, and never smaller
+    than a readable size; the FPS counter is larger and brighter. On small
+    windows the HUD no longer squeezes its text into boxes too small for it
+    (numbers stay inside the health blade and rows no longer overlap).
+  - Pixels are always fine and every one is the same size: each pixel of the
+    art covers the same whole number of screen pixels, chosen from the
+    window and the camera setting, so there is no pixel size setting (and no
+    Picture or Scanlines either). The HUD and menus take the same share of
+    the screen in a window as in full screen, and the crosshair and the
+    guide dagger are smaller.
+  - **A living title screen.** The GLYPHWOOD logo is drawn in square pixels
+    of blood red instead of text blocks, with a wet sheen along the tops of
+    its letters; it swells with a slow heartbeat and blood drips from the
+    ends of its runs. The tagline and the line of best results are gone;
+    Continue no longer names the world, and Worlds shows how many there are
+    when there is more than one.
+  - The world list says plainly what it counts: "Depth 15 · Hero level 20 ·
+    Played 1 h 28 min" (it was "Level 15 · Hero LV 20 · 1:28"). The level
+    of the descent is called **Depth** everywhere, so it is no longer
+    mixed up with the hero's level.
+  - A new app icon: a blood red pixel G dripping onto a dark tile.
+- **Bigger, crueller bosses.** Every boss is two to three times the hero's
+  height and drawn anew without a single box head: the Gravemaw is a beast
+  with bone spikes along its spine and a horned skull with its jaw hanging
+  open; the Wraith grins from a hooked hood and reaches with bone claws; the
+  Colossus is a hunched brute of slag with crags on its back, great horns
+  and a jaw of lava; the Hangman wears a tall bent hood with burning
+  eyeholes, skulls on his belt and a bloody axe; the Drowned Abbess weeps
+  black water under a torn veil with a cross hung upside down; the Frost
+  King is a lich with a jagged crown of ice. Their bodies are as big as
+  their pictures. The maw totem is now a swollen pod of flesh on roots with
+  a toothed maw and a cluster of red eyes, and the black knight wears a
+  pointed hounskull helm.
+- **Darker and crueller.** Less ambient light in every biome, a heavier
+  vignette, and glow only on truly bright things. Struck foes bleed (bone,
+  stone and spirits shed dust instead). The blood moon is bigger, banded like
+  dried blood, with a skull in its craters; a great slit eye now peers out of
+  the eclipse shadow, half shut, following you, and crows circle it.
+- **A weapon belt.** The second weapon on the back is now a belt of three:
+  keys 1, 2 and 3 take a weapon in hand (rebindable in Settings → Controls),
+  on a gamepad L3 takes the next one, and changing waits 0.6 s instead of a
+  second. In the inventory the belt sits beside the hero; a weapon in the
+  bag or on the belt goes into a slot with the same keys. Saved runs move
+  their second weapon onto the belt.
+- **No more endless swinging.** Holding attack no longer keeps swinging by
+  itself (it did since 0.11.0); every cut takes its own press again, and a
+  press just before a swing ends is still kept. After the third cut of Triple
+  Cut there is a short pause (shorter with faster weapons) before the next
+  swing, so mashing can't chain combos without a break either.
+- Armour sits in riveted iron plates with cut corners, charms in round
+  medallions.
+- **Settings.**
+  - One key per action instead of two. Settings → Controls switches between
+    the keyboard and mouse and the gamepad, where every button can be
+    rebound (moving stays on the left stick and the d-pad). The arrow keys
+    always work in menus. New defaults: attack on the left mouse button,
+    block on the right, dash on Shift, thrown weapon on F. Saved bindings
+    keep the first key of each action.
+  - The settings window is compact: the rows of a tab that don't fit scroll
+    (mouse wheel, touchpad or the keys), and explanations show only as a
+    tooltip when the mouse rests on an option, with no notes under the list.
+  - **Reset settings**, small in the window's bottom left corner, puts
+    every setting and binding back (not the language) after a second press; the old reset of keys only and
+    "Show tutorial hints again" are gone: turning **Show hints** back on shows
+    all of them again.
+  - "Mute in background" is now **Sound when the window is inactive**.
+  - Interface size runs from 50 % to 150 % (was 80–130 %).
+- **HUD.** It shows only the weapon belt, in square slots with the keys
+  1 2 3 under them; the thrown weapon and the charms are in the inventory.
+  Weapon pictures are made to fill their slot, so none sticks out and a
+  halberd is as big as a dagger. The level, ink and cooldown rows have more room between them
+  and the keys under the cooldown seals are set further down.
+- **A plainer inventory.** The hero stands on the left with the level,
+  health, damage and armour under it; beside it are rows of slots without
+  captions (head, body and legs; the three belt slots and, a little apart,
+  the thrown weapon; the charms) and on the right the bag, which scrolls.
+  What an item is and does shows in a box when the cursor is over it (or it
+  is selected with the keys). Items can be dragged with the mouse onto a
+  slot or into the bag, and a weapon taken from the bag goes into an empty
+  belt slot instead of replacing the one in hand. Anything worn can be taken
+  off without something to put on instead: the thrown weapon too, and the
+  weapon in hand when another is on the belt (the hand takes that one).
+  Armour shows how much it protects as "Armour +8%", like the hero's total.
+- **Reforging is now Reinforcing**, and says what it gives: the hint on a
+  piece of armour reads e.g. "F reinforce: armour +2%, health +4 ◆ 120".
+- **The merchant.** A list that doesn't fit scrolls with the mouse wheel or
+  the touchpad instead of running off the screen; weapons and armour show
+  their numbers (damage, attack speed, reach; armour, health) instead of
+  their lore; Sell and Leave are buttons along the bottom; "Sold" and other
+  messages take the greeting's place instead of covering the list; every
+  service has a picture.
+- **Menus** no longer list the keys along the bottom, the pause menu no
+  longer shows kills, shards and time, and the skill tree's entry in it no
+  longer counts the free points.
+- **Swimming.** Water slows the hero down and holds it up: it drifts to the
+  surface and floats there, jump (or up) swims up, down dives, and a jump
+  from the surface is only enough to climb onto the bank.
+- **Smoother and cooler.** Weapon pictures for every angle are made ahead of
+  time and kept, and creature pictures are no longer thrown away all at
+  once, which caused short freezes in long runs; in the background the game
+  draws only 15 frames a second.
+- Resizing the window fits the picture again even when the change comes
+  without notice (full screen on macOS), and the view is never wider or
+  taller than the level, so no black bars appear beside it.
+- The Glyph Saber deals 9 damage instead of 11 (it outdid dearer weapons) and
+  the Bell Halberd 19 instead of 17.
+
+### Fixed
+
+- A foe or prop facing left was drawn a whole sprite's width to the right of
+  where it really was, so foes seemed to stand inside walls; and foes wider
+  than a tile no longer appear inside a wall next to them.
+- Attacking with the mouse aimed above the hero no longer throws them into
+  the air: only the up key with attack makes a Rising Crescent.
+
 ## [0.11.1] - 2026-10-23
 
 ### Changed
@@ -489,7 +658,8 @@ First public release.
 - Bundled DejaVu Sans Mono font, used in the Web build (where system fonts are
   unavailable) and as a fallback for glyphs missing from the system font.
 
-[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.11.1...HEAD
+[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/drugdamage/glyphwood/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/drugdamage/glyphwood/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/drugdamage/glyphwood/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/drugdamage/glyphwood/compare/v0.9.0...v0.10.0

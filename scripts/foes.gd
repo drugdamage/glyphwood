@@ -18,6 +18,7 @@ extends RefCounted
 
 const D := preload("res://scripts/data.gd")
 const S := preload("res://scripts/sprites.gd")
+const SpriteCache := preload("res://scripts/sprite_cache.gd")
 const Physics := preload("res://scripts/physics.gd")
 const Boss := preload("res://scripts/boss.gd")
 
@@ -52,7 +53,7 @@ static func create(kind: String, foot: Vector2, level_num: int, rng: RandomNumbe
 
 
 static func frame(e: Dictionary) -> Variant:
-	var def: Dictionary = S.FOES[e.kind]
+	var def: Dictionary = SpriteCache.foe_def(e.kind)
 	var anim := "move"
 	match e.kind:
 		"knight":

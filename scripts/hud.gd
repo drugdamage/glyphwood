@@ -13,7 +13,16 @@ const Physics := preload("res://scripts/physics.gd")
 const IconArt := preload("res://scripts/icon_art.gd")
 
 ## Size of the crosshair relative to the interface size.
-const CROSSHAIR := 0.62
+const CROSSHAIR := 0.45
+## Smallest text size in pixels of the picture: smaller text can't be read.
+const MIN_TEXT := 9
+## The smallest UI unit: below it the smallest labels would hit MIN_TEXT and
+## outgrow the boxes laid out for them.
+const MIN_UNIT := 0.62
+## Height of the cooldown seals' centres in UI units, under the weapon belt.
+const SEALS_Y := 178.0
+## Height of the screen in UI units.
+const UI_ROWS := 587.0
 
 var game
 var font: Font
@@ -154,7 +163,7 @@ func _draw() -> void:
 func _draw_hud() -> void:
 	_ci = self
 	var vp := get_viewport_rect().size
-	u = vp.y / 900.0 * float(game.cfg.get_v("ui_scale"))
+	u = scale_for(vp, game)
 	if game.hurt_flash > 0.0:
 		_ci.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.85, 0.05, 0.05, game.hurt_flash * 0.16))
 	if not game.is_title() and not game.player.is_empty():
@@ -163,12 +172,20 @@ func _draw_hud() -> void:
 		_ci.draw_rect(Rect2(Vector2.ZERO, vp), Color(0, 0, 0, game.fade))
 	if game.cfg.get_v("show_fps") and not game.recording:
 		var fps := "%d FPS" % Engine.get_frames_per_second()
-		_text(Vector2(vp.x - 90 * u, vp.y - 12 * u), fps, int(13 * u), Color(0.6, 0.7, 0.65))
+		var fs := int(14 * u)
+		_text(Vector2(vp.x - _width(fps, fs) - 12 * u, vp.y - 12 * u), fps, fs, Color(0.75, 0.85, 0.8))
+
+
+## The UI unit for a viewport of [vp]: the screen is always UI_ROWS units
+## tall, so the HUD and menus take the same share of it in a window and in
+## full screen, whatever the size of the picture's pixels.
+static func scale_for(vp: Vector2, g) -> float:
+	return maxf(vp.y / UI_ROWS * float(g.cfg.get_v("ui_scale")), MIN_UNIT)
 
 
 func _text(pos: Vector2, text: String, size: int, color: Color, f: Font = null) -> float:
 	var fnt := f if f != null else font
-	size = maxi(size, 4)
+	size = maxi(size, MIN_TEXT)
 	_ci.draw_string(fnt, pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, color)
 	var w := fnt.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
 	if game.ui_check and color.a > 0.05 and not get_viewport_rect().encloses(Rect2(pos.x, pos.y - size * 0.75, w, size * 0.95)):
@@ -177,7 +194,7 @@ func _text(pos: Vector2, text: String, size: int, color: Color, f: Font = null) 
 
 
 func _width(text: String, size: int, f: Font = null) -> float:
-	return (f if f != null else font).get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, maxi(size, 4)).x
+	return (f if f != null else font).get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, maxi(size, MIN_TEXT)).x
 
 
 func _center(y: float, text: String, size: int, color: Color, f: Font = null) -> void:
@@ -344,9 +361,8 @@ func _status_key(p: Dictionary) -> Array:
 	var low: bool = float(p.hp) / p.max_hp <= 0.25
 	var flash: bool = game.ink_flash > 0.0 and int(t * 16.0) % 2 == 0
 	return [get_viewport_rect().size, u, p.hp, p.max_hp, int(_hp_trail), int(p.ink * 18.0 / Hero.MAX_INK), flash, p.xp, p.xp_level,
-		p.shards, p.weapon, p.get("weapon2", ""), p.charms.duplicate(), Items.charm_slots(p), game.lang, game.key("throw"),
-		int(t * 10.0) if low else -1,
-		p.throw, Skills.free_points(p), game.key("skills")]
+		p.shards, p.weapon, p.belt.duplicate(), p.wslot, game.lang, game.key("throw"), game.key("slot1"), game.key("slot2"),
+		game.key("slot3"), int(t * 10.0) if low else -1, Skills.free_points(p), game.key("skills")]
 
 
 ## The parts of the status panel that move every frame: the beating heart,
@@ -376,7 +392,8 @@ func _draw_cooldowns(p: Dictionary) -> void:
 	var st: Dictionary = p.st
 	var seals: Array = [["dash", p.dash_cd, Hero.DASH_COOLDOWN * st.dash_cd],
 		["block", p.guard_cd, Hero.GUARD_COOLDOWN]]
-	if p.get("weapon2", "") != "":
+	# on the keyboard the belt keys under the weapons say it all
+	if Items.belt_count(p) > 1 and game.ctl.device == "pad":
 		seals.append(["swap", p.swap_cd, Hero.SWAP_COOLDOWN])
 	if st.get("blade_storm", false):
 		seals.append(["storm", p.storm_t, Hero.STORM_COOLDOWN])
@@ -384,10 +401,16 @@ func _draw_cooldowns(p: Dictionary) -> void:
 		seals.append(["wave", p.wave_t, Hero.WAVE_COOLDOWN])
 	var dt := get_process_delta_time()
 	var x := 26.0 * u + 11 * u
-	var y := 148.0 * u
+	var y := SEALS_Y * u
 	var r := 10.0 * u
 	for sl in seals:
 		var id: String = sl[0]
+		# skill seals (Blade Storm, Juggernaut) fire on their own and have no key
+		var ks: String = game.ctl.label(id, game.mouse_names()) if id in ["dash", "block", "swap"] else ""
+		var kfs := int(11 * u)
+		var kw := _width(ks, kfs, bold)
+		# a long key name under the first seal must not leave the screen
+		x = maxf(x, kw * 0.5 + 8 * u)
 		var left: float = clampf(sl[1] / maxf(0.01, sl[2]), 0.0, 1.0)
 		if _cd_was.get(id, 0.0) > 0.0 and left <= 0.0:
 			_cd_flash[id] = 0.35
@@ -417,11 +440,8 @@ func _draw_cooldowns(p: Dictionary) -> void:
 		var fl: float = _cd_flash[id]
 		if fl > 0.0:
 			_ci.draw_circle(c, r * (1.0 + (0.35 - fl) * 2.0), Color(1.0, 0.9, 0.6, fl * 1.4), false, maxf(1.0, 1.5 * u), true)
-		# skill seals (Blade Storm, Juggernaut) fire on their own and have no key
-		var ks: String = game.ctl.label(id, game.mouse_names()) if id in ["dash", "block", "swap"] else ""
-		var kfs := int(9 * u)
-		_text(Vector2(x - _width(ks, kfs, bold) * 0.5, y + r + 11 * u), ks, kfs, Color(0.6, 0.56, 0.5, 0.9), bold)
-		x += maxf(30.0 * u, _width(ks, kfs, bold) + 12 * u)
+		_text(Vector2(x - kw * 0.5, y + r + 15 * u), ks, kfs, Color(0.6, 0.56, 0.5, 0.9), bold)
+		x += maxf(34.0 * u, kw + 14 * u)
 
 
 ## Small picture on a cooldown seal, [k] across, centred on [c].
@@ -499,7 +519,7 @@ func _draw_status_static() -> void:
 	_text(Vector2(tx + u, hr.position.y + 13 * u), ht, hs, Color(0, 0, 0, 0.8), bold)
 	_text(Vector2(tx, hr.position.y + 12 * u), ht, hs, Color(0.88, 0.82, 0.72), bold)
 	# level and experience: a thin line of tarnished gold
-	y += 26 * u
+	y += 30 * u
 	var need := Hero.xp_need(p.xp_level)
 	var lvl: String = game.L("lv") % p.xp_level
 	var lw := _text(Vector2(x, y + 9 * u), lvl, int(13 * u), Color(0.82, 0.72, 0.5), bold)
@@ -516,7 +536,7 @@ func _draw_status_static() -> void:
 		# unspent skill points: a small gold mark with the key that opens the tree
 		_text(Vector2(xr.end.x + 18 * u + xw, y + 9 * u), "✦ %d %s" % [pts, game.key("skills")], int(11 * u), Color(1.0, 0.82, 0.4), bold)
 	# ink (for knives), labelled with its key: one slanted blade per sixth of a knife
-	y += 24 * u
+	y += 30 * u
 	var ink_col := Color(0.5, 0.42, 0.78)
 	if game.ink_flash > 0.0 and int(t * 16.0) % 2 == 0:
 		ink_col = Color(0.85, 0.2, 0.2)
@@ -530,18 +550,22 @@ func _draw_status_static() -> void:
 	x += 8.0 * u
 	x += _text(Vector2(x, y), "◆ ", fs, Color(0.85, 0.68, 0.32), bold)
 	_text(Vector2(x, y), str(p.shards), fs, Color(0.88, 0.82, 0.72), bold)
-	# equipment, under lancet arches that need room for their points
-	y += 38.0 * u
+	# the weapon belt: the weapon in hand is lit and underlined, each slot has
+	# its key (the throwing weapon and the charms are in the inventory)
+	y += 42.0 * u
 	x = 26.0 * u
-	x += _icon(Vector2(x, y), p.weapon, Items.def(p.weapon).color, fs) + 4.0 * u
-	if p.get("weapon2", "") != "":
-		x += _icon(Vector2(x, y), p.weapon2, Items.def(p.weapon2).color.darkened(0.35), fs) + 4.0 * u
-	x += _icon(Vector2(x, y), p.throw, Items.def(p.throw).color, fs) + 10.0 * u
-	for i in Items.charm_slots(p):
-		if i < p.charms.size():
-			x += _icon(Vector2(x, y), p.charms[i], Items.def(p.charms[i]).color, fs) + 4.0 * u
-		else:
-			x += _icon(Vector2(x, y), "", Color(0.3, 0.32, 0.3), fs) + 4.0 * u
+	var ks := int(10 * u)
+	for i in Items.BELT_SLOTS:
+		var id: String = p.belt[i]
+		var held: bool = i == p.wslot
+		var col: Color = Items.def(id).color if id != "" else Color(0.3, 0.32, 0.3)
+		var iw := _icon(Vector2(x, y), id, col if held or id == "" else col.darkened(0.45), fs)
+		var key: String = game.ctl.label("slot%d" % (i + 1), game.mouse_names())
+		var kc := Color(1.0, 0.85, 0.5) if held else Color(0.5, 0.5, 0.5)
+		_text(Vector2(x + (iw - _width(key, ks, bold)) * 0.5, y + fs * 0.4 + ks + 6 * u), key, ks, kc, bold)
+		if held:
+			_ci.draw_rect(Rect2(x + 2 * u, y + fs * 0.4 + 2 * u, iw - 4 * u, maxf(1.0, u)), kc)
+		x += iw + 8.0 * u
 	_ci = self
 
 
@@ -556,41 +580,19 @@ func _dagger(base: Vector2, c: Color, lit: bool) -> void:
 	_ci.draw_circle(base + Vector2(0, -11.5) * u, 1.1 * u, c.darkened(0.3))
 
 
-## An equipment slot framed like a lancet window, with a small cross on its
-## point and the item's picture inside ("" for an empty slot).
+## An equipment slot: a dark square with a thin frame and the item's picture
+## inside it ("" for an empty slot), its bottom at [pos].y + 0.4 [fs].
 func _icon(pos: Vector2, id: String, c: Color, fs: int) -> float:
-	var w := fs * 1.6
-	var r := Rect2(pos.x, pos.y - fs * 1.05, w, fs * 1.45)
-	var arch := _arch(r)
-	_ci.draw_colored_polygon(arch, Color(0.02, 0.01, 0.015, 0.75))
-	_ci.draw_colored_polygon(_arch(Rect2(r.position + Vector2(2, 2) * u, r.size - Vector2(4, 4) * u)), Color(c.r, c.g, c.b, 0.07))
-	var edge := arch.duplicate()
-	edge.append(arch[0])
-	_ci.draw_polyline(edge, Color(0.42, 0.36, 0.33).lerp(c, 0.3), maxf(1.0, 1.3 * u), true)
-	var apex := Vector2(r.get_center().x, r.position.y - r.size.x * 0.42 * 0.866)
-	_ci.draw_line(apex - Vector2(0, 5 * u), apex + Vector2(0, u), Color(0.42, 0.36, 0.33), maxf(1.0, u))
-	_ci.draw_line(apex - Vector2(2.2 * u, 3.2 * u), apex + Vector2(2.2 * u, -3.2 * u), Color(0.42, 0.36, 0.33), maxf(1.0, u))
+	var w := roundf(fs * 2.0)
+	var r := Rect2(pos.x, pos.y + fs * 0.4 - w, w, w)
+	_ci.draw_rect(r, Color(0.02, 0.01, 0.015, 0.75))
+	_ci.draw_rect(Rect2(r.position, Vector2(w, w * 0.45)), Color(c.r, c.g, c.b, 0.07))
+	_ci.draw_rect(r, Color(0.42, 0.36, 0.33).lerp(c, 0.3), false, maxf(1.0, u))
 	if id == "":
-		_ci.draw_circle(r.get_center() + Vector2(0, 2 * u), 1.5 * u, c)
+		_ci.draw_circle(r.get_center(), 1.5 * u, c)
 	else:
-		IconArt.draw(_ci, id, Rect2(r.position.x - 1 * u, r.position.y + 1 * u, w + 2 * u, w + 2 * u), c)
+		IconArt.draw(_ci, id, r.grow(-2 * u), c)
 	return w
-
-
-## A pointed (lancet) arch over [r]: straight sides and two arcs, each centred
-## on the opposite side, meeting in a point above the top.
-func _arch(r: Rect2) -> PackedVector2Array:
-	var w := r.size.x
-	var k := 0.42
-	var pts := PackedVector2Array([Vector2(r.position.x, r.end.y)])
-	for i in 7:
-		var a := lerpf(PI, PI * 2.0 / 3.0, i / 6.0)
-		pts.append(Vector2(r.end.x + cos(a) * w, r.position.y - sin(a) * w * k))
-	for i in range(1, 7):
-		var a := lerpf(PI / 3.0, 0.0, i / 6.0)
-		pts.append(Vector2(r.position.x + cos(a) * w, r.position.y - sin(a) * w * k))
-	pts.append(r.end)
-	return pts
 
 
 func _draw_minimap(vp: Vector2) -> void:

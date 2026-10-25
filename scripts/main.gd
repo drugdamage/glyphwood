@@ -19,11 +19,17 @@ const Settings := preload("res://scripts/settings.gd")
 const Controls := preload("res://scripts/controls.gd")
 const Audio := preload("res://scripts/audio.gd")
 const Renderer := preload("res://scripts/renderer.gd")
+const SpriteCache := preload("res://scripts/sprite_cache.gd")
 const Hud := preload("res://scripts/hud.gd")
 const Menu := preload("res://scripts/menu.gd")
 const Skills := preload("res://scripts/skills.gd")
 const T2 := preload("res://scripts/strings_more.gd")
 const PostShader := preload("res://shaders/post.gdshader")
+const PixelShader := preload("res://shaders/pixel.gdshader")
+## The picture keeps at least this many lines, so the HUD and menus fit.
+const MIN_ROWS := 540.0
+## Frame limit while the window is in the background.
+const BACKGROUND_FPS := 15
 const FontRegular := preload("res://fonts/DejaVuSansMono.ttf")
 const FontBold := preload("res://fonts/DejaVuSansMono-Bold.ttf")
 
@@ -53,7 +59,7 @@ const DIFF := {
 	"nightmare": {"dmg": 2.2, "hp": 2.0, "speed": 1.16, "elite": 0.14, "toll": 1.0, "xp": 1.4, "regen": 0.5},
 }
 const RUN_KEYS := ["hp", "base_hp", "ink", "shards", "weapon", "charms", "bag", "xp", "xp_level", "up_hp", "up_dmg", "throw", "up_spd",
-	"skills", "weapon2", "armor", "armor_up"]
+	"skills", "belt", "wslot", "armor", "armor_up"]
 ## Glyph-level fallbacks for Chinese and Japanese text (system fonts).
 const CJK_FONTS := {
 	"zh": ["PingFang SC", "Hiragino Sans GB", "Heiti SC", "Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "Noto Sans SC",
@@ -123,14 +129,28 @@ var ctl: Controls
 var audio: Audio
 var font: Font
 var font_bold: Font
+## The same faces for the HUD and menus, drawn without smoothing so small text
+## stays crisp at the picture's low resolution.
+var ui_font: Font
+var ui_font_bold: Font
 var world: Renderer
 var hud: Hud
 var menu: Menu
 var post: ColorRect
+## The last pass of the picture, over the HUD and menus too (shaders/pixel.gdshader).
+var pixel_pass: ColorRect
+## Size of one pixel of the picture in screen pixels: the game is drawn at
+## 1 / pixel_size of the window's resolution.
+var pixel_size := 0.0
+## Screen pixels per pixel of the world's art, forced by --pixel (0: automatic).
+var _force_texel := 0
 
 # Debug / screenshot options, passed after "--":
 #   --play --bot --god --seed=N --level=N --shot=file.png --time=seconds --lang=ru --record=dir --menu=name
+#   --pixel=N
 var _shot_path := ""
+## The window size the picture was last fitted to.
+var _fitted := Vector2i.ZERO
 var _shot_time := 1.0
 var _bot := false
 var god := false
@@ -169,6 +189,11 @@ var _mouse_last := Vector2.ZERO
 
 
 func _process(delta: float) -> void:
+	# a resize can end without a signal (going full screen on macOS)
+	if get_window().size != _fitted:
+		_fit_pixels()
+	if state == State.PLAY and not player.is_empty():
+		SpriteCache.warm(player.belt)
 	_step_frame(delta)
 	_dts.append(delta)
 	if delta > 0.03 and _shot_path != "":
@@ -190,7 +215,7 @@ func _ready() -> void:
 	cfg.load_all()
 	_migrate_save()
 	ctl = Controls.new()
-	ctl.setup(cfg.get_v("binds"))
+	ctl.setup(cfg.get_v("binds"), cfg.get_v("pad_binds"))
 	audio = Audio.new()
 	add_child(audio)
 	audio.setup()
@@ -205,6 +230,8 @@ func _ready() -> void:
 
 	font = _make_font(400)
 	font_bold = _make_font(700)
+	ui_font = _make_font(400, true)
+	ui_font_bold = _make_font(700, true)
 	_cjk = [_make_cjk(400), _make_cjk(700)]
 
 	world = Renderer.new()
@@ -219,23 +246,36 @@ func _ready() -> void:
 	post.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var mat := ShaderMaterial.new()
 	mat.shader = PostShader
-	mat.set_shader_parameter("radius", 1.6 * ui_scale)
 	post.material = mat
 	post_layer.add_child(post)
+	get_window().size_changed.connect(_fit_pixels)
 
 	var hud_layer := CanvasLayer.new()
 	hud_layer.layer = 10
 	add_child(hud_layer)
+	var pixel_layer := CanvasLayer.new()
+	pixel_layer.layer = 20
+	add_child(pixel_layer)
+	pixel_pass = ColorRect.new()
+	pixel_pass.set_anchors_preset(Control.PRESET_FULL_RECT)
+	pixel_pass.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var pmat := ShaderMaterial.new()
+	pmat.shader = PixelShader
+	pixel_pass.material = pmat
+	pixel_layer.add_child(pixel_pass)
 	hud = Hud.new()
 	hud_layer.add_child(hud)
-	hud.setup(self, font, font_bold)
+	hud.setup(self, ui_font, ui_font_bold)
 	menu = Menu.new()
 	hud_layer.add_child(menu)
-	menu.setup(self, font, font_bold)
+	menu.setup(self, ui_font, ui_font_bold)
 
 	apply_settings()
 	post.visible = not _nopost
-	get_tree().root.focus_entered.connect(func(): audio.set_muted(false))
+	pixel_pass.visible = not _nopost
+	# pictures drawn small and blown up (the hero in the inventory, the map) keep hard pixels
+	get_viewport().canvas_item_default_texture_filter = Viewport.DEFAULT_CANVAS_ITEM_TEXTURE_FILTER_NEAREST
+	get_tree().root.focus_entered.connect(_on_focus_gained)
 	get_tree().root.focus_exited.connect(_on_focus_lost)
 
 	if autostart:
@@ -243,6 +283,12 @@ func _ready() -> void:
 	else:
 		show_title()
 	if _menu_arg != "":
+		if _menu_arg in ["shop", "sell"]:
+			shop_prop = {"stock": ["glyph_saber", "bell_halberd", "phantom_step", "lucky_coin", "iron_sallet"]}
+			player.shards = 900
+			for id in ["night_katana", "fang", "moon_lens", "inkwell", "bile_flask", "stone_skin", "black_candle", "wraith_lantern",
+					"thorn_chakram", "frost_brand", "iron_shroud", "glyph_saber", "ember_brand", "penitent_chain", "bell_halberd"]:
+				player.bag.append(id)
 		menu.open(_menu_arg)
 
 
@@ -260,6 +306,8 @@ func _parse_cmdline() -> bool:
 			_start_level = maxi(1, int(a.substr(8)))
 		elif a.begins_with("--lang="):
 			cfg.values.lang = a.substr(7)
+		elif a.begins_with("--pixel="):
+			_force_texel = int(a.substr(8))
 		elif a.begins_with("--record="):
 			_record_dir = a.substr(9)
 			recording = true
@@ -306,12 +354,18 @@ func _fit_window() -> void:
 	DisplayServer.window_set_position(r.position + (r.size - size) / 2)
 
 
-func _make_font(weight: int) -> Font:
+func _make_font(weight: int, crisp: bool = false) -> Font:
 	var bundled: Font = FontBold if weight >= 700 else FontRegular
+	if crisp:
+		bundled = bundled.duplicate()
+		bundled.antialiasing = TextServer.FONT_ANTIALIASING_NONE
 	# System fonts are not available on the Web, so use the bundled one there.
 	if OS.has_feature("web"):
 		return bundled
 	var f := SystemFont.new()
+	if crisp:
+		f.antialiasing = TextServer.FONT_ANTIALIASING_NONE
+		f.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_DISABLED
 	f.font_names = PackedStringArray([
 		"Menlo", "SF Mono", "Monaco", "JetBrains Mono", "DejaVu Sans Mono",
 		"Liberation Mono", "Consolas", "Courier New", "monospace",
@@ -333,10 +387,10 @@ func _apply_cjk() -> void:
 	if OS.has_feature("web"):
 		return
 	var names: Array = CJK_FONTS["ja" if lang == "ja" else "zh"]
-	for i in 2:
-		var cjk: SystemFont = _cjk[i]
+	for i in 4:
+		var cjk: SystemFont = _cjk[i % 2]
 		cjk.font_names = PackedStringArray(names)
-		var main_font := font if i == 0 else font_bold
+		var main_font: Font = [font, font_bold, ui_font, ui_font_bold][i]
 		var fb: Array = main_font.fallbacks
 		if not fb.has(cjk):
 			fb.append(cjk)
@@ -371,10 +425,42 @@ func apply_settings(changed: String = "") -> void:
 	var mat := post.material as ShaderMaterial
 	var q: String = cfg.get_v("quality")
 	mat.set_shader_parameter("glow", 0.75 if cfg.get_v("glow") and q != "low" else 0.0)
-	mat.set_shader_parameter("scanlines", 0.05 if cfg.get_v("scanlines") else 0.0)
-	mat.set_shader_parameter("vignette", 0.35 if cfg.get_v("vignette") else 0.0)
+	mat.set_shader_parameter("vignette", 0.5 if cfg.get_v("vignette") else 0.0)
 	mat.set_shader_parameter("lighting", 1.0 if cfg.get_v("lighting") else 0.0)
+	_fit_pixels()
 	audio.set_volumes(cfg.get_v("vol_master"), cfg.get_v("vol_music"), cfg.get_v("vol_sfx"), cfg.get_v("vol_amb"))
+
+
+## The whole game is drawn at a low resolution and blown up to the window
+## without smoothing. Every pixel of the art (one world unit) covers the same
+## whole number of screen pixels, as many as keep the camera's view about as
+## tall as the zoom asks; the picture is drawn at that size, or at a finer one
+## that divides it when that would leave the HUD and menus fewer than
+## MIN_ROWS lines (the world then draws each pixel of art as a square of them).
+func _fit_pixels() -> void:
+	var win := get_window()
+	_fitted = win.size
+	var texel := maxi(1, roundi(win.size.y / (Renderer.ZOOMS[world.zoom_idx] * D.TILE)))
+	# never show more than the level: past its edges there is only black
+	if lv != null and lv.w > 0:
+		var lsize: Vector2 = lv.pixel_size()
+		texel = maxi(texel, maxi(ceili(win.size.x / lsize.x), ceili(win.size.y / lsize.y)))
+	if _force_texel > 0:
+		texel = _force_texel
+	var p := texel
+	while p > 1 and (texel % p != 0 or win.size.y / p < MIN_ROWS):
+		p -= 1
+	world.art_scale = float(texel / p)
+	var px := float(p)
+	pixel_size = px
+	# whole pixels only: a window that doesn't divide evenly keeps a thin dark rim
+	var want := Vector2i(floori(win.size.x / px), floori(win.size.y / px))
+	if win.content_scale_mode != Window.CONTENT_SCALE_MODE_VIEWPORT or win.content_scale_size != want:
+		win.content_scale_mode = Window.CONTENT_SCALE_MODE_VIEWPORT
+		win.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
+		win.content_scale_stretch = Window.CONTENT_SCALE_STRETCH_INTEGER
+		win.content_scale_size = want
+	(post.material as ShaderMaterial).set_shader_parameter("radius", 1.6 * ui_scale / px)
 
 
 func set_setting(key: String, v: Variant) -> void:
@@ -574,6 +660,10 @@ func continue_run() -> void:
 	for k in RUN_KEYS:
 		if saved.has(k):
 			player[k] = saved[k]
+	if not saved.has("belt"):
+		# saved before the belt: the weapon in hand and the second one make it up
+		player.belt = []
+	Items.fix_belt(player, saved.get("weapon2", ""))
 	Hero.refresh(player)
 	_start_level_now()
 
@@ -630,6 +720,7 @@ func _build_level() -> void:
 	var lrng := RandomNumberGenerator.new()
 	lrng.seed = hash([run_seed, level_num])
 	lv.build(level_num, biome, lrng, boss_level and state != State.TITLE)
+	_fit_pixels()
 	if player.is_empty():
 		player = Hero.create()
 	Hero.place(player, lv.start)
@@ -645,6 +736,7 @@ func _build_level() -> void:
 	enemies.clear()
 	for s in lv.spawns:
 		enemies.append(Foes.create(s.kind, s.pos, level_num, rng, s.elite or rng.randf() < diff().elite))
+		Physics.unstick(enemies[-1], lv)
 	if _zoo and state != State.TITLE:
 		enemies.clear()
 		var kinds := ["crawler", "hopper", "bat", "spitter", "knight", "shield", "wisp", "archer", "bomber", "toad", "hanged", "choir",
@@ -918,7 +1010,8 @@ func _update_cursor() -> void:
 func _release_mouse() -> void:
 	if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-		Input.warp_mouse(cursor)
+		# (in viewport units, which are bigger than the window's pixels)
+		get_viewport().warp_mouse(cursor)
 	else:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
@@ -943,12 +1036,20 @@ func mouse_point() -> Vector2:
 	return cursor if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED else get_viewport().get_mouse_position()
 
 
-## Switching to another app pauses the game and frees the cursor.
+## Switching to another app pauses the game, frees the cursor and draws few
+## frames, so a game left open behind other windows keeps the laptop cool.
 func _on_focus_lost() -> void:
 	audio.set_muted(cfg.get_v("mute_unfocused"))
+	if _shot_path == "" and _record_dir == "" and not _bot and not ui_check:
+		Engine.max_fps = BACKGROUND_FPS
 	if state == State.PLAY and not menu.active() and not player.dead and _shot_path == "" and not _bot:
 		menu.open("pause")
 	_release_mouse()
+
+
+func _on_focus_gained() -> void:
+	audio.set_muted(false)
+	Engine.max_fps = _frame_cap()
 
 
 # ---------------------------------------------------------------- frame
@@ -1122,9 +1223,10 @@ func _ui_check_step() -> void:
 		for l in T.LANGS:
 			for m in ["", "new_world", "worlds", "world", "confirm_delete"]:
 				_ui_steps.append([l, "title", m, 0])
-			for m in ["", "pause", "inventory", "shop", "map", "moves", "skills"]:
+			for m in ["", "pause", "inventory", "shop", "sell", "map", "moves", "skills"]:
 				_ui_steps.append([l, "play", m, 0])
-			for k in 4:
+			# one past the last tab: Controls with the gamepad's buttons
+			for k in Menu.TABS.size() + 1:
 				_ui_steps.append([l, "play", "settings", k])
 			for key in T.STRINGS.keys() + T2.STRINGS.keys():
 				if key.begins_with("hint_"):
@@ -1240,6 +1342,7 @@ func spawn_enemy(kind: String, at: Vector2) -> void:
 	var size: Vector2 = D.ENEMIES[kind].size
 	var e := Foes.create(kind, at + Vector2(0, size.y * 0.5), level_num, rng)
 	e.aggro = true
+	Physics.unstick(e, lv)
 	enemies.append(e)
 	burst(at, ["*", "+", "·"], Color(0.8, 0.9, 1.0), 12, 120.0)
 
@@ -1357,4 +1460,5 @@ func _bot_input() -> void:
 			break
 	held.dash = fmod(_bot_t, 2.3) < 0.02
 	held.swap = fmod(_bot_t, 6.0) < 0.02
+	held.slot1 = fmod(_bot_t, 9.0) < 0.02
 	held.interact = not near.is_empty() and near.kind in ["chest", "door"] and fmod(_bot_t, 0.5) < 0.05

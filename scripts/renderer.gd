@@ -6,6 +6,7 @@ extends Node2D
 
 const D := preload("res://scripts/data.gd")
 const S := preload("res://scripts/sprites.gd")
+const G := preload("res://scripts/gear_sprites.gd")
 const Level := preload("res://scripts/level.gd")
 const Physics := preload("res://scripts/physics.gd")
 const Hero := preload("res://scripts/hero.gd")
@@ -17,6 +18,12 @@ const WeaponArt := preload("res://scripts/weapon_art.gd")
 const Moon := preload("res://scripts/moon.gd")
 const DecorArt := preload("res://scripts/decor_art.gd")
 const SpriteCache := preload("res://scripts/sprite_cache.gd")
+const PixelTerrain := preload("res://scripts/pixel_terrain.gd")
+const PixelArt := preload("res://scripts/pixel_art.gd")
+## The glass of an unlit lantern.
+## Particles that stay a single pixel; the rest are two.
+const SMALL := ["·", ".", "'", ",", "`", "-", ":"]
+const UNLIT := {"o": Color(0.18, 0.17, 0.2), "O": Color(0.26, 0.25, 0.28), "Y": Color(0.3, 0.29, 0.32)}
 
 ## Tiles visible vertically at each zoom level.
 const ZOOMS := [30.0, 24.0, 19.0]
@@ -27,7 +34,6 @@ const AHEAD := 2
 ## Size of a parallax bucket, in layer units.
 const BG_CELL := 320.0
 const MAX_LIGHTS := 32
-const GRASS := ["'", ",", "\"", "`", "'", ";"]
 
 
 ## A canvas item whose drawing is done by a callback and cached until redrawn.
@@ -45,13 +51,15 @@ var game
 var font: Font
 var bold: Font
 var zoom_idx := 1
+## Pixels of the picture per world unit, a whole number set by the game
+## (main._fit_pixels); 0 fits the zoom to the viewport instead.
+var art_scale := 0.0
 var s := 1.0
 var vp := Vector2.ZERO
 var off := Vector2.ZERO
 var base := Vector2.ZERO
 var t := 0.0
 var fs := 12
-var fs_far := 10
 var adv := 7.0
 var adv_b := 7.0
 var _adv_ratio := 0.6
@@ -74,16 +82,12 @@ var _dyn_tiles := {}
 var _ceil_idx := {}
 var _torch_idx := {}
 var _gate_set := {}
-var _adv_cache := {}
-var _deferred: Array = []
-var _defer_ci: CanvasItem = null
 var _last_key := ""
 var lights: Array = []
 var _low := false
 var _moon := Moon.new()
 ## Sprite frames turned into flat glyph lists once (sprite_cache.gd), keyed by the
 ## hash of the frame and its colour map.
-var _compiled := {}
 
 
 func setup(g, f: Font, b: Font) -> void:
@@ -237,11 +241,10 @@ func _process(delta: float) -> void:
 func _process_inner(delta: float) -> void:
 	t += delta
 	vp = get_viewport_rect().size
-	s = vp.y / (ZOOMS[zoom_idx] * D.TILE)
+	s = art_scale if art_scale > 0.0 else vp.y / (ZOOMS[zoom_idx] * D.TILE)
 	fs = maxi(5, int(round(D.GW * s / _adv_ratio)))
-	fs_far = maxi(4, int(round(D.GW * Backdrop.FAR_CELL * s / _adv_ratio)))
 	adv = D.GW * s
-	var key := "%d/%d/%d" % [vp.x, vp.y, zoom_idx]
+	var key := "%d/%d/%d/%d" % [vp.x, vp.y, zoom_idx, s]
 	if key != _last_key:
 		_last_key = key
 		redraw_all()
@@ -330,23 +333,27 @@ static func _mul(c: Color, k: float) -> Color:
 	return Color(c.r * k, c.g * k, c.b * k, 1.0)
 
 
-## Draws one glyph centred on a point in the canvas item's own pixel space.
-func _gc(ci: CanvasItem, p: Vector2, g: String, col: Color, size: int, f: Font) -> void:
-	var key := size * 2 + (1 if f == bold else 0)
-	var w: float = _adv_cache.get(key, -1.0)
-	if w < 0.0:
-		w = f.get_char_size("M".unicode_at(0), size).x
-		_adv_cache[key] = w
-	if ci == _defer_ci:
-		_deferred.append([Vector2(p.x - w * 0.5, p.y + size * 0.36), g, col, size, f])
-		return
-	ci.draw_char(f, Vector2(p.x - w * 0.5, p.y + size * 0.36), g, size, col)
+## A rectangle of the dynamic layer at world position [w], [size] world units.
+func _box(w: Vector2, size: Vector2, col: Color) -> void:
+	_dyn.draw_rect(Rect2(sp(w), size * s), col)
 
 
-## Draws one glyph centred on a world position (dynamic layer).
-func _glyph(w: Vector2, g: String, col: Color, size_mul: float = 1.0, f: Font = null, px_off: Vector2 = Vector2.ZERO) -> void:
-	var fnt := f if f != null else bold
-	_gc(_dyn, sp(w) + px_off, g, col, maxi(4, int(fs * size_mul)), fnt)
+## A square of [n] world units centred on [w], on the pixel grid.
+func _dot(w: Vector2, n: float, col: Color) -> void:
+	var q := (sp(w) - Vector2(n, n) * s * 0.5).snapped(Vector2(s, s))
+	_dyn.draw_rect(Rect2(q, Vector2(n, n) * s), col)
+
+
+## A warning mark over [w]: a bar and a dot, [k] times the usual size.
+func _bang(w: Vector2, col: Color, k: float = 1.0) -> void:
+	var u := roundf(k * 1.5)
+	_box(w + Vector2(-u * 0.5, -u * 5.0), Vector2(u, u * 3.0), col)
+	_box(w + Vector2(-u * 0.5, -u), Vector2(u, u), col)
+
+
+## A line between world points [a] and [b], [wd] world units wide.
+func _seg(a: Vector2, b: Vector2, col: Color, wd: float = 1.0) -> void:
+	_dyn.draw_line(sp(a), sp(b), col, wd * s)
 
 
 ## Buckets, per chunk, the tiles that are redrawn every frame: grass spots,
@@ -440,7 +447,13 @@ func _draw_sky() -> void:
 			var sx := fposmod(_hash01(i, 3) * vp.x * 1.5 - game.cam.x * s * 0.05, vp.x)
 			var sy := _hash01(i, 9) * vp.y * 0.6
 			var tw := 0.35 + 0.35 * sin(t * (1.0 + _hash01(i, 5) * 2.0) + i)
-			_gc(self, Vector2(sx, sy), "." if i % 3 else "+", Color(0.75, 0.7, 0.8, tw), fs, font)
+			var sc := Color(0.75, 0.7, 0.8, tw)
+			var sq := Vector2(sx, sy).snapped(Vector2(s, s))
+			draw_rect(Rect2(sq, Vector2(s, s)), sc)
+			if i % 3 == 0:
+				sc.a *= 0.5
+				draw_rect(Rect2(sq - Vector2(s, 0), Vector2(s * 3, s)), sc)
+				draw_rect(Rect2(sq - Vector2(0, s), Vector2(s, s * 3)), sc)
 
 
 func _ellipse(c: Vector2, rad: Vector2, n: int) -> PackedVector2Array:
@@ -468,79 +481,61 @@ func _paint_far(ci: CanvasItem, _arg: Variant) -> void:
 			poly.append(q * s)
 		poly.append(Vector2(ridge[-1].x, 4000.0) * s)
 		poly.append(Vector2(ridge[0].x, 4000.0) * s)
-		var c: Color = _mul(game.biome.far, 0.55)
-		ci.draw_colored_polygon(poly, c)
+		ci.draw_colored_polygon(poly, _mul(game.biome.far, 0.8))
 
 
 func _paint_mid(_ci: CanvasItem, _arg: Variant) -> void:
 	pass
 
 
-## Splits both parallax layers into buckets: a canvas item submits all of its
-## glyphs every frame, so one item per layer would draw the whole level.
+## Splits both parallax layers into buckets, so only the parts of a layer
+## on screen are submitted each frame.
 func _build_bg_buckets() -> void:
 	for bk in _bg_buckets:
-		# the arrays are shared with the new level, so old buckets must not draw again
 		bk[0].visible = false
 		bk[0].fn = Callable()
 		bk[0].queue_free()
 	_bg_buckets.clear()
-	_bucket_layer(_far, _bd.far_pos, _bd.far_g, _bd.far_c, true)
-	_bucket_layer(_mid, _bd.mid_pos, _bd.mid_g, _bd.mid_c, false)
+	_bucket_layer(_far, _bd.far)
+	_bucket_layer(_mid, _bd.mid)
 
 
-func _bucket_layer(layer: Node2D, pos: PackedVector2Array, gl: PackedStringArray, cols: PackedColorArray, far: bool) -> void:
+func _bucket_layer(layer: Node2D, shapes: Array) -> void:
 	var cells := {}
-	for i in pos.size():
-		var k := Vector2i(floori(pos[i].x / BG_CELL), floori(pos[i].y / BG_CELL))
+	for sh in shapes:
+		var a := Backdrop.anchor(sh)
+		var k := Vector2i(floori(a.x / BG_CELL), floori(a.y / BG_CELL))
 		if not cells.has(k):
-			cells[k] = []
-		cells[k].append(i)
+			cells[k] = [[], Rect2(a, Vector2.ZERO)]
+		cells[k][0].append(sh)
+		var box: Rect2 = sh.r if sh.has("r") else Rect2(sh.p[0], Vector2.ZERO).expand(sh.p[1]).expand(sh.p[2])
+		cells[k][1] = cells[k][1].merge(box)
 	for k in cells:
 		var p := Painter.new()
 		p.fn = _paint_bucket
-		p.arg = [pos, gl, cols, cells[k], far]
+		p.arg = cells[k][0]
 		layer.add_child(p)
-		_bg_buckets.append([p, layer, Rect2(Vector2(k) * BG_CELL - Vector2(24, 24), Vector2(BG_CELL + 48, BG_CELL + 48))])
+		_bg_buckets.append([p, layer, cells[k][1].grow(2.0)])
 
 
 func _paint_bucket(ci: CanvasItem, arg: Array) -> void:
 	if game == null or game.lv == null:
 		return
 	var t0 := Time.get_ticks_usec()
-	_paint_bucket_inner(ci, arg)
+	for sh in arg:
+		if sh.has("r"):
+			var r: Rect2 = sh.r
+			ci.draw_rect(Rect2(r.position * s, r.size * s), sh.c)
+		else:
+			var pts: PackedVector2Array = sh.p
+			ci.draw_colored_polygon(PackedVector2Array([pts[0] * s, pts[1] * s, pts[2] * s]), sh.c)
 	game.prof_add("bg_bucket", t0)
-
-
-func _paint_bucket_inner(ci: CanvasItem, arg: Array) -> void:
-	var pos: PackedVector2Array = arg[0]
-	var gl: PackedStringArray = arg[1]
-	var cols: PackedColorArray = arg[2]
-	var size := fs_far if arg[4] else fs
-	for i in arg[3]:
-		var c := cols[i]
-		c.a = 1.0
-		_gc(ci, pos[i] * s, gl[i], c, size, font)
 
 
 func _paint_chunk(ci: CanvasItem, k: Vector2i) -> void:
 	var t0 := Time.get_ticks_usec()
-	_defer_ci = ci
-	_deferred.clear()
 	_paint_chunk_inner(ci, k)
-	_defer_ci = null
-	_flush(ci)
 	game.prof_add("chunk", t0)
-
-
-## Glyphs are drawn after all rectangles and grouped by font, so the renderer
-## can batch a whole chunk into a few draw calls.
-func _flush(ci: CanvasItem) -> void:
-	for f in [font, bold]:
-		for d in _deferred:
-			if d[4] == f:
-				ci.draw_char(f, d[0], d[1], d[3], d[2])
-	_deferred.clear()
 
 
 func _paint_chunk_inner(ci: CanvasItem, k: Vector2i) -> void:
@@ -549,13 +544,7 @@ func _paint_chunk_inner(ci: CanvasItem, k: Vector2i) -> void:
 	var T := D.TILE
 	var origin := Vector2(k) * CHUNK * T
 	var tile_px := T * s
-	var cell := Vector2(D.GW, D.GH) * s
-	var top_g: String = b.glyphs_top
-	var edge_g: String = b.glyphs_edge
-	var deep_g: String = b.glyphs_deep
-	var brick: bool = b.brick
 	var fill: Color = _mul(b.fill, 1.15)
-	var inner: Color = b.deep.lerp(b.edge, 0.3)
 	for ty in range(k.y * CHUNK, mini(lv.h, (k.y + 1) * CHUNK)):
 		for tx in range(k.x * CHUNK, mini(lv.w, (k.x + 1) * CHUNK)):
 			var tt: int = lv.tiles[ty * lv.w + tx]
@@ -564,126 +553,29 @@ func _paint_chunk_inner(ci: CanvasItem, k: Vector2i) -> void:
 				var depth := _dget(tx, ty)
 				# rock gets darker away from open air
 				ci.draw_rect(Rect2(o, Vector2(tile_px + 1, tile_px + 1)), _mul(fill, 1.3 - minf(depth, 6) * 0.07))
-				var up_air: bool = not lv.solid(tx, ty - 1)
-				var dn_air: bool = not lv.solid(tx, ty + 1)
-				var l_air: bool = not lv.solid(tx - 1, ty)
-				var r_air: bool = not lv.solid(tx + 1, ty)
-				for j in 3:
-					for i in 4:
-						var gx := tx * 4 + i
-						var gy := ty * 3 + j
-						var hv := _hash01(gx, gy)
-						var p := o + Vector2((i + 0.5) * cell.x, (j + 0.5) * cell.y)
-						var g := ""
-						var col: Color
-						if tt == Level.CRACKED and hv < 0.55:
-							g = ["%", "/", ";", "\\"][int(hv * 40.0) % 4]
-							col = _mul(b.edge, 1.15)
-						elif up_air and j == 0:
-							g = top_g[int(hv * 60.0) % top_g.length()]
-							col = _mul(b.top, 0.8 + hv * 0.3)
-						elif up_air and j == 1:
-							g = edge_g[int(hv * 60.0) % edge_g.length()]
-							col = _mul(b.edge, 0.8 + hv * 0.3)
-						elif (l_air and i == 0) or (r_air and i == 3):
-							g = "|" if hv < 0.5 else ("[" if i == 0 else "]")
-							col = _mul(b.edge, 0.7 + hv * 0.2)
-						elif dn_air and j == 2:
-							g = ["'", "`", "v", "'", ",", "\""][int(hv * 60.0) % 6]
-							col = _mul(b.edge, 0.55 + hv * 0.2)
-						elif brick:
-							if gy % 3 == 2:
-								g = "_" if hv < 0.9 else "."
-							elif (gx + (gy / 3) % 2 * 4) % 8 == 0:
-								g = "|"
-							elif hv < 0.12:
-								g = ":"
-							col = _mul(inner, 1.25 - minf(depth, 6) * 0.1)
-						else:
-							var chance := 0.9 if depth <= 1 else (0.6 if depth == 2 else (0.3 if depth == 3 else 0.13))
-							if hv < chance:
-								var set_g := edge_g if depth <= 1 else deep_g
-								g = set_g[int(hv * 97.0) % set_g.length()]
-								col = _mul(b.edge if depth <= 1 else inner, (0.8 if depth <= 1 else 1.2) - minf(depth, 6) * 0.08)
-							elif depth >= 3 and hv > 0.988:
-								# something buried in the rock
-								match b.look:
-									"wood":
-										g = ["(", ")", "~", "j"][int(hv * 9000.0) % 4]
-										col = Color(0.3, 0.2, 0.14)
-									"ember":
-										g = ["*", "'", "·"][int(hv * 9000.0) % 3]
-										col = Color(0.75, 0.25, 0.08)
-									_:
-										g = ["°", "=", "o"][int(hv * 9000.0) % 3]
-										col = Color(0.4, 0.37, 0.32)
-						if g != "":
-							_gc(ci, p, g, col, fs, font)
+				PixelTerrain.solid(ci, lv, tx, ty, o, s, depth, b, tt == Level.CRACKED)
 			elif tt == Level.AIR or tt == Level.WATER or tt == Level.GATE:
-				_paint_backwall(ci, tx, ty, o, cell, b)
+				_paint_backwall(ci, tx, ty, o, b)
 			elif tt == Level.ONEWAY:
-				_paint_backwall(ci, tx, ty, o, cell, b)
-				for i in 4:
-					var hv2 := _hash01(tx * 4 + i, ty * 7)
-					var p2 := o + Vector2((i + 0.5) * cell.x, 0.5 * cell.y)
-					_gc(ci, p2, "=" if hv2 < 0.6 else "-", _mul(b.top, 0.75 + hv2 * 0.2), fs, font)
-					if (lv.at(tx - 1, ty) != Level.ONEWAY and i == 0) or (lv.at(tx + 1, ty) != Level.ONEWAY and i == 3):
-						_gc(ci, p2 + Vector2(0, cell.y), "'", _mul(b.edge, 0.6), fs, font)
+				_paint_backwall(ci, tx, ty, o, b)
+				PixelTerrain.ledge(ci, lv, tx, ty, o, s, b, Level.ONEWAY)
 			elif tt == Level.SPIKES:
-				for i in 4:
-					var hv3 := _hash01(tx * 4 + i, ty)
-					_gc(ci, o + Vector2((i + 0.5) * cell.x, 2.5 * cell.y), "^", Color(0.95, 0.35 + hv3 * 0.1, 0.3), fs, bold)
-					if i % 2 == 1:
-						_gc(ci, o + Vector2((i + 0.5) * cell.x, 1.6 * cell.y), "^", Color(0.75, 0.3, 0.26), fs, bold)
+				PixelTerrain.spikes(ci, tx, o, s)
 	for d in lv.decor:
 		if d.x >= k.x * CHUNK and d.x < (k.x + 1) * CHUNK and d.y >= k.y * CHUNK and d.y < (k.y + 1) * CHUNK:
-			_paint_floor_decor(ci, d, (Vector2(d.x, d.y) * T - origin) * s, cell, b)
+			DecorArt.paint_floor(ci, d, (Vector2(d.x, d.y) * T - origin) * s, s, b)
 
 
-## Dim masonry / rock / roots behind the playable space, except under open sky.
-func _paint_backwall(ci: CanvasItem, tx: int, ty: int, o: Vector2, cell: Vector2, b: Dictionary) -> void:
-	var lv = game.lv
-	var room = lv.room_at_tile(tx, ty)
+## Dim masonry or earth behind the playable space, except under open sky.
+func _paint_backwall(ci: CanvasItem, tx: int, ty: int, o: Vector2, b: Dictionary) -> void:
+	var room = game.lv.room_at_tile(tx, ty)
 	if room == null or (b.sky and room.gy == 0):
 		return
 	var tile_px := D.TILE * s
 	var wall: Color = b.fill.lerp(b.sky_bot, 0.5)
 	wall.a = 0.7
 	ci.draw_rect(Rect2(o, Vector2(tile_px + 1, tile_px + 1)), wall)
-	for j in 3:
-		for i in 4:
-			var gx := tx * 4 + i
-			var gy := ty * 3 + j
-			var hv := _hash01(gx + 911, gy + 37)
-			var g := ""
-			var col: Color = _mul(b.deep, 1.1)
-			match b.look:
-				"hollow":
-					if gy % 3 == 2:
-						g = "_" if hv < 0.8 else ""
-					elif (gx + (gy / 3) % 2 * 4) % 8 == 0:
-						g = "|"
-					elif hv < 0.04:
-						g = "."
-					col = _mul(b.edge, 0.26 + hv * 0.08)
-				"ember":
-					if hv < 0.16:
-						g = [":", ".", "'", ",", ";"][int(hv * 100.0) % 5]
-					elif hv > 0.995:
-						g = "~"
-						col = Color(0.55, 0.18, 0.06)
-				_:
-					if hv < 0.2:
-						g = [".", ",", "'", "`", ":"][int(hv * 100.0) % 5]
-					elif hv > 0.993:
-						g = ["(", ")", "~"][int(hv * 1000.0) % 3]
-						col = Color(0.16, 0.12, 0.14)
-			if g != "":
-				_gc(ci, o + Vector2((i + 0.5) * cell.x, (j + 0.5) * cell.y), g, col, fs, font)
-
-
-func _paint_floor_decor(ci: CanvasItem, d: Dictionary, o: Vector2, cell: Vector2, b: Dictionary) -> void:
-	DecorArt.paint_floor(self, ci, d, o, cell, b)
+	PixelTerrain.backwall(ci, tx, ty, o, s, b)
 
 
 # ---------------------------------------------------------------- dynamic layer
@@ -719,14 +611,14 @@ func _paint_dynamic_inner() -> void:
 	if not game.is_title():
 		for gh in game.ghosts:
 			var a: float = gh.life / 0.22 * 0.5
-			_sprite(gh.frame, gh.foot, gh.facing, S.HERO_PAL, {}, S.HERO.a, Color(0.75, 0.12, 0.16, a), true, false, S.HERO.scale)
+			_sprite(gh.frame, gh.foot, gh.facing, S.HERO_PAL, Color(0.75, 0.12, 0.16, a), true)
 		_draw_hero()
 		_draw_slashes()
 		_draw_guide()
 	for pt in game.particles:
 		var c: Color = pt.c
 		c.a = clampf(pt.life / pt.max, 0.0, 1.0)
-		_glyph(pt.p, pt.g, c, pt.s)
+		_dot(pt.p, maxf(1.0, roundf(pt.s * (1.0 if pt.g in SMALL else 2.0))), c)
 	for pu in game.popups:
 		var pc: Color = pu.color
 		pc.a = clampf(pu.life * 2.0, 0.0, 1.0)
@@ -757,7 +649,7 @@ func _draw_motes(b: Dictionary, view: Rect2) -> void:
 			continue
 		var c: Color = b.mote
 		c.a = 0.2 + 0.4 * (0.5 + 0.5 * sin(t * 2.0 + m.ph))
-		_glyph(p, "·", c, 1.0, font)
+		_dot(p, 1.0, c)
 
 
 func _draw_tiles_dynamic(b: Dictionary, tl: Vector2, br: Vector2) -> void:
@@ -792,37 +684,42 @@ func _draw_dyn_tile(b: Dictionary, lv, x: int, y: int, pc: Vector2, wc: Color) -
 		if lv.solid(x, y + 1) and lv.at(x, y + 1) != Level.GATE:
 			_draw_grass(b, x, y, pc)
 		return
+	var o := Vector2(x * T, y * T)
 	match tt:
 		Level.WATER, Level.LAVA:
 			var lava := tt == Level.LAVA
 			var surf: bool = lv.at(x, y - 1) == Level.AIR
 			var col := Color(1.0, 0.45, 0.12) if lava else wc
-			_dyn.draw_rect(Rect2(sp(Vector2(x * T, y * T)), Vector2(T * s + 1, T * s + 1)),
+			_dyn.draw_rect(Rect2(sp(o), Vector2(T * s + 1, T * s + 1)),
 				Color(col.r * 0.25, col.g * 0.25, col.b * 0.25, 0.55 if not lava else 0.8))
-			for j in 3:
-				for i in 4:
-					var wx := x * T + (i + 0.5) * D.GW
-					var wy := y * T + (j + 0.5) * D.GH
-					var top: bool = surf and j == 0
-					# most cells below the surface stay empty: test that before the wave
-					if not top and _hash01(x * 4 + i, y * 3 + j + int(t * 2.0)) >= 0.22:
-						continue
-					var ph := sin(wx * 0.15 + t * (2.0 if lava else 2.6) + j)
-					if top:
-						_glyph(Vector2(wx, wy + ph * 1.2), "~" if ph > -0.3 else "-", _mul(col, 1.0), 1.0, bold)
-					else:
-						_glyph(Vector2(wx, wy), "~" if not lava else ("*" if ph > 0.6 else "~"), _mul(col, 0.55 + 0.2 * ph), 0.9, font)
+			if surf:
+				# a rippling bright edge, two pixels a step
+				for i in 8:
+					var wx := o.x + i * 2.0
+					var ph := sin(wx * 0.15 + t * (2.0 if lava else 2.6))
+					var wy := o.y + roundf(ph)
+					_box(Vector2(wx, wy), Vector2(2, 1), _mul(col, 1.0 if ph > -0.3 else 0.75))
+					_box(Vector2(wx, wy + 1.0), Vector2(2, 1), _mul(col, 0.5))
+			# bubbles (or embers) rising through the tile
+			for j in 2:
+				var hv := _hash01(x * 3 + j, y)
+				if hv > 0.45:
+					continue
+				var by := o.y + T - fmod(t * (6.0 if lava else 9.0) + hv * 40.0, T - 2.0)
+				_box(Vector2(o.x + 2.0 + hv * 26.0, by), Vector2(1, 1), _mul(col, 0.9 if not lava else 1.3))
 			if lava and surf and _hash01(x, int(t * 3.0)) < 0.02:
 				game.particles.append({"p": Vector2((x + 0.5) * T, y * T), "v": Vector2(randf_range(-20, 20), -60),
 					"g": "·", "c": Color(1.0, 0.6, 0.2), "life": 0.8, "max": 0.8, "grav": -20.0, "drag": 0.5, "s": 0.9})
 		Level.GATE:
-			for i in 4:
-				var gp := Vector2(x * T + (i + 0.5) * D.GW, y * T)
-				if i % 2 == 0:
-					for j in 3:
-						_glyph(gp + Vector2(0, (j + 0.5) * D.GH), "|", Color(0.85, 0.82, 0.75), 1.0, bold)
-			if not lv.at(x, y - 1) == Level.GATE:
-				_glyph(Vector2(x * T + T * 0.5, y * T), "=", Color(0.9, 0.85, 0.7), 1.0, bold)
+			# a portcullis: iron bars, a cross rail, spikes at the foot
+			_box(o + Vector2(0, 7), Vector2(T, 2), Color(0.24, 0.23, 0.25))
+			for bx in [1.0, 6.0, 11.0]:
+				_box(o + Vector2(bx, 0), Vector2(3, T), Color(0.3, 0.29, 0.31))
+				_box(o + Vector2(bx, 0), Vector2(1, T), Color(0.5, 0.48, 0.5))
+				if lv.at(x, y + 1) != Level.GATE:
+					_box(o + Vector2(bx + 1.0, T), Vector2(1, 2), Color(0.5, 0.48, 0.5))
+			if lv.at(x, y - 1) != Level.GATE:
+				_box(o, Vector2(T, 2), Color(0.42, 0.4, 0.42))
 
 
 func _draw_grass(b: Dictionary, x: int, y: int, pc: Vector2) -> void:
@@ -830,24 +727,22 @@ func _draw_grass(b: Dictionary, x: int, y: int, pc: Vector2) -> void:
 	var h := _hash01(x, y)
 	if h < 0.25 or b.look == "hollow" and h < 0.6 or (_low and h < 0.6):
 		return
-	for k in 4:
-		var hk := _hash01(x * 4 + k, y + 77)
-		if hk < 0.35:
+	var base := (y + 1) * T - 1.0
+	for k in 8:
+		var hk := _hash01(x * 8 + k, y + 77)
+		if hk < 0.45:
 			continue
-		var wx := x * T + (k + 0.5) * D.GW
+		var wx := x * T + k * 2.0 + 0.5
 		var lean := sin(wx * 0.045 - t * 1.8 + h * 2.0) + 0.5 * sin(wx * 0.13 + t * 0.7)
-		var g: String = GRASS[int(hk * 60.0) % GRASS.size()]
 		var dx := wx - pc.x
+		# the hero's feet push the blades aside
 		if absf(dx) < 10.0 and absf(pc.y - (y + 1) * T) < 24.0:
-			g = "/" if dx > 0.0 else "\\"
-		elif lean > 1.0:
-			g = "/"
-		elif lean < -1.0:
-			g = "\\"
+			lean = 2.0 * signf(dx)
+		var bh := 2.0 + floorf(hk * 4.0)
 		var c: Color = _mul(b.grass, 0.55 + 0.4 * hk + maxf(0.0, lean - 0.6) * 0.25)
-		_glyph(Vector2(wx, (y + 1) * T - D.GH * 0.5), g, c, 1.0, font)
-		if hk > 0.85:
-			_glyph(Vector2(wx, (y + 1) * T - D.GH * 1.5), "'" if lean > 0.0 else "`", _mul(b.grass, 0.6), 1.0, font)
+		var tip := roundf(clampf(lean, -1.5, 1.5))
+		_box(Vector2(wx, base - bh * 0.5 + 1.0), Vector2(1, bh * 0.5), c)
+		_box(Vector2(wx + tip, base - bh + 1.0), Vector2(1, bh * 0.5), _mul(c, 1.1))
 
 
 func _draw_ceiling_decor(b: Dictionary, view: Rect2, vc: Array) -> void:
@@ -856,47 +751,60 @@ func _draw_ceiling_decor(b: Dictionary, view: Rect2, vc: Array) -> void:
 		if not view.has_point(top):
 			continue
 		var n: int = d.v
-		for k in n:
-			var sway: float = sin(t * 1.3 + d.x * 0.7 + k * 0.5) * k * 0.35 if d.kind not in ["stalactite", "icicle"] else 0.0
-			var p := top + Vector2(sway, (k + 0.5) * D.GH)
-			var g := ":"
-			var c: Color = _mul(b.edge, 0.7 - k * 0.05)
-			match d.kind:
-				"vine":
-					g = "j" if k == n - 1 else (":" if k % 2 == 0 else "!")
-					c = _mul(b.grass, 0.7 - k * 0.05)
-					if k == n - 1 and d.x % 3 == 0:
-						g = "'"
-						c = Color(0.6, 0.08, 0.1)
-				"root":
-					g = ["\\", "|", "/", "|"][k % 4]
-					c = Color(0.45, 0.33, 0.22)
-				"stalactite", "icicle":
-					if k > n / 2:
-						break
-					g = "V" if k == 0 else ("v" if k < n / 2 else "'")
-					if d.kind == "icicle":
-						c = Color(0.75, 0.9, 1.0, 0.9 - k * 0.15)
-				"noose":
-					g = "O" if k == n - 1 else "|"
-					c = Color(0.62, 0.55, 0.4)
-				"banner":
-					g = "=" if k == 0 else ("V" if k == n - 1 else "|")
-					c = Color(0.5, 0.08, 0.12) if k > 0 else Color(0.6, 0.5, 0.3)
-				"chain":
-					g = "o" if k % 2 == 0 else "|"
-					c = Color(0.55, 0.55, 0.6)
-					if k == n - 1:
-						g = "J"
-				"web":
-					if k > 1:
-						break
-					g = "/\\" if k == 0 else "\\/"
-					c = Color(0.8, 0.8, 0.85, 0.5)
-					_glyph(p + Vector2(-D.GW * 0.5, 0), g[0], c, 1.0, font)
-					_glyph(p + Vector2(D.GW * 0.5, 0), g[1], c, 1.0, font)
-					continue
-			_glyph(p, g, c, 1.0, font)
+		var length: float = n * D.GH
+		var still: bool = d.kind in ["stalactite", "icicle", "web"]
+		var sway := 0.0 if still else sin(t * 1.3 + d.x * 0.7)
+		match d.kind:
+			"chain":
+				var y := 0.0
+				var k := 0
+				while y < length:
+					var p := top + Vector2(roundf(sway * y * 0.07), y)
+					var c := Color(0.55, 0.55, 0.6) if k % 2 == 0 else Color(0.36, 0.36, 0.4)
+					_box(p + Vector2(-1, 0), Vector2(2, 2) if k % 2 == 0 else Vector2(1, 2), c)
+					y += 2.0
+					k += 1
+				var end := top + Vector2(roundf(sway * length * 0.07), length)
+				_box(end + Vector2(-1, 0), Vector2(1, 3), Color(0.6, 0.6, 0.66))
+				_box(end + Vector2(-1, 2), Vector2(3, 1), Color(0.6, 0.6, 0.66))
+			"vine", "root", "noose":
+				var c: Color = _mul(b.grass, 0.7) if d.kind == "vine" else (Color(0.42, 0.31, 0.21) if d.kind == "root" else Color(0.62, 0.55, 0.4))
+				var y := 0.0
+				while y < length:
+					var zig: float = 0.0 if d.kind != "root" else [0.0, 1.0, 0.0, -1.0][int(y / 3.0) % 4]
+					var p := top + Vector2(roundf(sway * y * 0.07) + zig, y)
+					var w := 2.0 if d.kind == "root" and y < length * 0.4 else 1.0
+					_box(p, Vector2(w, 3), _mul(c, 1.0 - y / length * 0.3))
+					if d.kind == "vine" and int(y / 3.0) % 2 == 1:
+						_box(p + Vector2(-2.0 if int(y / 6.0) % 2 == 0 else 1.0, 1), Vector2(2, 1), _mul(c, 1.2))
+					y += 3.0
+				var end := top + Vector2(roundf(sway * length * 0.07), length)
+				if d.kind == "noose":
+					for q in [Vector2(-1, 0), Vector2(-2, 1), Vector2(1, 1), Vector2(-2, 2), Vector2(1, 2), Vector2(-1, 3)]:
+						_box(end + q, Vector2(2 if q.x == -1 else 1, 1), c)
+				elif d.kind == "vine" and d.x % 3 == 0:
+					_box(end + Vector2(-1, 0), Vector2(2, 2), Color(0.6, 0.08, 0.1))
+			"stalactite", "icicle":
+				var c: Color = Color(0.75, 0.9, 1.0, 0.9) if d.kind == "icicle" else _mul(b.edge, 0.7)
+				var len2 := (n / 2 + 1) * D.GH
+				var w := 3.0 + n * 0.5
+				_dyn.draw_colored_polygon(PackedVector2Array([sp(top + Vector2(-w, 0)), sp(top + Vector2(w, 0)), sp(top + Vector2(0, len2))]), c)
+				_box(top + Vector2(-1, 0), Vector2(1, len2 * 0.6), _mul(c, 1.3))
+			"banner":
+				var cloth := Color(0.5, 0.08, 0.12)
+				var x0 := top.x - 3.0 + roundf(sway * 0.6)
+				var pts := PackedVector2Array([sp(Vector2(x0, top.y + 1)), sp(Vector2(x0 + 6, top.y + 1)), sp(Vector2(x0 + 6, top.y + length)),
+					sp(Vector2(x0 + 3, top.y + length - 3)), sp(Vector2(x0, top.y + length))])
+				_dyn.draw_colored_polygon(pts, cloth)
+				_box(Vector2(x0, top.y + 4), Vector2(6, 1), Color(0.75, 0.6, 0.3))
+				_box(top + Vector2(-4, 0), Vector2(8, 1), Color(0.6, 0.5, 0.3))
+			"web":
+				var c := Color(0.8, 0.8, 0.85, 0.35)
+				var o := sp(top)
+				for a in [0.15, 0.5, 0.85]:
+					_dyn.draw_line(o, o + Vector2.from_angle(PI * a) * 12.0 * s, c, maxf(1.0, s * 0.6))
+				for rr in [5.0, 9.0]:
+					_dyn.draw_arc(o, rr * s, PI * 0.15, PI * 0.85, 6, c, maxf(1.0, s * 0.6))
 
 
 func _draw_torches(b: Dictionary, view: Rect2, vc: Array) -> void:
@@ -906,21 +814,21 @@ func _draw_torches(b: Dictionary, view: Rect2, vc: Array) -> void:
 		var fl := sin(t * 13.0 + tp.x) * 0.5 + sin(t * 7.3 + tp.y) * 0.5
 		var fc: Color = b.torch
 		if b.sky:
-			# lantern on a post
+			# a lamp on a post
 			var floor_y: float = tp.y + D.TILE * 2.5
-			var y: float = tp.y + D.GH
-			while y < floor_y:
-				_glyph(Vector2(tp.x, y), "|", Color(0.42, 0.34, 0.26), 1.0, font)
-				y += D.GH
-			_glyph(tp + Vector2(-D.GW, 0), "[", Color(0.5, 0.42, 0.3), 1.0, bold)
-			_glyph(tp + Vector2(D.GW, 0), "]", Color(0.5, 0.42, 0.3), 1.0, bold)
-			_glyph(tp, "o", _mul(fc, 1.0 + fl * 0.15), 1.0, bold)
-			_glyph(tp + Vector2(0, -D.GH), "^", Color(0.5, 0.42, 0.3), 1.0, bold)
+			_box(Vector2(tp.x - 1.0, tp.y + 3.0), Vector2(2, floor_y - tp.y - 3.0), Color(0.3, 0.23, 0.17))
+			PixelArt.draw(_dyn, "post_lamp", sp(tp + Vector2(0, 4)), s, {}, false, Color(1, 1, 1) * (1.0 + fl * 0.1))
 		else:
-			_glyph(tp + Vector2(0, D.GH), "|", Color(0.5, 0.4, 0.3), 1.0, bold)
-			_glyph(tp + Vector2(0, D.GH * 0.2), "U", Color(0.55, 0.45, 0.35), 1.0, bold)
-			_glyph(tp + Vector2(fl * 0.8, -D.GH * 0.6), "*" if fl > 0.0 else "^", _mul(fc, 1.1), 1.0, bold)
-			_glyph(tp + Vector2(-fl * 0.8, -D.GH * 1.4), "'" if fl > 0.3 else ".", _mul(fc, 0.8), 1.0, bold)
+			# a sconce on the wall with a living flame
+			_box(tp + Vector2(-0.5, 2), Vector2(1, 4), Color(0.3, 0.24, 0.2))
+			_box(tp + Vector2(-1.5, 5), Vector2(3, 1), Color(0.36, 0.34, 0.38))
+			_box(tp + Vector2(-2.5, 0), Vector2(5, 2), Color(0.42, 0.38, 0.36))
+			var sx := roundf(fl)
+			_box(tp + Vector2(-1.5, -3), Vector2(3, 3), _mul(fc, 1.0))
+			_box(tp + Vector2(-0.5 + sx * 0.5, -5), Vector2(1 + absf(sx), 2), _mul(fc, 1.15))
+			_box(tp + Vector2(-0.5, -2), Vector2(1, 2), Color(1.0, 0.9, 0.6))
+			if fl > 0.3:
+				_box(tp + Vector2(sx - 0.5, -7), Vector2(1, 1), _mul(fc, 0.8))
 
 
 func _draw_door(b: Dictionary, view: Rect2) -> void:
@@ -928,50 +836,50 @@ func _draw_door(b: Dictionary, view: Rect2) -> void:
 	var r: Rect2 = lv.door
 	if r.size == Vector2.ZERO or not lv.door_open or not view.grow(D.TILE * 2.0).intersects(r):
 		return
-	var def: Dictionary = S.PROPS.door
-	var foot := Vector2(r.get_center().x, r.end.y)
-	var pal: Array = def.pal
-	if not lv.door_open:
-		pal = [Color(0.35, 0.35, 0.38), pal[1], pal[2]]
-	_sprite(def.idle[0], foot, 1, pal, def.cmap, def.a, Color(1, 1, 1), false, false, def.get("scale", 1.0))
-	if lv.door_open:
-		var c: Color = b.top
-		for i in 7:
-			var ph := fmod(t * 0.5 + i * 0.143, 1.0)
-			var p := Vector2(r.position.x + 3.0 + fmod(i * 7.3, r.size.x - 6.0), r.end.y - 4.0 - ph * (r.size.y + 4.0))
-			c.a = 1.0 - ph
-			_glyph(p, "·" if i % 2 == 0 else "'", c, 1.0, font)
-		var pulse := 0.75 + 0.25 * sin(t * 3.0)
-		_glyph(r.get_center() + Vector2(0, -2), ">", _mul(b.top, pulse), 1.3, bold)
+	var glow: Color = b.top.lerp(b.torch, 0.5)
+	var pulse := 0.85 + 0.15 * sin(t * 3.0)
+	var tex := PixelArt.door_tex(int(r.size.x), int(r.size.y), b.edge, glow)
+	_dyn.draw_texture_rect(tex, Rect2(sp(r.position), r.size * s), false, Color(pulse, pulse, pulse))
+	var c: Color = b.top
+	for i in 7:
+		var ph := fmod(t * 0.5 + i * 0.143, 1.0)
+		c.a = 1.0 - ph
+		_box(Vector2(r.position.x + 4.0 + fmod(i * 7.3, r.size.x - 8.0), r.end.y - 4.0 - ph * (r.size.y - 8.0)), Vector2(1, 1), c)
+	# a chevron pointing on, through the arch
+	var ac := _mul(b.top, 0.8 + 0.2 * sin(t * 3.0))
+	var mid := r.get_center() + Vector2(-1, 2)
+	for k in 3:
+		_box(mid + Vector2(k - 1, -3 + k), Vector2(1, 1), ac)
+		_box(mid + Vector2(k - 1, 3 - k), Vector2(1, 1), ac)
 
 
 func _draw_props(view: Rect2) -> void:
 	for pr in game.props:
 		if not view.grow(48.0).has_point(pr.pos):
 			continue
-		var def: Dictionary = S.PROPS[pr.kind]
-		var fr: Array
+		var foot: Vector2 = pr.pos
 		match pr.kind:
 			"chest":
-				fr = def.open[0] if pr.open else def.closed[0]
+				PixelArt.draw(_dyn, "chest_open" if pr.open else "chest", sp(foot), s)
 			"lantern":
-				fr = def.lit[0] if pr.lit else def.unlit[0]
+				PixelArt.draw(_dyn, "lantern", sp(foot), s, {} if pr.lit else UNLIT)
+			"shop":
+				PixelArt.draw(_dyn, "shop", sp(foot), s)
 			_:
-				fr = def.idle[0]
-		var foot: Vector2 = pr.pos
-		if pr.kind == "chest" and not pr.open:
-			foot += Vector2(0, 0)
-		_sprite(fr, foot, 1, def.pal, def.cmap, def.a, Color(1, 1, 1), false, false, def.get("scale", 1.0))
+				PixelArt.draw(_dyn, "sign", sp(foot), s)
 		if pr.kind == "lantern":
-			var top := foot + Vector2(0, -D.GH * 4.5)
+			var top := foot + Vector2(0, -24)
 			if pr.lit:
-				var fl := 0.8 + 0.2 * sin(t * 12.0 + foot.x)
-				_glyph(top + Vector2(sin(t * 9.0) * 0.6, -D.GH * 0.2), "'", Color(1.0, 0.95, 0.7) * fl, 0.9)
 				for i in 2:
 					var ph := fmod(t * 0.6 + i * 0.5, 1.0)
-					_glyph(top + Vector2(sin(t * 2.0 + i * 3.0) * 4.0, -8.0 - ph * 22.0), "·", Color(1.0, 0.7, 0.3, 1.0 - ph), 0.9, font)
+					_box(top + Vector2(roundf(sin(t * 2.0 + i * 3.0) * 3.0), -6.0 - ph * 20.0), Vector2(1, 1), Color(1.0, 0.7, 0.3, 1.0 - ph))
 			if game.checkpoint_prop == pr:
-				_glyph(foot + Vector2(0, -D.GH * 7.2), "v", Color(1.0, 0.85, 0.45, 0.5 + 0.3 * sin(t * 3.0)), 0.9)
+				# a small arrow over the lantern you come back to
+				var ac := Color(1.0, 0.85, 0.45, 0.5 + 0.3 * sin(t * 3.0))
+				var at := foot + Vector2(-2, -36)
+				_box(at, Vector2(5, 1), ac)
+				_box(at + Vector2(1, 1), Vector2(3, 1), ac)
+				_box(at + Vector2(2, 2), Vector2(1, 1), ac)
 
 
 func _draw_prompt(pr: Dictionary) -> void:
@@ -988,45 +896,47 @@ func _draw_items(view: Rect2) -> void:
 	for pk in game.pickups:
 		if not view.has_point(pk.pos):
 			continue
-		var p: Vector2 = pk.pos + Vector2(0, sin(t * 3.0 + pk.pos.x) * 2.0)
+		var p: Vector2 = pk.pos + Vector2(0, roundf(sin(t * 3.0 + pk.pos.x) * 2.0))
 		if pk.kind == "heart":
-			_glyph(p, "♥", Color(1.0, 0.35, 0.45), 1.3)
+			PixelArt.draw(_dyn, "heart", sp(p + Vector2(0, 3)), s)
 		elif pk.kind == "orb":
 			var pulse := 0.8 + 0.2 * sin(t * 8.0 + pk.pos.x)
-			_glyph(p, "o", Color(1.0, 0.3, 0.35) * pulse, 1.0)
-			_glyph(p, "·", Color(1.0, 0.85, 0.85), 0.8)
+			PixelArt.draw(_dyn, "orb", sp(p + Vector2(0, 2.5)), s, {}, false, Color(pulse, pulse, pulse))
 		else:
 			for i in 3:
 				var a := t * 2.0 + i * TAU / 3.0
-				_glyph(p + Vector2(cos(a), sin(a)) * 4.0, "*", Color(1.0, 0.85, 0.35), 0.9)
-			_glyph(p, "◆", Color(1.0, 0.95, 0.6), 1.1)
+				_box(p + Vector2(cos(a), sin(a)) * 5.0 - Vector2(0.5, 0.5), Vector2(1, 1), Color(1.0, 0.85, 0.35))
+			PixelArt.draw(_dyn, "gem", sp(p + Vector2(0, 2.5)), s)
 	for sh in game.shards:
 		if not view.has_point(sh.pos):
 			continue
 		var c := _mul(Color(1.0, 0.85, 0.35), 0.8 + 0.2 * sin(t * 10.0 + sh.pos.x))
-		_glyph(sh.pos + sh.size * 0.5, "*", c, 0.9)
+		var q: Vector2 = sh.pos + sh.size * 0.5
+		_box(q - Vector2(1, 1), Vector2(2, 2), c)
+		_box(q - Vector2(1, 1), Vector2(1, 1), Color(1.0, 0.97, 0.8))
 
 
 func _draw_hazard(hz: Dictionary) -> void:
 	if hz.t < hz.warn:
 		if int(hz.t * 12.0) % 2 == 0:
-			_glyph(Vector2(hz.x, hz.y - D.GH * 0.5), "!", Color(1.0, 0.35, 0.2), 1.3)
-		_glyph(Vector2(hz.x, hz.y - 2.0), "^", Color(1.0, 0.55, 0.2, 0.6), 1.0)
+			_bang(Vector2(hz.x, hz.y - 6.0), Color(1.0, 0.35, 0.2), 1.3)
+		_box(Vector2(hz.x - 3.0, hz.y - 2.0), Vector2(6, 1), Color(1.0, 0.55, 0.2, 0.6))
 		return
-	var k := 0
-	var y: float = hz.y - D.GH * 0.5
 	var light: bool = hz.get("kind", "fire") == "light"
+	var core := Color(1.0, 0.85, 0.45) if not light else Color(0.9, 0.95, 1.0)
+	var side := Color(1.0, 0.45, 0.15, 0.7) if not light else Color(0.6, 0.75, 1.0, 0.6)
+	var y: float = hz.y
+	var k := 0
+	# a pillar of flame (or light): a bright core flickering inside a wider sheath
 	while y > hz.y - 110.0:
-		var c := Color(1.0, 0.75 - k * 0.025, 0.3 - k * 0.01)
-		var side := Color(1.0, 0.45, 0.15, 0.7)
-		if light:
-			c = Color(0.85 - k * 0.01, 0.92, 1.0)
-			side = Color(0.6, 0.75, 1.0, 0.6)
-		var g: String = ["|", "*", "^", "|"][(k + int(t * 20.0)) % 4] if not light else ["|", "+", "|", "'"][(k + int(t * 14.0)) % 4]
-		_glyph(Vector2(hz.x + sin(t * 30.0 + k) * 2.0, y), g, c, 1.1)
-		_glyph(Vector2(hz.x - D.GW, y), "(", side, 1.0)
-		_glyph(Vector2(hz.x + D.GW, y), ")", side, 1.0)
-		y -= D.GH
+		var wob := roundf(sin(t * 30.0 + k * 1.7) * 1.2)
+		var c := core.darkened(k * 0.025)
+		_box(Vector2(hz.x - 4.0 + wob, y - 4.0), Vector2(8, 4), side)
+		_box(Vector2(hz.x - 2.0 - wob * 0.5, y - 4.0), Vector2(4, 4), c)
+		if (k + int(t * 20.0)) % 3 == 0:
+			_box(Vector2(hz.x - 6.0 + wob * 2.0, y - 3.0), Vector2(1, 2), side)
+			_box(Vector2(hz.x + 5.0 - wob, y - 2.0), Vector2(1, 2), side)
+		y -= 4.0
 		k += 1
 
 
@@ -1038,45 +948,55 @@ func _draw_projectile(pr: Dictionary) -> void:
 			while ty < game.lv.h and not game.lv.solid(tx, ty + 1):
 				ty += 1
 			if pr.delay < 0.6 and int(pr.delay * 12.0) % 2 == 0:
-				_glyph(Vector2(pr.pos.x, (ty + 1) * D.TILE - 3.0), "!", Color(1.0, 0.4, 0.2), 1.1)
+				_bang(Vector2(pr.pos.x, (ty + 1) * D.TILE - 2.0), Color(1.0, 0.4, 0.2), 1.0)
 		return
 	var look: Array = Combat.SHOT_LOOK.get(pr.kind, Combat.SHOT_LOOK.shot)
-	var g: String = look[0]
+	var col: Color = look[1]
+	var dim := Color(col.r, col.g, col.b, col.a * 0.5)
+	var p: Vector2 = pr.pos
+	var dirv: Vector2 = pr.vel.normalized() if pr.vel.length() > 1.0 else Vector2.RIGHT
 	match pr.kind:
-		"boomerang":
-			_glyph(pr.pos, ["<", "^", ">", "v"][int(pr.t * 20.0) % 4], look[1], 1.4)
-			return
-		"chakram":
-			_glyph(pr.pos, "✶" if int(pr.t * 16.0) % 2 == 0 else "*", look[1], 1.35)
-			return
+		"boomerang", "chakram":
+			# a spinning blade: two crossed bars turning
+			var a: float = pr.t * (20.0 if pr.kind == "boomerang" else 28.0)
+			var r := 4.0 if pr.kind == "boomerang" else 3.5
+			for i in (2 if pr.kind == "boomerang" else 3):
+				var q := Vector2.from_angle(a + i * PI / (2 if pr.kind == "boomerang" else 3)) * r
+				_seg(p - q, p + q, col, 1.5)
+			_dot(p, 1.0, Color(1, 1, 1, col.a))
 		"hook":
-			_glyph(pr.pos, "J" if pr.vel.x >= 0.0 else "L", look[1], 1.4)
-			_glyph(pr.pos - pr.vel.normalized() * 6.0, "·", Color(0.6, 0.6, 0.65, 0.7), 1.0)
-			return
+			_seg(p - dirv * 8.0, p, Color(0.6, 0.6, 0.65, 0.7), 1.0)
+			_box(p + Vector2(-1, -2), Vector2(2, 4), col)
+			_box(p + Vector2(signf(dirv.x) * 1.0 - 1.0, 2), Vector2(3, 1), col)
 		"noose":
-			_glyph(pr.pos + Vector2(0, -8), "|", Color(0.62, 0.55, 0.4, 0.8), 1.2)
-			_glyph(pr.pos, "O", look[1], 1.5)
-			return
+			_seg(p + Vector2(0, -12), p + Vector2(0, -3), Color(0.62, 0.55, 0.4, 0.8), 1.0)
+			_dyn.draw_arc(sp(p), 3.0 * s, 0.0, TAU, 10, col, s)
 		"hwave":
-			_glyph(pr.pos, "^", look[1], 1.7)
-			_glyph(pr.pos + Vector2(-signf(pr.vel.x) * 6.0, 2.0), "^", Color(look[1].r, look[1].g, look[1].b, 0.5), 1.2)
-			return
-	if pr.kind == "javelin":
-		# a shaft of two dashes behind the point
-		var dirv: Vector2 = pr.vel.normalized()
-		_glyph(pr.pos - dirv * 7.0, "-", look[1], 1.4)
-		_glyph(pr.pos - dirv * 14.0, "-", Color(look[1].r, look[1].g, look[1].b, 0.7), 1.3)
-		g = ">" if pr.vel.x >= 0.0 else "<"
-	elif pr.kind == "arrow" or pr.kind == "knife":
-		var a: float = pr.vel.angle()
-		g = _tangent_glyph(a + PI * 0.5) if pr.kind == "arrow" else ("»" if pr.vel.x >= 0.0 else "«")
-		if pr.kind == "knife" and absf(pr.vel.y) > absf(pr.vel.x):
-			g = "^" if pr.vel.y < 0.0 else "v"
-	_glyph(pr.pos, g, look[1], 1.3 if pr.kind != "wave" else 1.6)
+			for i in 2:
+				var q := p + Vector2(-signf(pr.vel.x) * 6.0 * i, 2.0 * i)
+				var c := col if i == 0 else dim
+				_dyn.draw_colored_polygon(PackedVector2Array([sp(q + Vector2(-5, 3)), sp(q + Vector2(0, -5)), sp(q + Vector2(5, 3))]), c)
+		"javelin", "arrow", "knife":
+			var len := 14.0 if pr.kind == "javelin" else (8.0 if pr.kind == "arrow" else 5.0)
+			_seg(p - dirv * len, p, col if pr.kind != "arrow" else Color(0.6, 0.45, 0.3), 1.0)
+			var side := dirv.orthogonal() * 2.0
+			_dyn.draw_colored_polygon(PackedVector2Array([sp(p + dirv * 3.0), sp(p + side), sp(p - side)]), col)
+			if pr.kind == "arrow":
+				_seg(p - dirv * len, p - dirv * (len - 2.0) + side, dim, 1.0)
+				_seg(p - dirv * len, p - dirv * (len - 2.0) - side, dim, 1.0)
+		_:
+			# a bolt: a bright core with a short fading tail
+			var big := 1.5 if pr.kind == "wave" else 1.0
+			for i in 3:
+				var c := col
+				c.a *= 0.25 + 0.25 * (2 - i) / 2.0
+				_dot(p - dirv * (3.0 + i * 3.0) * big, (3.0 - i) * big, c)
+			_dot(p, 4.0 * big, col)
+			_dot(p, 2.0 * big, Color(1, 1, 1, col.a * 0.9))
 
 
 func _draw_enemy(e: Dictionary) -> void:
-	var def: Dictionary = S.FOES[e.kind]
+	var def: Dictionary = SpriteCache.foe_def(e.kind)
 	var tint := Color(1, 1, 1)
 	var flash: bool = e.flash > 0.0
 	if e.kind == "wisp":
@@ -1090,39 +1010,38 @@ func _draw_enemy(e: Dictionary) -> void:
 	if e.elite:
 		for i in 4:
 			var a := t * 3.0 + i * TAU / 4.0
-			_glyph(Physics.center(e) + Vector2(cos(a) * e.size.x * 0.7, sin(a) * e.size.y * 0.6), "·", Color(1.0, 0.85, 0.3, 0.8), 1.0)
-	_sprite(Foes.frame(e), foot, e.dir, def.pal, def.cmap, def.a, tint, false, flash, def.get("scale", 1.0))
+			_dot(Physics.center(e) + Vector2(cos(a) * e.size.x * 0.7, sin(a) * e.size.y * 0.6), 1.0, Color(1.0, 0.85, 0.3, 0.8))
+	_sprite(Foes.frame(e), foot, e.dir, def.pal, tint, false, flash)
 	if e.elite:
-		_glyph(foot + Vector2(0, -e.size.y - D.GH * 1.2), "♦", Color(1.0, 0.85, 0.3), 0.9)
+		PixelArt.draw(_dyn, "gem", sp(foot + Vector2(0, -e.size.y - 6.0)), s)
 	match e.kind:
 		"knight":
 			if e.state == "tele" and int(t * 14.0) % 2 == 0:
-				_glyph(Vector2(Physics.center(e).x, e.pos.y - 10), "!", Color(1.0, 0.3, 0.25), 1.4)
+				_bang(Vector2(Physics.center(e).x, e.pos.y - 4), Color(1.0, 0.3, 0.25), 1.4)
 		"spitter":
 			if e.state == "charge":
-				_glyph(Physics.center(e) + Vector2(0, -12), "·", Color(1.0, 0.5, 0.4, 0.5 + 0.5 * sin(t * 30.0)), 1.6)
+				_dot(Physics.center(e) + Vector2(0, -12), 2.0, Color(1.0, 0.5, 0.4, 0.5 + 0.5 * sin(t * 30.0)))
 		"archer":
 			if e.state == "aim" and e.t < 0.3 and int(t * 14.0) % 2 == 0:
-				_glyph(Vector2(Physics.center(e).x, e.pos.y - 10), "!", Color(1.0, 0.3, 0.25), 1.2)
+				_bang(Vector2(Physics.center(e).x, e.pos.y - 4), Color(1.0, 0.3, 0.25), 1.2)
 		"hanged":
 			if e.state == "hang" and e.has("rope_y"):
-				var y0: float = e.rope_y
-				while y0 < e.pos.y + 2.0:
-					_glyph(Vector2(Physics.center(e).x, y0), "|", Color(0.62, 0.55, 0.4), 1.0)
-					y0 += D.GH
+				var rx := Physics.center(e).x
+				_seg(Vector2(rx, e.rope_y), Vector2(rx, e.pos.y + 2.0), Color(0.62, 0.55, 0.4), 1.0)
 		"bomber":
 			if e.state == "fuse":
-				_glyph(Physics.center(e) + Vector2(0, -14), "*", Color(1.0, 1.0, 0.6), 1.2 + sin(t * 40.0) * 0.3)
+				_dot(Physics.center(e) + Vector2(0, -14), 2.0 + roundf(sin(t * 40.0)), Color(1.0, 1.0, 0.6))
 		"warden", "colossus", "wraith", "hangman", "abbess", "frost_king":
 			if e.state in ["crouch", "tele", "raise", "ring", "hook"] and int(t * 10.0) % 2 == 0:
-				_glyph(Vector2(Physics.center(e).x, e.pos.y - 14), "!", Color(1.0, 0.3, 0.25), 1.8)
+				_bang(Vector2(Physics.center(e).x, e.pos.y - 6), Color(1.0, 0.3, 0.25), 1.8)
 	if not e.boss and e.hp < e.max_hp and e.hp > 0:
 		var w: float = e.size.x
 		var y: float = e.pos.y - 8.0
-		var n := 5
-		var full := int(ceil(float(e.hp) / e.max_hp * n))
-		for i in n:
-			_glyph(Vector2(e.pos.x + w * 0.5 + (i - 2) * D.GW * 0.8, y), "-", Color(1.0, 0.35, 0.3) if i < full else Color(0.3, 0.1, 0.1), 0.8, font)
+		var bw := 14.0
+		var x0: float = roundf(e.pos.x + w * 0.5 - bw * 0.5)
+		_box(Vector2(x0 - 1.0, y - 1.0), Vector2(bw + 2.0, 3.0), Color(0.05, 0.02, 0.02, 0.8))
+		_box(Vector2(x0, y), Vector2(bw, 1.0), Color(0.3, 0.1, 0.1))
+		_box(Vector2(x0, y), Vector2(ceilf(bw * float(e.hp) / e.max_hp), 1.0), Color(1.0, 0.35, 0.3))
 
 
 func _draw_hero() -> void:
@@ -1137,29 +1056,31 @@ func _draw_hero() -> void:
 		var wind := Vector2(-p.facing * (3.0 + k * 3.6), sin(t * 8.0 - k * 1.1) * 1.6 + k * 0.7)
 		var pt := neck + wind + ((hist - neck) * 0.3).limit_length(8.0)
 		var c := _mul(S.HERO_PAL[3], 1.0 - k * 0.12)
-		_glyph(pt, "~" if k % 2 == 0 else "^", c, 1.05 - k * 0.06)
+		_dot(pt, 2.0 if k < 3 else 1.0, c)
+		if k < 4:
+			_dot(pt + Vector2(-p.facing, 1.0), 1.0, _mul(c, 0.7))
 	var tint := Color(1, 1, 1)
 	if p.heal_t > 0.0:
 		tint = Color(0.6, 1.0, 0.7)
 	if game.level_up_t > 2.0:
 		tint = Color(0.7, 0.9, 1.0)
-	WeaponArt.draw_back(self, p, tint)
-	_sprite(Hero.frame(p), Physics.foot(p), p.facing, Hero.palette(p), {}, S.HERO.a, tint, false, false, S.HERO.scale)
-	WeaponArt.draw_held(self, p, tint)
+	var pal := Hero.palette(p)
+	var anchor := _sprite(Hero.frame(p), Physics.foot(p), p.facing, pal, tint)
+	WeaponArt.draw_held(_dyn, anchor, s, p, Hero.shoulder(p), p.facing, pal[0], tint)
 	if p.guard:
 		_draw_guard(p)
 
 
-## The raised guard: an arc of bright glyphs in front of the hero, golden
-## while a blow would still be parried.
+## The raised guard: a crimson heater shield with a skull under a gold
+## cross, held before the hero; its rim burns gold while a blow would still
+## be parried.
 func _draw_guard(p: Dictionary) -> void:
-	var c := Physics.center(p) + Vector2(p.facing * 9.0, -2.0)
 	var parry: bool = p.parry_t > 0.0
-	var col := Color(1.0, 0.85, 0.4) if parry else Color(0.75, 0.82, 0.9, 0.55 + 0.2 * sin(t * 14.0))
-	for k in 5:
-		var a := (k - 2) * 0.32
-		var pt := c + Vector2(cos(a) * p.facing, sin(a)) * 11.0
-		_glyph(pt, ")" if p.facing > 0 else "(", col, 1.15 if parry else 1.0)
+	var pal: Array = G.SHIELD_PAL.duplicate()
+	if parry:
+		pal[1] = Color(1.0, 0.82, 0.38)
+		_light(Physics.center(p) + Vector2(p.facing * 9.0, -2.0), 40.0, Color(1.0, 0.8, 0.4), 0.8)
+	_sprite(G.SHIELD, Physics.foot(p) + Vector2(p.facing * 8.0, -6.0), p.facing, pal)
 
 
 ## A small arrow circling the hero that points the way to the exit.
@@ -1175,20 +1096,27 @@ func _draw_guide() -> void:
 	if d.length() < 50.0:
 		return
 	var a := d.angle()
-	var pos := sp(c + Vector2(cos(a), sin(a)) * (26.0 + sin(t * 4.0) * 2.0))
-	# a small bone dagger pointing the way, over a faint ember glow
+	var dir := Vector2(cos(a), sin(a))
+	var at := (c + dir * (24.0 + sin(t * 4.0) * 1.5)).round()
+	# a small bone dagger pointing the way, in pixels of the world, over a
+	# faint ember glow: blade, guard, grip and pommel along the direction
 	var glow := 0.6 + 0.25 * sin(t * 4.0)
-	_dyn.draw_circle(pos, 5.0 * s, Color(0.9, 0.25, 0.1, 0.18 * glow))
-	_dyn.draw_set_transform(pos, a, Vector2(s, s))
-	var blade := PackedVector2Array([Vector2(8, 0), Vector2(-1.5, 1.6), Vector2(-1.5, -1.6)])
-	var edge := blade.duplicate()
-	edge.append(blade[0])
-	_dyn.draw_polyline(edge, Color(0.04, 0.0, 0.01, 0.8), 1.2, true)
-	_dyn.draw_colored_polygon(blade, Color(0.92, 0.86, 0.74, glow))
-	_dyn.draw_line(Vector2(-1.8, -3.6), Vector2(-1.8, 3.6), Color(0.55, 0.12, 0.1, glow), 1.3)
-	_dyn.draw_line(Vector2(-2.2, 0), Vector2(-5.5, 0), Color(0.3, 0.22, 0.2, glow), 1.4)
-	_dyn.draw_circle(Vector2(-6.3, 0), 1.1, Color(0.7, 0.12, 0.1, glow))
-	_dyn.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	_dyn.draw_circle(sp(at), 3.5 * s, Color(0.9, 0.25, 0.1, 0.18 * glow))
+	var side := Vector2(-dir.y, dir.x)
+	var px: Array = []
+	for k in range(0, 6):
+		px.append([at + dir * k, Color(0.92, 0.86, 0.74) if k < 5 else Color(1.0, 0.97, 0.9)])
+	for k in [-1, 0, 1]:
+		px.append([at - dir + side * k * 1.4, Color(0.6, 0.1, 0.1)])
+	px.append([at - dir * 2, Color(0.3, 0.22, 0.2)])
+	px.append([at - dir * 3, Color(0.3, 0.22, 0.2)])
+	px.append([at - dir * 4, Color(0.75, 0.12, 0.1)])
+	for q in px:
+		_dyn.draw_rect(Rect2(sp((q[0] as Vector2).round() - Vector2(1, 1)), Vector2(3, 3) * s), Color(0.03, 0.0, 0.01, 0.85))
+	for q in px:
+		var col: Color = q[1]
+		col.a = glow
+		_dyn.draw_rect(Rect2(sp((q[0] as Vector2).round()), Vector2(s, s)), col)
 
 
 func _neck_pos() -> Vector2:
@@ -1222,93 +1150,85 @@ func _draw_slashes() -> void:
 		var big: bool = sl.combo == 2 or sl.kind == "rise"
 		var radius: float = (27.0 if big else 20.0) * sl.reach
 		var spread := deg_to_rad(95.0 if big else 80.0)
-		var n := 16 if big else 12
+		# strokes close enough along the arc to join into one crescent
+		var n := maxi(12, int(radius * spread))
 		var col: Color = Color(1.0, 0.88, 0.5) if big else wcol.lerp(Color(1, 1, 1), 0.4)
 		var sweep_down: bool = sl.combo != 1
+		# a crescent of short pixel strokes along the arc, as the glyphs of
+		# the text picture were: faint and thin at the tail, bright and
+		# thick at the head
+		var head := Vector2.INF
+		var head_tg := Vector2.ZERO
 		for k in n:
 			var f := float(k) / float(n - 1)
 			if f > reveal:
 				break
 			var u := f if sweep_down else 1.0 - f
 			var a: float = base_a + float(sl.facing if sl.kind == "side" else 1) * lerpf(-spread, spread, u)
-			var pt := center + Vector2(cos(a), sin(a)) * radius
+			var d := Vector2(cos(a), sin(a))
+			var tg := d.orthogonal()
 			var cc := col
-			cc.a = alpha * (0.5 + 0.5 * f)
-			_glyph(pt, _tangent_glyph(a), cc, 1.25 if big else 1.1)
-			var inner := center + Vector2(cos(a), sin(a)) * radius * 0.7
-			cc.a *= 0.45
-			_glyph(inner, _tangent_glyph(a) if k % 2 == 0 else "·", cc, 0.9)
-			if big and k % 2 == 0:
-				var outer := center + Vector2(cos(a), sin(a)) * radius * 1.22
-				cc.a *= 0.6
-				_glyph(outer, "·", cc, 0.8)
+			cc.a = alpha * (0.35 + 0.65 * f)
+			_stroke(center + d * radius, tg, 4.0 if big else 3.0, cc)
+			# the body of the crescent thickens toward the head
+			var body := 1 + int(f * (3.0 if big else 2.0))
+			for q in body:
+				cc.a *= 0.7
+				_stroke(center + d * (radius - 1.0 - q), tg, 3.0, cc)
+			head = center + d * radius
+			head_tg = tg
+		if head != Vector2.INF:
+			_stroke(head, head_tg, 2.0, Color(1, 1, 1, alpha))
 
 
-## The Dash Lunge: a long streak of glyphs in front of the hero.
+## A short line of single pixels through [c] along [dir], [n] pixels long.
+func _stroke(c: Vector2, dir: Vector2, n: float, col: Color) -> void:
+	var steps := maxi(1, int(n))
+	for q in steps:
+		_dot(c + dir * (q - (steps - 1) * 0.5), 1.0, col)
+
+
+## The Dash Lunge: a long streak of dashes in front of the hero, ending in a point.
 func _draw_lunge(sl: Dictionary, c: Vector2, wcol: Color, alpha: float) -> void:
 	var col := wcol.lerp(Color(1, 1, 1), 0.5)
 	var n := int(9 * sl.reach)
+	var fd := Vector2(sl.facing, 0)
 	for k in n:
 		var f := float(k) / float(n - 1)
 		var cc := col
 		cc.a = alpha * (0.3 + 0.7 * f)
 		var x: float = c.x + sl.facing * (-14.0 + f * 52.0 * sl.reach)
-		_glyph(Vector2(x, c.y - 1), "=" if k < n - 1 else (">" if sl.facing > 0 else "<"), cc, 1.15)
+		if k < n - 1:
+			_stroke(Vector2(x, c.y - 2), fd, 4.0, cc)
+			_stroke(Vector2(x, c.y), fd, 4.0, cc)
+		else:
+			# the point, an arrowhead of pixels
+			for q in 3:
+				_dot(Vector2(x - sl.facing * q, c.y - 1 - q), 1.0, Color(1, 1, 1, alpha))
+				_dot(Vector2(x - sl.facing * q, c.y - 1 + q), 1.0, Color(1, 1, 1, alpha))
 		if k % 2 == 0:
 			cc.a *= 0.5
-			_glyph(Vector2(x, c.y - 7), "-", cc, 0.8)
-			_glyph(Vector2(x, c.y + 5), "-", cc, 0.8)
+			_stroke(Vector2(x, c.y - 8), fd, 2.0, cc)
+			_stroke(Vector2(x, c.y + 6), fd, 2.0, cc)
 
 
-static func _tangent_glyph(a: float) -> String:
-	var d := fposmod(a + PI * 0.5, PI)
-	if d < PI / 8.0 or d > PI * 7.0 / 8.0:
-		return "-"
-	if d < PI * 3.0 / 8.0:
-		return "\\"
-	if d < PI * 5.0 / 8.0:
-		return "|"
-	return "/"
-
-
-## Draws a multi-row sprite with its bottom row standing on foot (world units).
-## fr is either an Array of rows or {"g": rows, "m": palette masks}.
-func _sprite(fr: Variant, foot: Vector2, facing: int, pal: Array, cmap: Dictionary, anchor: float,
-		tint: Color = Color(1, 1, 1), ghost: bool = false, flash: bool = false, sc: float = 1.0) -> void:
-	var key: int = fr.hash() + 31 * cmap.hash() + int(anchor * 8.0)
-	var cs: Array = _compiled.get(key, [])
-	if cs.is_empty():
-		cs = SpriteCache.compile(fr, cmap, anchor)
-		_compiled[key] = cs
-	var dx: PackedFloat32Array = cs[0]
-	var dy: PackedFloat32Array = cs[1]
-	var chars: PackedStringArray = cs[2] if facing >= 0 else cs[3]
-	var pidx: PackedInt32Array = cs[4]
-	var dir := 1.0 if facing >= 0 else -1.0
-	var size := maxi(4, int(fs * 1.12 * sc))
-	var key_w := size * 2 + 1
-	var w: float = _adv_cache.get(key_w, -1.0)
-	if w < 0.0:
-		w = bold.get_char_size("M".unicode_at(0), size).x
-		_adv_cache[key_w] = w
-	# glyph centre -> baseline origin, and the drop shadow offset, in screen pixels
-	var org := sp(foot) + Vector2(-w * 0.5, size * 0.36)
-	var step := Vector2(D.GW * sc * dir * s, D.GH * sc * s)
-	var shadow := Vector2(1.5, 1.5) * sc
-	var last := pal.size() - 1
-	for k in chars.size():
-		var col: Color
-		if ghost:
-			col = tint
-		elif flash:
-			col = Color(1, 1, 1)
-		else:
-			col = pal[mini(pidx[k], last)] * tint
-			col.a = tint.a
-		var at := org + Vector2(dx[k] * step.x, -dy[k] * step.y)
-		if not ghost:
-			_dyn.draw_char(bold, at + shadow, chars[k], size, Color(0, 0, 0, 0.75 * col.a))
-		_dyn.draw_char(bold, at, chars[k], size, col)
+## Draws a pixel sprite frame standing on [foot] (world units), one texel per
+## world unit, mirrored when [facing] is negative. A [ghost] is a flat
+## silhouette in [tint]; a [flash] paints it white. Returns the screen point
+## the feet landed on.
+func _sprite(fr: Array, foot: Vector2, facing: int, pal: Array, tint: Color = Color(1, 1, 1), ghost: bool = false,
+		flash: bool = false) -> Vector2:
+	var tex := SpriteCache.tex(fr, pal, ghost or flash)
+	var size := Vector2(tex.get_size()) * s
+	var org := (sp(foot) - Vector2(size.x * 0.5, size.y - s)).round()
+	var r := Rect2(org, size)
+	if facing < 0:
+		# a negative width mirrors the texture in place: the rect keeps its left edge
+		r = Rect2(org, Vector2(-size.x, size.y))
+	var mod := tint if ghost else (Color(1, 1, 1, tint.a) if flash else tint)
+	_dyn.draw_texture_rect(tex, r, false, mod)
+	# where the feet landed on the screen, for what the creature holds
+	return org + Vector2(size.x * 0.5, size.y - s)
 
 
 # ---------------------------------------------------------------- lights
@@ -1358,7 +1278,7 @@ func _collect_lights() -> void:
 			break
 		if view.has_point(Physics.center(e)) and e.kind != "wisp":
 			eyes += 1
-			var ec: Color = S.FOES[e.kind].pal[1]
+			var ec: Color = SpriteCache.foe_def(e.kind).pal[1]
 			_light(Physics.center(e) + Vector2(e.dir * e.size.x * 0.25, -e.size.y * 0.2), 46.0 if not e.boss else 120.0, ec, 0.45)
 	for pr in game.projectiles:
 		if pr.delay <= 0.0 and lights.size() < MAX_LIGHTS - 4:

@@ -1,12 +1,12 @@
-// Post-processing: coloured point lights over a dim ambient, soft glow around
-// bright glyphs, faint scanlines and a vignette. Bright glyphs (sparks, eyes,
-// projectiles) stay visible in the dark.
+// Post-processing of the world: coloured point lights over a dim ambient, a
+// soft glow around bright things and a vignette. Bright things (sparks, eyes,
+// projectiles) stay visible in the dark. pixel.gdshader grades and dithers
+// the whole picture after the HUD is drawn.
 shader_type canvas_item;
 
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear;
 uniform float radius = 1.6;
 uniform float glow = 0.75;
-uniform float scanlines = 0.05;
 uniform float vignette = 0.35;
 uniform float lighting = 1.0;
 uniform float ambient = 0.5;
@@ -38,17 +38,17 @@ void fragment() {
 		}
 		float d = distance(frag, light_pos[i].xy) / max(light_pos[i].z, 1.0);
 		float f = clamp(1.0 - d, 0.0, 1.0);
-		light += light_col[i].rgb * f * f * 1.3;
+		light += light_col[i].rgb * f * f * 1.15;
 	}
-	light = min(light, vec3(1.6));
+	// a cap below the old 1.6: pixel art washes out to white long before glyphs did
+	light = min(light, vec3(1.3));
 	float lum = dot(base, vec3(0.299, 0.587, 0.114));
 	vec3 lit = base * light;
 	lit = max(lit, base * smoothstep(0.5, 0.95, lum));
 	vec3 c = mix(base, lit, lighting);
-	c += max(blur * mix(1.0, light.r * 0.5 + 0.5, lighting) - 0.04, vec3(0.0)) * glow;
+	// only bright things glow, so armour, stone and skin keep their pixels
+	c += max(blur * mix(1.0, light.r * 0.5 + 0.5, lighting) - 0.3, vec3(0.0)) * glow * 1.4;
 
-	float s = 0.5 + 0.5 * sin(FRAGCOORD.y * 3.14159);
-	c *= 1.0 - scanlines * s;
 	vec2 v = uv - 0.5;
 	c *= clamp(1.0 - dot(v, v) * vignette * 1.6, 0.0, 1.0);
 	c = mix(c, vec3(1.0, 0.92, 0.75), flash);

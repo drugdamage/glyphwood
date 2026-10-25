@@ -10,6 +10,7 @@ const Physics := preload("res://scripts/physics.gd")
 const Hero := preload("res://scripts/hero.gd")
 const Foes := preload("res://scripts/foes.gd")
 const Items := preload("res://scripts/items.gd")
+const SpriteCache := preload("res://scripts/sprite_cache.gd")
 
 const INK_PER_HIT := 11.0
 ## How long a staggered boss stands dazed, and how much more damage it takes meanwhile.
@@ -210,8 +211,10 @@ static func hurt_enemy(g, e: Dictionary, dmg: float, kdir: Vector2, melee: bool 
 			"big": crit})
 	if melee:
 		g.sfx("hit", -2.0)
-	burst(g, Physics.center(e), ["*", "+", "x", "·"], Color(1, 1, 1), 7, 150.0)
+	burst(g, Physics.center(e), ["*", "+", "·"], Color(1, 1, 1), 4, 150.0)
+	bleed(g, e, 6 if not crit else 12)
 	if e.hp <= 0:
+		bleed(g, e, 16)
 		kill_enemy(g, e)
 
 
@@ -242,22 +245,9 @@ static func kill_enemy(g, e: Dictionary) -> void:
 	g.hitstop = maxf(g.hitstop, 0.12 if e.boss else 0.07)
 	g.shake_add(14.0 if e.boss else 4.0)
 	g.sfx("kill", 0.0, 0.6 if e.boss else 1.0)
-	var def: Dictionary = S.FOES[e.kind]
+	var def: Dictionary = SpriteCache.foe_def(e.kind)
 	var pal: Array = def.pal
-	var fr: Variant = Foes.frame(e)
-	var lines: Array = fr.g if fr is Dictionary else fr
-	var f := Physics.foot(e)
-	var a: float = def.a
-	var sc: float = def.get("scale", 1.0)
-	for i in lines.size():
-		var line: String = lines[i]
-		for j in line.length():
-			var ch := line[j]
-			if ch == " ":
-				continue
-			var pp := f + Vector2((j - a) * D.GW * sc * e.dir, -(lines.size() - i - 0.5) * D.GH * sc)
-			g.particles.append({"p": pp, "v": Vector2(g.rng.randf_range(-140, 140), g.rng.randf_range(-260, -80)),
-				"g": ch, "c": pal[0], "life": 1.1, "max": 1.1, "grav": 900.0, "drag": 0.5, "s": 1.0})
+	shatter(g, Foes.frame(e), pal, Physics.foot(e), e.dir, 1.1, 900.0, 3 if e.boss else 2)
 	var st: Dictionary = g.player.st
 	var base: int = D.ENEMIES[e.kind].shards
 	var n := int(round(base * (2.5 if e.elite else 1.0) * st.shard_mult))
@@ -368,16 +358,7 @@ static func hurt_player(g, units: float, src_x: float, spikes: bool = false, gua
 		p.hp = 0
 		p.dead = true
 		g.on_player_died()
-		var fr: Dictionary = Hero.frame(p)
-		var lines: Array = fr.g
-		for i in lines.size():
-			var line: String = lines[i]
-			for j in line.length():
-				if line[j] != " ":
-					var off := Vector2((j - S.HERO.a) * D.GW, -(lines.size() - i - 0.5) * D.GH) * S.HERO.scale
-					g.particles.append({"p": Physics.foot(p) + off,
-						"v": Vector2(g.rng.randf_range(-120, 120), g.rng.randf_range(-280, -120)), "g": line[j],
-						"c": S.HERO_PAL[0], "life": 1.6, "max": 1.6, "grav": 700.0, "drag": 0.4, "s": 1.0})
+		shatter(g, Hero.frame(p), Hero.palette(p), Physics.foot(p), p.facing, 1.6, 700.0, 2)
 	elif spikes:
 		p.respawn_t = 0.45
 
@@ -779,6 +760,41 @@ static func update_pickups(g, dt: float) -> void:
 
 
 # ---------------------------------------------------------------- effects
+
+## Foes with no blood in them.
+const DRY := ["shield", "archer", "wight", "wisp", "choir", "spitter", "wraith", "colossus", "frost_king"]
+
+
+## Breaks a sprite frame standing on [foot] into flying chips of its own
+## colours, one chip per [step] x [step] block of pixels.
+static func shatter(g, fr: Array, pal: Array, foot: Vector2, dir: int, life: float, grav: float, step: int) -> void:
+	var h := fr.size()
+	var half := SpriteCache.width(fr) * 0.5
+	for y in range(0, h, step):
+		var row: String = fr[y]
+		for x in range(0, row.length(), step):
+			var ch := row[x]
+			if ch == ".":
+				continue
+			var pp := foot + Vector2((x + 0.5 - half) * dir, y - h + 0.5)
+			g.particles.append({"p": pp, "v": Vector2(g.rng.randf_range(-140, 140), g.rng.randf_range(-260, -80)),
+				"g": "*" if step > 1 else "·", "c": SpriteCache.color(ch, pal), "life": life, "max": life, "grav": grav,
+				"drag": 0.5, "s": 1.0})
+
+
+## Spray of blood from a struck foe, away from the hero; bone, stone and
+## spirits shed dust in their own colour instead.
+static func bleed(g, e: Dictionary, count: int) -> void:
+	var dust: bool = e.kind in DRY
+	var col: Color = SpriteCache.foe_def(e.kind).pal[0] if dust else Color(0.5, 0.02, 0.04)
+	var away := signf(Physics.center(e).x - Physics.center(g.player).x) if not g.player.is_empty() else 1.0
+	for i in count:
+		var v := Vector2(away * g.rng.randf_range(40.0, 170.0), g.rng.randf_range(-160.0, -20.0))
+		var life: float = g.rng.randf_range(0.4, 0.9)
+		g.particles.append({"p": Physics.center(e) + Vector2(g.rng.randf_range(-3, 3), g.rng.randf_range(-4, 4)), "v": v,
+			"g": "*" if i % 3 == 0 else "·", "c": col.darkened(g.rng.randf() * 0.4), "life": life, "max": life,
+			"grav": 520.0, "drag": 1.2, "s": 1.0})
+
 
 static func burst(g, at: Vector2, glyphs: Array, color: Color, count: int, speed: float, lift: float = 0.0) -> void:
 	for i in count:

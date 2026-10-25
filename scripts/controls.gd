@@ -1,47 +1,62 @@
-## Input actions with rebindable keyboard and mouse bindings, fixed gamepad
-## bindings, per-frame held / just pressed / released state and the last used
-## device (so hints show the right buttons and the mouse can aim).
+## Input actions with one rebindable key (or mouse button) and one rebindable
+## gamepad button each, per-frame held / just pressed / released state and the
+## last used device (so hints show the right buttons and the mouse can aim).
 extends RefCounted
 
-const ACTIONS := ["left", "right", "up", "down", "jump", "attack", "dash", "throw", "block", "swap", "interact", "inventory", "map",
-	"skills", "pause"]
+const ACTIONS := ["left", "right", "up", "down", "jump", "attack", "dash", "throw", "block", "swap", "slot1", "slot2", "slot3",
+	"interact", "inventory", "map", "skills", "pause"]
 
-## Two rebindable slots per action. "k:<physical keycode>" or "m:<mouse button>".
+## Actions in Settings → Controls: the keys 1-3 pick a weapon, so the swap to
+## the next one lives on the gamepad only.
+const KEY_ACTIONS := ["left", "right", "up", "down", "jump", "attack", "dash", "throw", "block", "slot1", "slot2", "slot3",
+	"interact", "inventory", "map", "skills", "pause"]
+
+## Actions in Settings → Gamepad: moving always follows the left stick and the d-pad.
+const PAD_ACTIONS := ["jump", "attack", "dash", "throw", "block", "swap", "interact", "inventory", "map", "skills", "pause"]
+
+## One rebindable key per action: "k:<physical keycode>" or "m:<mouse button>".
 const DEFAULTS := {
-	"left": ["k:%d" % KEY_A, "k:%d" % KEY_LEFT],
-	"right": ["k:%d" % KEY_D, "k:%d" % KEY_RIGHT],
-	"up": ["k:%d" % KEY_W, "k:%d" % KEY_UP],
-	"down": ["k:%d" % KEY_S, "k:%d" % KEY_DOWN],
-	"jump": ["k:%d" % KEY_SPACE, "k:%d" % KEY_Z],
-	"attack": ["k:%d" % KEY_J, "m:%d" % MOUSE_BUTTON_LEFT],
-	"dash": ["k:%d" % KEY_SHIFT, "m:%d" % MOUSE_BUTTON_RIGHT],
-	"throw": ["k:%d" % KEY_K, "k:%d" % KEY_F],
-	"block": ["k:%d" % KEY_Q, "k:%d" % KEY_L],
-	"swap": ["k:%d" % KEY_R, "k:%d" % KEY_U],
-	"interact": ["k:%d" % KEY_E, ""],
-	"inventory": ["k:%d" % KEY_TAB, "k:%d" % KEY_I],
-	"map": ["k:%d" % KEY_M, ""],
-	"skills": ["k:%d" % KEY_T, ""],
-	"pause": ["k:%d" % KEY_ESCAPE, "k:%d" % KEY_P],
+	"left": "k:%d" % KEY_A,
+	"right": "k:%d" % KEY_D,
+	"up": "k:%d" % KEY_W,
+	"down": "k:%d" % KEY_S,
+	"jump": "k:%d" % KEY_SPACE,
+	"attack": "m:%d" % MOUSE_BUTTON_LEFT,
+	"dash": "k:%d" % KEY_SHIFT,
+	"throw": "k:%d" % KEY_F,
+	"block": "m:%d" % MOUSE_BUTTON_RIGHT,
+	"swap": "",
+	"slot1": "k:%d" % KEY_1,
+	"slot2": "k:%d" % KEY_2,
+	"slot3": "k:%d" % KEY_3,
+	"interact": "k:%d" % KEY_E,
+	"inventory": "k:%d" % KEY_TAB,
+	"map": "k:%d" % KEY_M,
+	"skills": "k:%d" % KEY_T,
+	"pause": "k:%d" % KEY_ESCAPE,
 }
 
-## Gamepad: [buttons], [[axis, sign]].
-const PAD := {
-	"left": [[JOY_BUTTON_DPAD_LEFT], [[JOY_AXIS_LEFT_X, -1]]],
-	"right": [[JOY_BUTTON_DPAD_RIGHT], [[JOY_AXIS_LEFT_X, 1]]],
-	"up": [[JOY_BUTTON_DPAD_UP], [[JOY_AXIS_LEFT_Y, -1]]],
-	"down": [[JOY_BUTTON_DPAD_DOWN], [[JOY_AXIS_LEFT_Y, 1]]],
-	"jump": [[JOY_BUTTON_A], []],
-	"attack": [[JOY_BUTTON_X], []],
-	"dash": [[JOY_BUTTON_RIGHT_SHOULDER], [[JOY_AXIS_TRIGGER_RIGHT, 1]]],
-	"throw": [[JOY_BUTTON_Y], []],
-	"block": [[], [[JOY_AXIS_TRIGGER_LEFT, 1]]],
-	"swap": [[JOY_BUTTON_LEFT_STICK], []],
-	"interact": [[JOY_BUTTON_B], []],
-	"inventory": [[JOY_BUTTON_BACK], []],
-	"map": [[JOY_BUTTON_RIGHT_STICK], []],
-	"skills": [[JOY_BUTTON_LEFT_SHOULDER], []],
-	"pause": [[JOY_BUTTON_START], []],
+## One rebindable gamepad input per action: "j:<button>" or "a:<axis>:<sign>" (a trigger).
+const PAD_DEFAULTS := {
+	"jump": "j:%d" % JOY_BUTTON_A,
+	"attack": "j:%d" % JOY_BUTTON_X,
+	"dash": "j:%d" % JOY_BUTTON_RIGHT_SHOULDER,
+	"throw": "j:%d" % JOY_BUTTON_Y,
+	"block": "a:%d:1" % JOY_AXIS_TRIGGER_LEFT,
+	"swap": "j:%d" % JOY_BUTTON_LEFT_STICK,
+	"interact": "j:%d" % JOY_BUTTON_B,
+	"inventory": "j:%d" % JOY_BUTTON_BACK,
+	"map": "j:%d" % JOY_BUTTON_RIGHT_STICK,
+	"skills": "j:%d" % JOY_BUTTON_LEFT_SHOULDER,
+	"pause": "j:%d" % JOY_BUTTON_START,
+}
+
+## Moving on the gamepad: [d-pad button, [stick axis, sign]].
+const PAD_MOVE := {
+	"left": [JOY_BUTTON_DPAD_LEFT, [JOY_AXIS_LEFT_X, -1]],
+	"right": [JOY_BUTTON_DPAD_RIGHT, [JOY_AXIS_LEFT_X, 1]],
+	"up": [JOY_BUTTON_DPAD_UP, [JOY_AXIS_LEFT_Y, -1]],
+	"down": [JOY_BUTTON_DPAD_DOWN, [JOY_AXIS_LEFT_Y, 1]],
 }
 
 const PAD_NAMES := {
@@ -51,12 +66,12 @@ const PAD_NAMES := {
 	JOY_BUTTON_DPAD_DOWN: "D-pad ↓", JOY_BUTTON_DPAD_LEFT: "D-pad ←", JOY_BUTTON_DPAD_RIGHT: "D-pad →",
 }
 
-## Gamepad labels for actions on a stick or a trigger.
-const PAD_LABELS := {"left": "L-stick", "right": "L-stick", "dash": "RB", "block": "LT"}
+const AXIS_NAMES := {JOY_AXIS_TRIGGER_LEFT: "LT", JOY_AXIS_TRIGGER_RIGHT: "RT"}
 
 const KEY_GLYPHS := {KEY_LEFT: "←", KEY_RIGHT: "→", KEY_UP: "↑", KEY_DOWN: "↓"}
 
 var binds := {}
+var pads := {}
 var held := {}
 var just := {}
 var released := {}
@@ -67,20 +82,9 @@ var mouse_pos := Vector2.ZERO
 var mouse_moved_t := 99.0
 
 
-func setup(saved: Dictionary) -> void:
-	binds = DEFAULTS.duplicate(true)
-	for a in saved:
-		if binds.has(a) and saved[a] is Array and saved[a].size() == 2:
-			binds[a] = [str(saved[a][0]), str(saved[a][1])]
-	# actions added after the bindings were saved keep only the default keys
-	# that no saved action already uses
-	for a in ACTIONS:
-		if saved.has(a) or saved.is_empty():
-			continue
-		for i in 2:
-			for other in saved:
-				if binds.has(other) and other != a and binds[other].has(binds[a][i]):
-					binds[a][i] = ""
+func setup(saved: Dictionary, saved_pad: Dictionary) -> void:
+	binds = _load(DEFAULTS, saved, ["k:", "m:"])
+	pads = _load(PAD_DEFAULTS, saved_pad, ["j:", "a:"])
 	for a in ACTIONS:
 		held[a] = false
 		just[a] = false
@@ -89,24 +93,44 @@ func setup(saved: Dictionary) -> void:
 	_apply()
 
 
+## The defaults with the saved bindings over them. Bindings saved as two keys
+## per action (before 0.12) keep the first one.
+static func _load(defaults: Dictionary, saved: Dictionary, kinds: Array) -> Dictionary:
+	var out := defaults.duplicate()
+	for a in saved:
+		var v = saved[a]
+		if v is Array:
+			v = v[0] if not v.is_empty() and str(v[0]) != "" else (v[1] if v.size() > 1 else "")
+		if out.has(a) and (str(v) == "" or str(v).substr(0, 2) in kinds):
+			out[a] = str(v)
+	# actions added after the bindings were saved keep their default only when
+	# no saved action already uses it
+	for a in out:
+		if saved.has(a) or saved.is_empty():
+			continue
+		for other in saved:
+			if other != a and out.get(other, "") == out[a]:
+				out[a] = ""
+	return out
+
+
 func _apply() -> void:
 	for a in ACTIONS:
 		var name: String = "g_" + a
 		if InputMap.has_action(name):
 			InputMap.erase_action(name)
 		InputMap.add_action(name, 0.35)
-		for b in binds[a]:
+		for b in [binds.get(a, ""), pads.get(a, "")]:
 			var ev := _event(b)
 			if ev != null:
 				InputMap.action_add_event(name, ev)
-		for btn in PAD[a][0]:
+		if PAD_MOVE.has(a):
 			var jb := InputEventJoypadButton.new()
-			jb.button_index = btn
+			jb.button_index = PAD_MOVE[a][0]
 			InputMap.action_add_event(name, jb)
-		for ax in PAD[a][1]:
 			var jm := InputEventJoypadMotion.new()
-			jm.axis = ax[0]
-			jm.axis_value = ax[1]
+			jm.axis = PAD_MOVE[a][1][0]
+			jm.axis_value = PAD_MOVE[a][1][1]
 			InputMap.action_add_event(name, jm)
 
 
@@ -119,6 +143,16 @@ static func _event(b: String) -> InputEvent:
 		var m := InputEventMouseButton.new()
 		m.button_index = int(b.substr(2)) as MouseButton
 		return m
+	if b.begins_with("j:"):
+		var j := InputEventJoypadButton.new()
+		j.button_index = int(b.substr(2)) as JoyButton
+		return j
+	if b.begins_with("a:"):
+		var parts := b.split(":")
+		var ax := InputEventJoypadMotion.new()
+		ax.axis = int(parts[1]) as JoyAxis
+		ax.axis_value = float(parts[2])
+		return ax
 	return null
 
 
@@ -133,19 +167,33 @@ static func encode(ev: InputEvent) -> String:
 	return ""
 
 
-## Binds slot (0/1) of an action. The same input is removed from other actions.
-func rebind(action: String, slot: int, b: String) -> void:
+## Turns a captured gamepad event into a binding string, or "" if it can't be
+## bound (a stick, or a trigger pressed only lightly).
+static func encode_pad(ev: InputEvent) -> String:
+	if ev is InputEventJoypadButton and ev.pressed:
+		var btn: int = (ev as InputEventJoypadButton).button_index
+		return "" if btn in [JOY_BUTTON_DPAD_LEFT, JOY_BUTTON_DPAD_RIGHT, JOY_BUTTON_DPAD_UP, JOY_BUTTON_DPAD_DOWN] else "j:%d" % btn
+	if ev is InputEventJoypadMotion:
+		var m := ev as InputEventJoypadMotion
+		if m.axis in [JOY_AXIS_TRIGGER_LEFT, JOY_AXIS_TRIGGER_RIGHT] and m.axis_value > 0.6:
+			return "a:%d:1" % m.axis
+	return ""
+
+
+## Binds an action (on the gamepad when [pad]). The same input is taken off any other action.
+func rebind(action: String, b: String, pad: bool = false) -> void:
+	var table: Dictionary = pads if pad else binds
 	if b != "":
-		for a in ACTIONS:
-			for i in 2:
-				if binds[a][i] == b:
-					binds[a][i] = ""
-	binds[action][slot] = b
+		for a in table:
+			if table[a] == b:
+				table[a] = ""
+	table[action] = b
 	_apply()
 
 
 func reset() -> void:
-	binds = DEFAULTS.duplicate(true)
+	binds = DEFAULTS.duplicate()
+	pads = PAD_DEFAULTS.duplicate()
 	_apply()
 
 
@@ -196,7 +244,7 @@ func note_event(ev: InputEvent) -> void:
 		device = "pad"
 
 
-## Short label of a binding string, e.g. "Space", "LMB", "←".
+## Short label of a binding string, e.g. "Space", "LMB", "←", "RB".
 static func bind_label(b: String, lang_mouse: Array) -> String:
 	if b.begins_with("k:"):
 		var code := int(b.substr(2))
@@ -212,22 +260,19 @@ static func bind_label(b: String, lang_mouse: Array) -> String:
 		if btn >= 1 and btn <= lang_mouse.size():
 			return lang_mouse[btn - 1]
 		return "M%d" % btn
+	if b.begins_with("j:"):
+		return PAD_NAMES.get(int(b.substr(2)), "B%d" % int(b.substr(2)))
+	if b.begins_with("a:"):
+		return AXIS_NAMES.get(int(b.split(":")[1]), "?")
 	return ""
 
 
 ## Label for the action on the device the player is using right now.
 func label(action: String, lang_mouse: Array) -> String:
 	if device == "pad":
-		var btns: Array = PAD[action][0]
-		if PAD_LABELS.has(action):
-			return PAD_LABELS[action]
-		return PAD_NAMES.get(btns[0], "?") if not btns.is_empty() else "?"
-	var b: Array = binds[action]
-	if device == "mouse":
-		for x in b:
-			if str(x).begins_with("m:"):
-				return bind_label(x, lang_mouse)
-	for x in b:
-		if str(x) != "":
-			return bind_label(x, lang_mouse)
-	return "—"
+		if PAD_MOVE.has(action):
+			return "L-stick"
+		var p: String = pads.get(action, "")
+		return bind_label(p, lang_mouse) if p != "" else "—"
+	var b: String = binds.get(action, "")
+	return bind_label(b, lang_mouse) if b != "" else "—"

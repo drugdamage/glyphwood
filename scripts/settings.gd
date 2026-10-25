@@ -25,7 +25,6 @@ const DEFAULTS := {
 	"quality": "high",
 	"glow": true,
 	"lighting": true,
-	"scanlines": true,
 	"vignette": true,
 	"show_fps": false,
 	"ui_scale": 1.0,
@@ -35,6 +34,7 @@ const DEFAULTS := {
 	"vol_amb": 0.6,
 	"mute_unfocused": true,
 	"binds": {},
+	"pad_binds": {},
 }
 
 var values := {}
@@ -87,6 +87,14 @@ func hint_seen(id: String) -> bool:
 func mark_hint(id: String) -> void:
 	profile.hints_seen[id] = true
 	save_profile()
+
+
+## Every setting back to its default except the language; the caller applies them.
+func reset_all() -> void:
+	var lang: String = values.lang
+	values = DEFAULTS.duplicate(true)
+	values.lang = lang
+	save()
 
 
 func reset_hints() -> void:

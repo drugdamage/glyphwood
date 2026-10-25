@@ -1,6 +1,6 @@
 <h1 align="center">Glyphwood</h1>
 
-<p align="center">A gothic action platformer drawn entirely with text characters.</p>
+<p align="center">A gothic action platformer drawn in small, grimy pixels.</p>
 
 <p align="center">
   <img src="docs/gameplay.gif" alt="Glyphwood gameplay" width="640">
@@ -21,8 +21,8 @@ every kill grows your hero for good, so a few minutes or a few hours both
 count. A skill tree with three seven-tier branches and either/or forks;
 swords, rapiers, maces, axes, scythes, halberds, daggers, spears and katanas
 you can see in the hero's hands; knives, boomerangs, chakrams, javelins and
-flasks to throw; a second weapon on your back, armour you can see on the
-hero and reforge, blocks and parries, combos, dash lunges, critical hits
+flasks to throw; a belt of three weapons on keys 1, 2 and 3, armour you
+can see on the hero and reinforce, blocks and parries, combos, dash lunges, critical hits
 and bosses that stagger, several worlds you name yourself with four
 difficulties, keyboard, mouse and gamepad, and seven languages.
 

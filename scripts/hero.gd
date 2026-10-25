@@ -10,6 +10,7 @@ extends RefCounted
 
 const D := preload("res://scripts/data.gd")
 const S := preload("res://scripts/sprites.gd")
+const G := preload("res://scripts/gear_sprites.gd")
 const Items := preload("res://scripts/items.gd")
 const Physics := preload("res://scripts/physics.gd")
 const Level := preload("res://scripts/level.gd")
@@ -26,11 +27,23 @@ const DASH_COOLDOWN := 0.9
 const ATTACK_TIME := 0.26
 ## How long an attack press waits for the current swing to end.
 const ATTACK_BUFFER := 0.15
+## Pause after the third cut of Triple Cut before the next swing (shorter for
+## faster weapons), so the combo has a rhythm instead of an endless chain.
+const COMBO_REST := 0.22
 const POGO := 370.0
 const MAX_INK := 99.0
 const KNIFE_SPEED := 460.0
-## Speed of swimming up while jump (or up) is held.
-const SWIM_UP := 150.0
+## Speed of swimming up while jump (or up) is held, of diving while down is,
+## and of drifting up to the surface otherwise.
+const SWIM_UP := 140.0
+const SWIM_DOWN := 120.0
+const SWIM_FLOAT := 45.0
+## Running speed in water, and how slowly the hero speeds up and stops there.
+const SWIM_RUN := 0.5
+const SWIM_ACCEL := 520.0
+## A jump out of the water is this much of a jump on land: enough to climb
+## onto the bank, not to soar.
+const SWIM_LEAP := 0.78
 ## Seconds after a dash during which Iaido makes the next hit a sure crit.
 const IAIDO_TIME := 0.6
 ## Running speed bought at the merchant (Haste), per purchase.
@@ -50,11 +63,12 @@ const BASE_CRIT := 0.08
 ## Shortest time between two free throws of Blade Storm and two Juggernaut waves.
 const STORM_COOLDOWN := 2.5
 const WAVE_COOLDOWN := 1.5
-## The swap key trades the weapon in hand for the second one: the new weapon
+## The number keys take a weapon from the belt in hand, the swap key the next
+## one: the new weapon
 ## takes SWAP_DRAW seconds to draw (no attacks meanwhile, the combo starts
 ## over), and the next swap waits SWAP_COOLDOWN.
 const SWAP_DRAW := 0.25
-const SWAP_COOLDOWN := 1.0
+const SWAP_COOLDOWN := 0.6
 ## Guard (the block key): it lasts at most GUARD_MAX seconds and the hero
 ## walks slowly behind it. A hit from the front in the first PARRY_TIME
 ## seconds is parried (no damage, the attacker reels); a later one is blocked
@@ -75,7 +89,7 @@ const DANCE_DMG := 1.2
 
 
 ## Per-frame countdowns in the hero record (seconds, stopping at zero).
-const TIMERS := ["coyote", "jump_buf", "atk_buf", "leap_t", "wet_t", "drop_t", "wall_lock", "dash_cd", "atk_t", "combo_t", "inv",
+const TIMERS := ["coyote", "jump_buf", "atk_buf", "rest_t", "leap_t", "wet_t", "drop_t", "wall_lock", "dash_cd", "atk_t", "combo_t", "inv",
 	"blink", "hurt_t", "heal_t", "throw_t", "guard_cd", "swap_cd", "draw_t", "dash_end", "iaido_t", "haste_t", "chill_t", "storm_t",
 	"wave_t", "dance_t"]
 
@@ -84,7 +98,8 @@ const TIMERS := ["coyote", "jump_buf", "atk_buf", "leap_t", "wet_t", "drop_t", "
 static func create() -> Dictionary:
 	var p := {
 		"hp": BASE_HP, "base_hp": BASE_HP, "max_hp": BASE_HP, "ink": 0.0, "shards": 0,
-		"weapon": Items.START_WEAPON, "weapon2": "", "throw": Items.START_THROW, "charms": [], "bag": [], "st": {},
+		"weapon": Items.START_WEAPON, "belt": [Items.START_WEAPON, "", ""], "wslot": 0, "throw": Items.START_THROW,
+		"charms": [], "bag": [], "st": {},
 		"armor": {"head": "", "body": "", "legs": ""}, "armor_up": {},
 		"xp": 0, "xp_level": 1, "up_hp": 0, "up_dmg": 0, "up_spd": 0, "skills": {},
 	}
@@ -118,7 +133,7 @@ static func place(p: Dictionary, foot: Vector2) -> void:
 	p.merge({
 		"pos": foot - Vector2(size.x * 0.5, size.y), "size": size, "vel": Vector2.ZERO,
 		"on_floor": false, "on_wall": 0, "facing": 1,
-		"coyote": 0.0, "jump_buf": 0.0, "atk_buf": 0.0, "leap_t": 0.0, "wet_t": 0.0, "drop_t": 0.0, "wall_lock": 0.0,
+		"coyote": 0.0, "jump_buf": 0.0, "atk_buf": 0.0, "rest_t": 0.0, "leap_t": 0.0, "wet_t": 0.0, "drop_t": 0.0, "wall_lock": 0.0,
 		"sliding": false, "air_jumps": 0,
 		"dash_t": 0.0, "dash_cd": 0.0, "air_dash": true,
 		"guard": false, "guard_t": 0.0, "guard_cd": 0.0, "parry_t": 0.0, "swap_cd": 0.0, "draw_t": 0.0,
@@ -237,7 +252,12 @@ static func update(g, p: Dictionary, dt: float) -> void:
 		return
 
 	_update_guard(g, p, dt)
-	if just.swap and p.swap_cd <= 0.0 and p.atk_t <= 0.0 and not p.guard and Items.swap_weapons(p):
+	var pick := -1
+	for i in Items.BELT_SLOTS:
+		if just["slot%d" % (i + 1)]:
+			pick = i
+	var ready: bool = p.swap_cd <= 0.0 and p.atk_t <= 0.0 and not p.guard
+	if ready and ((pick >= 0 and Items.select_weapon(p, pick)) or (pick < 0 and just.swap and Items.next_weapon(p))):
 		refresh(p)
 		p.swap_cd = SWAP_COOLDOWN
 		p.draw_t = SWAP_DRAW
@@ -250,13 +270,14 @@ static func update(g, p: Dictionary, dt: float) -> void:
 
 	# horizontal movement
 	var dirx := int(held.right) - int(held.left)
-	var run_speed: float = RUN * st.run * (0.7 if p.swim else 1.0) * (1.25 if p.haste_t > 0.0 else 1.0) * (0.6 if p.chill_t > 0.0 else 1.0)
+	var run_speed: float = RUN * st.run * (SWIM_RUN if p.swim else 1.0) * (1.25 if p.haste_t > 0.0 else 1.0) \
+		* (0.6 if p.chill_t > 0.0 else 1.0)
 	if p.guard:
 		run_speed *= GUARD_RUN
 	if p.hurt_t > 0.0:
 		p.vel.x = move_toward(p.vel.x, 0.0, 500.0 * dt)
 	elif p.wall_lock <= 0.0:
-		var accel := 1800.0 if p.on_floor else 1150.0
+		var accel := SWIM_ACCEL if p.swim else (1800.0 if p.on_floor else 1150.0)
 		p.vel.x = move_toward(p.vel.x, dirx * run_speed, accel * dt)
 		if dirx != 0 and p.atk_t <= 0.0 and p.throw_t <= 0.0 and not p.guard:
 			p.facing = dirx
@@ -287,11 +308,11 @@ static func update(g, p: Dictionary, dt: float) -> void:
 		elif p.swim or p.wet_t > 0.0:
 			# at the surface a jump leaps out onto the bank; deeper down it is a stroke
 			if not p.swim or _at_surface(p, g.lv):
-				p.vel.y = -JUMP * 0.95
+				p.vel.y = -JUMP * SWIM_LEAP
 				p.leap_t = 0.25
 				g.burst(Physics.center(p), ["~", "'", "."], g.biome.water, 8, 90.0, -80.0)
 			else:
-				p.vel.y = minf(p.vel.y, -JUMP * 0.62)
+				p.vel.y = minf(p.vel.y, -SWIM_UP * 1.6)
 			p.jump_buf = 0.0
 			g.sfx("splash", -14.0, 1.4)
 		elif p.coyote > 0.0:
@@ -321,21 +342,27 @@ static func update(g, p: Dictionary, dt: float) -> void:
 			g.burst(Physics.foot(p), ["~", "'", "`"], Color(0.95, 0.95, 0.8), 8, 70.0)
 
 	if p.swim:
-		# holding jump (or up) swims upward; otherwise the hero slowly sinks
-		var rise: bool = held.jump or held.up
-		p.vel.y = move_toward(p.vel.y, -SWIM_UP if rise else 70.0, 900.0 * dt)
-		p.vel.y = minf(p.vel.y + 220.0 * dt, 110.0)
+		# water holds the hero up: jump (or up) swims upward, down dives, and
+		# otherwise the hero drifts up and floats with the head out
+		var want := -SWIM_FLOAT
+		if held.down:
+			want = SWIM_DOWN
+		elif held.jump or held.up:
+			want = -SWIM_UP
+		if want < 0.0 and _at_surface(p, g.lv):
+			want = 0.0
+		p.vel.y = move_toward(p.vel.y, want, 600.0 * dt)
 	else:
 		var grav := GRAVITY * (1.15 if p.vel.y > 0.0 else 1.0)
 		p.vel.y = minf(p.vel.y + grav * dt, WALL_FALL if p.sliding else MAX_FALL)
 	if p.sliding and g.rng.randf() < 20.0 * dt:
 		g.burst(Physics.center(p) + Vector2(wall * 7, -6), ["'", "."], g.biome.edge, 1, 20.0)
 
-	# attack: a press just before a swing ends is kept for the next one, and
-	# holding the button keeps swinging (fast weapons need no frantic clicking)
+	# attack: every swing needs its own press; a press just before a swing
+	# ends is kept for the next one
 	if just.attack:
 		p.atk_buf = ATTACK_BUFFER
-	if (p.atk_buf > 0.0 or held.attack) and p.atk_t <= 0.0 and p.draw_t <= 0.0 and not p.guard:
+	if p.atk_buf > 0.0 and p.atk_t <= 0.0 and p.rest_t <= 0.0 and p.draw_t <= 0.0 and not p.guard:
 		p.atk_buf = 0.0
 		var kind := "side"
 		if g.aiming_with_mouse():
@@ -350,7 +377,8 @@ static func update(g, p: Dictionary, dt: float) -> void:
 			kind = "up"
 		elif held.down and not p.on_floor:
 			kind = "down"
-		if kind == "up" and p.on_floor:
+		# only the up key launches the hero: a mouse aimed high just cuts upwards
+		if kind == "up" and p.on_floor and held.up:
 			kind = "rise"
 		_start_attack(g, p, kind)
 	# Quake: a down-cut in the air becomes a dive that shakes the ground on landing
@@ -362,7 +390,7 @@ static func update(g, p: Dictionary, dt: float) -> void:
 			p.slam = false
 
 	# thrown weapon
-	if just.throw and p.throw_t <= 0.0 and not p.guard:
+	if just.throw and p.throw_t <= 0.0 and not p.guard and p.throw != "":
 		var cost: float = st.throw_ink * st.ink_cost
 		if p.ink >= cost:
 			p.ink -= cost
@@ -429,10 +457,11 @@ static func _start_attack(g, p: Dictionary, kind: String) -> void:
 		if p.on_floor:
 			p.vel.x += p.facing * (190.0 if p.combo == 2 else 60.0)
 		if p.combo == 2:
+			p.rest_t = ATTACK_TIME / st.speed + COMBO_REST / st.speed
 			if st.juggernaut and p.on_floor and p.wave_t <= 0.0:
 				p.wave_t = WAVE_COOLDOWN
 				g.ground_wave(p)
-			if st.blade_storm and p.storm_t <= 0.0:
+			if st.blade_storm and p.storm_t <= 0.0 and p.throw != "":
 				p.storm_t = STORM_COOLDOWN
 				g.throw_weapon(p, Vector2(p.facing, 0), true)
 	if kind == "down" and st.quake and not p.on_floor:
@@ -541,35 +570,84 @@ static func palette(p: Dictionary) -> Array:
 	for pair in [["head", 1], ["body", 0], ["legs", 4]]:
 		var id: String = armor.get(pair[0], "")
 		if id != "":
-			var c: Color = Items.def(id).color
-			pal[pair[1]] = c if pair[0] == "head" else c.darkened(0.12 if pair[0] == "body" else 0.3)
+			pal[pair[1]] = dye(pair[0], Items.def(id).color)
 	return pal
 
 
-## Picks the sprite frame for the current state.
-static func frame(p: Dictionary) -> Dictionary:
-	var hs: Dictionary = S.HERO
+## The colour armour of colour [c] has on the hero when worn as [part]: the
+## item colours are bright, the hero is drawn in the dark tones of the night.
+static func dye(part: String, c: Color) -> Color:
+	return c.darkened({"head": 0.42, "body": 0.48, "legs": 0.55}.get(part, 0.42))
+
+
+## Picks the sprite frame for the current state, dressed in the armour worn.
+static func frame(p: Dictionary) -> Array:
+	var pk := pick(p)
+	return compose(pk[0], pk[1], Items.worn(p, "head"), Items.worn(p, "body"))
+
+
+static var _frames := {}
+
+
+## Frame [i] of animation [anim] with helmet [head] and body armour [body]
+## laid over it ("" for none: the horned helm and the bare tabard).
+static func compose(anim: String, i: int, head: String, body: String) -> Array:
+	var key := "%s|%d|%s|%s" % [anim, i, head, body]
+	if _frames.has(key):
+		return _frames[key]
+	var rows: Array = S.HERO[anim][i]
+	var pt: Array = S.HERO_PARTS[anim][i]
+	# the healing hand is held before the chest
+	if G.BODIES.has(body) and anim != "heal":
+		rows = _stamp(rows, G.BODIES[body], pt[1])
+	rows = _stamp(rows, G.HEADS.get(head, G.HEADS.helm), pt[0])
+	_frames[key] = rows
+	return rows
+
+
+## [rows] with the solid pixels of [over] laid on them, its corner at [at].
+static func _stamp(rows: Array, over: Array, at: Vector2i) -> Array:
+	var out := rows.duplicate()
+	for j in over.size():
+		var y := at.y + j
+		if y < 0 or y >= out.size():
+			continue
+		var line: String = out[y]
+		var src: String = over[j]
+		for k in src.length():
+			var x := at.x + k
+			if src[k] != "." and x >= 0 and x < line.length():
+				line = line.substr(0, x) + src[k] + line.substr(x + 1)
+		out[y] = line
+	return out
+
+
+## Where the arm hangs from in the frame drawn now (world units from the feet,
+## facing right).
+static func shoulder(p: Dictionary) -> Vector2i:
+	var pk := pick(p)
+	return S.HERO_SHOULDER[pk[0]][pk[1]]
+
+
+## The animation and frame index the hero is drawn with now.
+static func pick(p: Dictionary) -> Array:
 	if p.hurt_t > 0.0:
-		return hs.hurt[0]
+		return ["hurt", 0]
 	if p.heal_t > 0.0:
-		return hs.heal[0]
-	if p.dash_t > 0.0:
-		return hs.dash[0]
-	if p.guard:
-		return hs.throw[0]
-	if p.throw_t > 0.15:
-		return hs.throw[0]
-	if p.lunge_t > 0.0:
-		return hs.dash[0]
+		return ["heal", 0]
+	if p.dash_t > 0.0 or p.lunge_t > 0.0:
+		return ["dash", 0]
+	if p.guard or p.throw_t > 0.15:
+		return ["throw", 0]
 	if p.atk_t > p.atk_len - 0.18:
 		match p.atk_kind:
-			"up", "rise": return hs.attack_up[0]
-			"down": return hs.attack_down[0]
-		return hs.attack[0]
+			"up", "rise": return ["attack_up", 0]
+			"down": return ["attack_down", 0]
+		return ["attack", 0]
 	if p.sliding:
-		return hs.wall[0]
+		return ["wall", 0]
 	if not p.on_floor:
-		return hs.jump[0] if p.vel.y < 0.0 else hs.fall[0]
+		return ["jump", 0] if p.vel.y < 0.0 else ["fall", 0]
 	if absf(p.vel.x) > 20.0:
-		return hs.run[int(p.anim * 11.0) % 4]
-	return hs.idle[int(p.anim * 1.6) % 2]
+		return ["run", int(p.anim * 11.0) % 4]
+	return ["idle", int(p.anim * 1.6) % 2]

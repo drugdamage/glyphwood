@@ -1,5 +1,6 @@
-## Items, equipment and the stats they give. The hero has two weapon slots
-## (the second is drawn with the swap key), one throwing slot, three armour
+## Items, equipment and the stats they give. The hero carries up to
+## BELT_SLOTS weapons on a belt (number keys take one in hand, the swap key
+## the next), one throwing slot, three armour
 ## pieces (head, body, legs) that can be reforged for shards, and CHARM_SLOTS
 ## charm slots (one more every fifth hero level); everything else found during
 ## a run sits in the bag.
@@ -7,6 +8,7 @@
 extends RefCounted
 
 const CHARM_SLOTS := 3
+const BELT_SLOTS := 3
 const START_WEAPON := "rusty_blade"
 const START_THROW := "ink_knife"
 
@@ -26,7 +28,7 @@ const ITEMS := {
 	"rusty_blade": {"slot": "weapon", "glyph": "/", "color": Color(0.75, 0.7, 0.62), "price": 0,
 		"dmg": 10, "speed": 1.0, "reach": 1.0, "kind": "sword", "class": "blade"},
 	"glyph_saber": {"slot": "weapon", "glyph": "/", "color": Color(0.55, 0.95, 1.0), "price": 140,
-		"dmg": 11, "speed": 1.55, "reach": 1.0, "kind": "sword", "class": "blade"},
+		"dmg": 9, "speed": 1.55, "reach": 1.0, "kind": "sword", "class": "blade"},
 	"greatblade": {"slot": "weapon", "glyph": "†", "color": Color(0.85, 0.85, 0.95), "price": 170,
 		"dmg": 22, "speed": 0.72, "reach": 1.3, "kind": "great", "class": "heavy"},
 	"hollow_spear": {"slot": "weapon", "glyph": "|", "color": Color(0.6, 0.75, 1.0), "price": 150,
@@ -48,7 +50,7 @@ const ITEMS := {
 	"bone_scythe": {"slot": "weapon", "glyph": "Г", "color": Color(0.88, 0.84, 0.74), "price": 240,
 		"dmg": 17, "speed": 0.85, "reach": 1.3, "sweep": true, "kind": "scythe", "class": "heavy"},
 	"bell_halberd": {"slot": "weapon", "glyph": "ŧ", "color": Color(0.75, 0.7, 0.5), "price": 220,
-		"dmg": 17, "speed": 0.74, "reach": 1.5, "kind": "halberd", "class": "heavy"},
+		"dmg": 19, "speed": 0.74, "reach": 1.5, "kind": "halberd", "class": "heavy"},
 	"headsman_axe": {"slot": "weapon", "glyph": "Þ", "color": Color(0.72, 0.68, 0.7), "price": 250,
 		"dmg": 30, "speed": 0.58, "reach": 1.15, "execute": true, "kind": "axe", "class": "heavy"},
 	"ink_knife": {"slot": "throw", "glyph": "»", "color": Color(0.65, 0.75, 1.0), "price": 0, "dmg": 14.0, "ink": 33.0},
@@ -252,8 +254,53 @@ static func stats(p: Dictionary) -> Dictionary:
 
 
 static func owns(p: Dictionary, id: String) -> bool:
-	return p.weapon == id or p.get("weapon2", "") == id or p.get("throw", "") == id or p.charms.has(id) or p.bag.has(id) \
+	return p.weapon == id or p.belt.has(id) or p.get("throw", "") == id or p.charms.has(id) or p.bag.has(id) \
 		or p.get("armor", {}).values().has(id)
+
+
+## Makes the belt whole: BELT_SLOTS entries with the weapon in hand in the
+## chosen slot. Runs saved before the belt carried a second weapon in
+## [old_second]; it goes into the next slot.
+static func fix_belt(p: Dictionary, old_second: String = "") -> void:
+	var belt: Array = p.get("belt", [])
+	belt.resize(BELT_SLOTS)
+	for i in BELT_SLOTS:
+		if not belt[i] is String:
+			belt[i] = ""
+	if old_second != "" and not belt.has(old_second):
+		var free := belt.find("", 1)
+		if free > 0:
+			belt[free] = old_second
+	var slot := clampi(int(p.get("wslot", 0)), 0, BELT_SLOTS - 1)
+	if belt[slot] != p.weapon:
+		slot = belt.find(p.weapon)
+		if slot < 0:
+			slot = maxi(0, belt.find(""))
+			belt[slot] = p.weapon
+	p.belt = belt
+	p.wslot = slot
+
+
+## Takes the weapon of belt slot [i] in hand; false if it is empty or held.
+static func select_weapon(p: Dictionary, i: int) -> bool:
+	if i < 0 or i >= BELT_SLOTS or i == p.wslot or p.belt[i] == "":
+		return false
+	p.wslot = i
+	p.weapon = p.belt[i]
+	return true
+
+
+## Takes the next weapon on the belt in hand; false if there is no other.
+static func next_weapon(p: Dictionary) -> bool:
+	for k in range(1, BELT_SLOTS):
+		if select_weapon(p, (p.wslot + k) % BELT_SLOTS):
+			return true
+	return false
+
+
+## Number of weapons on the belt.
+static func belt_count(p: Dictionary) -> int:
+	return BELT_SLOTS - p.belt.count("")
 
 
 ## The armour piece worn on [part], or "".
@@ -277,12 +324,14 @@ static func give(p: Dictionary, id: String) -> bool:
 	if d.slot == "weapon" and p.weapon == START_WEAPON:
 		p.bag.append(p.weapon)
 		p.weapon = id
+		p.belt[p.wslot] = id
 		return true
-	if d.slot == "weapon" and p.get("weapon2", "") == "":
-		p.weapon2 = id
+	if d.slot == "weapon" and p.belt.has(""):
+		p.belt[p.belt.find("")] = id
 		return true
-	if d.slot == "throw" and p.throw == START_THROW:
-		p.bag.append(p.throw)
+	if d.slot == "throw" and (p.throw == START_THROW or p.throw == ""):
+		if p.throw != "":
+			p.bag.append(p.throw)
 		p.throw = id
 		return true
 	p.bag.append(id)
@@ -290,8 +339,8 @@ static func give(p: Dictionary, id: String) -> bool:
 
 
 ## Equips or unequips an owned item. Returns false if nothing changed.
-## A weapon from the bag goes into the main hand; the second weapon goes back
-## into the bag.
+## A weapon from the bag goes into the hand; one on the belt but not in hand
+## goes back into the bag.
 static func toggle(p: Dictionary, id: String) -> bool:
 	var d := def(id)
 	if d.is_empty():
@@ -308,17 +357,37 @@ static func toggle(p: Dictionary, id: String) -> bool:
 			p.bag.append(worn(p, d.part))
 		p.armor[d.part] = id
 		return true
-	if d.slot == "weapon" and p.get("weapon2", "") == id:
-		p.weapon2 = ""
+	if d.slot == "weapon" and p.belt.has(id):
+		var at: int = p.belt.find(id)
+		if p.weapon == id:
+			# the hand takes another weapon from the belt; the last one stays
+			var other := -1
+			for i in BELT_SLOTS:
+				if i != at and p.belt[i] != "":
+					other = i
+					break
+			if other < 0:
+				return false
+			p.wslot = other
+			p.weapon = p.belt[other]
+		p.belt[at] = ""
 		p.bag.append(id)
 		return true
-	if d.slot == "weapon" or d.slot == "throw":
-		var key: String = d.slot
-		if p[key] == id or not p.bag.has(id):
+	if d.slot == "weapon":
+		# into an empty slot of the belt if there is one, else into the hand
+		var free: int = p.belt.find("")
+		return to_slot(p, id, free if free >= 0 else p.wslot)
+	if d.slot == "throw":
+		if p.throw == id:
+			p.throw = ""
+			p.bag.append(id)
+			return true
+		if not p.bag.has(id):
 			return false
 		p.bag.erase(id)
-		p.bag.append(p[key])
-		p[key] = id
+		if p.throw != "":
+			p.bag.append(p.throw)
+		p.throw = id
 		return true
 	if p.charms.has(id):
 		p.charms.erase(id)
@@ -331,24 +400,25 @@ static func toggle(p: Dictionary, id: String) -> bool:
 	return true
 
 
-## Puts a weapon from the bag into the second slot (the old one goes back).
-static func equip_second(p: Dictionary, id: String) -> bool:
-	if def(id).get("slot", "") != "weapon" or not p.bag.has(id):
+## Puts weapon [id] (from the bag or another belt slot) into belt slot [i].
+## What was there goes back into the bag, or trades places with it on the belt.
+static func to_slot(p: Dictionary, id: String, i: int) -> bool:
+	if def(id).get("slot", "") != "weapon" or i < 0 or i >= BELT_SLOTS or p.belt[i] == id:
 		return false
-	p.bag.erase(id)
-	if p.get("weapon2", "") != "":
-		p.bag.append(p.weapon2)
-	p.weapon2 = id
-	return true
-
-
-## Trades the weapon in hand for the second one; false if there is none.
-static func swap_weapons(p: Dictionary) -> bool:
-	if p.get("weapon2", "") == "":
+	var old: String = p.belt[i]
+	var from: int = p.belt.find(id)
+	if from >= 0:
+		p.belt[from] = old
+	elif p.bag.has(id):
+		p.bag.erase(id)
+		if old != "":
+			p.bag.append(old)
+	else:
 		return false
-	var w: String = p.weapon
-	p.weapon = p.weapon2
-	p.weapon2 = w
+	p.belt[i] = id
+	if p.belt[p.wslot] == "":
+		p.wslot = i
+	p.weapon = p.belt[p.wslot]
 	return true
 
 

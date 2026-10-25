@@ -90,6 +90,31 @@ static func ground_ahead(b: Dictionary, lv, dir: int) -> bool:
 	return lv.solid(tx, ty) or t == Level.ONEWAY
 
 
+## True when the body overlaps a solid tile.
+static func embedded(b: Dictionary, lv) -> bool:
+	var T := D.TILE
+	var r := Rect2(b.pos, b.size).grow(-0.5)
+	for ty in range(int(floor(r.position.y / T)), int(floor(r.end.y / T)) + 1):
+		for tx in range(int(floor(r.position.x / T)), int(floor(r.end.x / T)) + 1):
+			if lv.solid(tx, ty):
+				return true
+	return false
+
+
+## Moves a body that overlaps a wall to the nearest free spot: sideways
+## first (a foe wider than a tile placed in a niche), then upwards.
+static func unstick(b: Dictionary, lv) -> void:
+	if not embedded(b, lv):
+		return
+	var start: Vector2 = b.pos
+	for k in range(1, int(D.TILE * 2.0) + 1):
+		for v in [Vector2(k, 0), Vector2(-k, 0), Vector2(0, -k)]:
+			b.pos = start + v
+			if not embedded(b, lv):
+				return
+	b.pos = start
+
+
 static func rect(b: Dictionary) -> Rect2:
 	return Rect2(b.pos, b.size)
 

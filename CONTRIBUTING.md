@@ -88,9 +88,13 @@ enforced by `gdlint` with the settings in [`.gdlintrc`](.gdlintrc).
   (`Hero.update`, `Foes.update`). Keep to this data-oriented style rather than
   introducing nodes per entity.
 - Static data lives in its own scripts: world constants, biomes, enemy stats and
-  hand-made rooms in `scripts/data.gd`, ASCII art in `scripts/sprites.gd`, items
-  in `scripts/items.gd`, the skill tree in `scripts/skills.gd`. Behaviour lives
-  in the other scripts.
+  hand-made rooms in `scripts/data.gd`, pixel art for the hero and foes in
+  `scripts/sprites.gd`, for bosses in `scripts/boss_sprites_1.gd` and
+  `scripts/boss_sprites_2.gd`, for weapons, armour, the shield and item
+  pictures in `scripts/gear_sprites.gd` and for props in
+  `scripts/pixel_art.gd`, items in
+  `scripts/items.gd`, the skill tree in `scripts/skills.gd`. Behaviour lives in
+  the other scripts.
 - Keep every script under 1500 lines (gdlint checks it): drawing helpers that
   grow large move into their own file, like `weapon_art.gd` and `decor_art.gd`.
 - Any user-visible text goes into `scripts/strings.gd` (or `scripts/strings_more.gd`
@@ -147,10 +151,15 @@ Not comfortable with code? Use the **New room** issue form and paste your
 
 1. **Stats** – add an entry to `ENEMIES` in `scripts/data.gd`: `size`, `hp`
    (the starting sword deals 10), `speed`, `shards` and `fly`.
-2. **Sprite** – add art to `FOES` in `scripts/sprites.gd`: a palette (`pal`), a
-   glyph-to-colour map (`cmap`), the centre column (`a`) and lists of frames per
-   animation (rows bottom-aligned, facing right; they are mirrored
-   automatically).
+2. **Sprite** – add pixel art to `FOES` in `scripts/sprites.gd` (a boss to
+   `BOSSES` in one of the `scripts/boss_sprites_*.gd` files): a palette
+   (`pal`) and lists of frames per animation. A frame is a list of rows, one
+   letter per pixel (one pixel is one world unit): digits pick palette colours,
+   `a`–`j` and `A`–`J` darker and lighter shades of them, other letters shared
+   colours from `scripts/sprite_cache.gd`, and `.` is see-through. Frames stand
+   on their bottom row, face right (they are mirrored automatically) and are
+   centred on the foe; keep every frame of one foe the same width. The dark
+   outline is added for you.
 3. **Behaviour** – add a `"kind":` branch to `Foes.update()` in
    `scripts/foes.gd` and pick its animation in `Foes.frame()`. Use
    `Physics.move()` for collision, `e.state` / `e.t` for a small state machine,

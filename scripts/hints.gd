@@ -6,6 +6,7 @@ extends RefCounted
 const Physics := preload("res://scripts/physics.gd")
 const Level := preload("res://scripts/level.gd")
 const Skills := preload("res://scripts/skills.gd")
+const Items := preload("res://scripts/items.gd")
 
 
 ## Returns the id of the hint to show now, or "". Also marks finished hints.
@@ -32,7 +33,7 @@ static func update(g, dt: float) -> String:
 	_done_if(g, "skills", g.menu.is_open("skills"))
 	_done_if(g, "drop", just.jump and g.ctl.held.down)
 	_done_if(g, "block", just.block)
-	_done_if(g, "swap", just.swap)
+	_done_if(g, "swap", just.swap or just.slot1 or just.slot2 or just.slot3)
 	# timed hints disappear after a few seconds
 	for id in ["down", "shield", "drop", "map", "elite", "guide", "lantern", "xp", "regen"]:
 		if h.get("since_" + id, -1.0) >= 0.0:
@@ -67,7 +68,7 @@ static func update(g, dt: float) -> String:
 		["combo", g.kills >= 1], ["regen", h.has("since_regen")], ["xp", h.has("since_xp")],
 		["skills", Skills.free_points(p) > 0], ["inventory", g.items_found > 0], ["throw", p.ink >= 33.0], ["dash", h.t > 14.0],
 		["lunge", g.cfg.hint_seen("dash") and g.kills >= 3], ["rise", g.kills >= 5],
-		["block", near_enemy and g.kills >= 4], ["swap", p.get("weapon2", "") != ""],
+		["block", near_enemy and g.kills >= 4], ["swap", Items.belt_count(p) > 1],
 		["shield", h.has("since_shield")], ["elite", h.has("since_elite")], ["down", h.has("since_down")],
 		["drop", h.has("since_drop")], ["map", h.has("since_map")],
 	]
