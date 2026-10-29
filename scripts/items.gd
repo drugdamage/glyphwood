@@ -212,7 +212,7 @@ static func stats(p: Dictionary) -> Dictionary:
 		"magnet": 1.0, "lifesteal": 0.0, "thorns": 0, "shard_mult": 1.0, "ink_gain": 1.0, "inv_time": 1.0,
 		"dmg_mult": 1.0, "crit": float(w.get("crit", 0.0)), "crit_mult": 2.0, "run": 1.0, "armor": 1.0, "rage": 1.0,
 		"crit_burn": false, "toll": 0, "dash_cd": 1.0, "chain": false, "ink_cost": 1.0, "orbs": 1.0, "boss_regen": false,
-		"chill": w.get("chill", false),
+		"chill": w.get("chill", false), "parry_mult": 1.0,
 	}
 	for part in PARTS:
 		var aid: String = p.get("armor", {}).get(part, "")

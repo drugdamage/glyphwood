@@ -1,7 +1,9 @@
 ## The skill tree screen, drawn by menu.gd. The core sits at the bottom: a
 ## reliquary holding the basic moves and the two stat nodes. Three branches
-## climb from it like iron thorns; at the forks one side is chosen for good
-## (until the skills are forgotten at a merchant).
+## climb from it like iron thorns: a trunk that forks once, then two paths
+## side by side, named at the top, with the branch's name between them. At a
+## fork one side is chosen for good, and so is a path (until the skills are
+## forgotten at a merchant).
 extends RefCounted
 
 const Skills := preload("res://scripts/skills.gd")
@@ -77,65 +79,94 @@ static func draw(m, vp: Vector2, accent: Color) -> void:
 	var pc := Color(1.0, 0.85, 0.4) if pts > 0 else Color(0.55, 0.58, 0.56)
 	m._text(Vector2(r.end.x - 30 * u - m._w(pt_text, int(16 * u), m.bold), r.position.y + 46 * u), pt_text, int(16 * u), pc, m.bold)
 	var details_h := 100.0 * u
-	var core := Rect2(r.get_center().x - 230 * u, r.end.y - details_h - 100 * u, 460 * u, 88 * u)
-	var top_y := r.position.y + 100 * u
-	var tier_h := (core.position.y - 28 * u - top_y) / (Skills.TIERS - 1)
+	var core := Rect2(r.get_center().x - 230 * u, r.end.y - details_h - 100 * u, 460 * u, 92 * u)
+	var lid_h := 14.0 * u
 	var col_w := w / 3.0
-	var nr := minf(22.0 * u, tier_h * 0.3)
-	# where each node sits
+	var label_y := r.position.y + 86 * u
+	# the tiers share what is left between the path names and the core's lid
+	var nr := 22.0 * u
+	for k in 2:
+		var top := label_y + 8 * u + nr * 1.15
+		var bottom := core.position.y - lid_h - 8 * u - nr * 1.15
+		nr = minf(22.0 * u, (bottom - top) / (Skills.TIERS - 1) * 0.3)
+	var top_y := label_y + 8 * u + nr * 1.15
+	var tier_h := (core.position.y - lid_h - 8 * u - nr * 1.15 - top_y) / (Skills.TIERS - 1)
+	var path_dx := minf(col_w * 0.25, 100 * u)
+	# where each node sits: the trunk in the middle of its column, the paths to either side
 	var pos := {}
 	for bi in Skills.BRANCHES.size():
 		var b: String = Skills.BRANCHES[bi]
 		var cx := r.position.x + col_w * (bi + 0.5)
 		for tier in range(1, Skills.TIERS + 1):
 			var ids := Skills.tier_nodes(b, tier)
-			var y := core.position.y - 28 * u - (tier - 1) * tier_h
+			var y := top_y + (Skills.TIERS - tier) * tier_h
 			for k in ids.size():
-				var dx := 0.0 if ids.size() == 1 else (k - 0.5) * minf(col_w * 0.46, 120 * u)
+				var dx := 0.0
+				if tier >= Skills.PATH_TIER:
+					dx = path_dx * (-1.0 if Skills.path_of(ids[k]) == "a" else 1.0)
+				elif ids.size() > 1:
+					dx = (k - 0.5) * minf(col_w * 0.4, 120 * u)
 				pos[ids[k]] = Vector2(cx + dx, y)
-	pos["vitality"] = Vector2(core.position.x + 50 * u, core.get_center().y - 10 * u)
-	pos["edge"] = Vector2(core.end.x - 50 * u, core.get_center().y - 10 * u)
-	# thorny stems: from the core up through each tier
+	var core_y := core.position.y + 34 * u
+	pos["vitality"] = Vector2(core.position.x + 50 * u, core_y)
+	pos["edge"] = Vector2(core.end.x - 50 * u, core_y)
+	# thorny stems: from the core's lid up the trunk, then up each path
+	var dim := Color(0.3, 0.27, 0.27)
 	for bi in Skills.BRANCHES.size():
 		var b: String = Skills.BRANCHES[bi]
 		var bc: Color = Skills.BRANCH_COLORS[b]
-		var root := Vector2(core.get_center().x + (bi - 1) * 120 * u, core.position.y)
+		var rx := (bi - 1) * 120 * u
+		var root := Vector2(core.get_center().x + rx, core.position.y - lid_h * (1.0 - absf(rx) / (core.size.x * 0.5)))
 		var prev: Array = [root]
 		for tier in range(1, Skills.TIERS + 1):
 			var cur: Array = []
 			for id in Skills.tier_nodes(b, tier):
 				cur.append(id)
 				for q in prev:
+					if q is String and Skills.path_of(q) not in ["", Skills.path_of(id)]:
+						continue
 					var a: Vector2 = q if q is Vector2 else pos[q]
 					var lit: bool = Skills.rank(p, id) > 0 and (q is Vector2 or Skills.rank(p, q) > 0)
-					_stem(m, a, pos[id], bc if lit else Color(0.3, 0.27, 0.27), u, lit)
+					_stem(m, a, pos[id], bc if lit else dim, u, lit)
 			prev = cur
-		# branch name above the top node
+		# the branch name crowns the gap between the two paths
+		var cx := r.position.x + col_w * (bi + 0.5)
 		var name: String = g.L("sk_" + b)
-		var ns: int = m._fit(name, int(17 * u), col_w - 30 * u, m.bold)
-		var top: Vector2 = pos[Skills.tier_nodes(b, Skills.TIERS)[0]]
-		m._text(Vector2(top.x - m._w(name, ns, m.bold) * 0.5, top.y - nr - 16 * u), name, ns, bc, m.bold)
+		var ns: int = m._fit(name, int(17 * u), path_dx * 2 - nr * 2.6 - 8 * u, m.bold)
+		m._text(Vector2(cx - m._w(name, ns, m.bold) * 0.5, top_y + ns * 0.36), name, ns, bc, m.bold)
+		# and each path's name stands over it, bright once taken, grey once sealed
+		for k in 2:
+			var first: String = Skills.tier_nodes(b, Skills.TIERS)[k]
+			var pn: String = g.L("sk_path_" + Skills.path_name(first))
+			var pcol := Color(bc.r, bc.g, bc.b, 0.7)
+			if Skills.path_sealed(p, first):
+				pcol = Color(0.4, 0.37, 0.36)
+			elif _path_taken(p, first):
+				pcol = bc.lightened(0.25)
+			var ps: int = m._fit(pn, int(13 * u), col_w * 0.5 - 12 * u, m.bold)
+			var px: float = pos[first].x
+			m._text(Vector2(px - m._w(pn, ps, m.bold) * 0.5, label_y), pn, ps, pcol, m.bold)
 	# the core: a reliquary with the basic moves
-	_reliquary(m, core, u)
+	_reliquary(m, core, lid_h, u)
 	var bs := int(19 * u)
 	var span := core.size.x - 200 * u
 	for k in BASE_MOVES.size():
 		var mx := core.position.x + 100 * u + span * (k + 0.5) / BASE_MOVES.size()
-		var mc := Vector2(mx, core.get_center().y - 8 * u)
+		var mc := Vector2(mx, core_y)
 		m.draw_circle(mc, 13 * u, Color(0.1, 0.08, 0.09))
 		m.draw_arc(mc, 13 * u, 0, TAU, 20, Color(0.55, 0.5, 0.45), maxf(1.0, u))
 		var gl: String = BASE_MOVES[k][1]
 		m._text(Vector2(mc.x - m._w(gl, bs, m.bold) * 0.5, mc.y + bs * 0.36), gl, bs, Color(0.92, 0.88, 0.8), m.bold)
 	var cl: String = g.L("sk_core")
-	m._text(Vector2(core.get_center().x - m._w(cl, int(12 * u)) * 0.5, core.end.y - 12 * u), cl, int(12 * u), Color(0.6, 0.58, 0.55))
-	# fork marks between the two sides
+	m._text(Vector2(core.get_center().x - m._w(cl, int(12 * u)) * 0.5, core.end.y - 10 * u), cl, int(12 * u), Color(0.6, 0.58, 0.55))
+	# "or" between the two sides of a fork, and between the two paths where they split
+	var orr: String = g.L("sk_or")
 	for b in Skills.BRANCHES:
-		for tier in range(1, Skills.TIERS + 1):
+		for tier in [2, Skills.PATH_TIER]:
 			var ids := Skills.tier_nodes(b, tier)
 			if ids.size() < 2:
 				continue
 			var mid: Vector2 = (pos[ids[0]] + pos[ids[1]]) * 0.5
-			var orr: String = g.L("sk_or")
 			m._text(Vector2(mid.x - m._w(orr, int(11 * u)) * 0.5, mid.y + 4 * u), orr, int(11 * u), Color(0.55, 0.5, 0.48))
 	# nodes
 	for i in m.items.size():
@@ -159,6 +190,15 @@ static func draw(m, vp: Vector2, accent: Color) -> void:
 	_details(m, Rect2(r.position.x + 30 * u, r.end.y - details_h, w - 220 * u, details_h - 14 * u))
 
 
+## Whether any node on the path of [id] is learned.
+static func _path_taken(p: Dictionary, id: String) -> bool:
+	for other in Skills.NODES:
+		if Skills.NODES[other].branch == Skills.NODES[id].branch and Skills.path_of(other) == Skills.path_of(id) \
+				and Skills.rank(p, other) > 0:
+			return true
+	return false
+
+
 static func _stem(m, a: Vector2, b: Vector2, c: Color, u: float, lit: bool) -> void:
 	m.draw_line(a, b, Color(0, 0, 0, 0.6), maxf(1.0, 4.0 * u))
 	m.draw_line(a, b, c, maxf(1.0, (2.2 if lit else 1.4) * u))
@@ -172,16 +212,16 @@ static func _stem(m, a: Vector2, b: Vector2, c: Color, u: float, lit: bool) -> v
 		m.draw_colored_polygon(PackedVector2Array([q - d.normalized() * 2.5 * u, q + side * s * 6.0 * u, q + d.normalized() * 2.5 * u]), c)
 
 
-## The core: a stone reliquary with a pointed lid.
-static func _reliquary(m, r: Rect2, u: float) -> void:
+## The core: a stone reliquary with a low pointed lid.
+static func _reliquary(m, r: Rect2, lid_h: float, u: float) -> void:
 	var iron := Color(0.45, 0.4, 0.37)
-	var lid := PackedVector2Array([r.position, Vector2(r.get_center().x, r.position.y - 26 * u), Vector2(r.end.x, r.position.y)])
+	var lid := PackedVector2Array([r.position, Vector2(r.get_center().x, r.position.y - lid_h), Vector2(r.end.x, r.position.y)])
 	m.draw_colored_polygon(lid, Color(0.06, 0.05, 0.06))
 	m.draw_polyline(lid, iron, maxf(1.0, 1.4 * u))
 	m.draw_rect(r, Color(0.04, 0.035, 0.04, 0.95))
 	m.draw_rect(r, iron, false, maxf(1.0, 1.4 * u))
 	m.draw_rect(r.grow(-5 * u), Color(0.6, 0.15, 0.12, 0.35), false, maxf(1.0, u))
-	m._cross(Vector2(r.get_center().x, r.position.y - 26 * u), 6.0 * u, iron, Color(0.8, 0.2, 0.15))
+	m._cross(Vector2(r.get_center().x, r.position.y - lid_h), 6.0 * u, iron, Color(0.8, 0.2, 0.15))
 
 
 ## One node: a diamond for branch skills, a circle for core stats.
@@ -228,11 +268,11 @@ static func _node(m, id: String, c: Vector2, nr: float, on: bool) -> void:
 	var gl: String = n.glyph
 	var fs := int(nr * 0.95)
 	m._text(Vector2(c.x - m._w(gl, fs, m.bold) * 0.5, c.y + fs * 0.36), gl, fs, gc, m.bold)
-	if why == "sealed":
+	if why == "sealed" or why == "path":
 		m.draw_line(c + Vector2(-nr, -nr) * 0.8, c + Vector2(nr, nr) * 0.8, Color(0.6, 0.1, 0.1, 0.9), maxf(1.0, 2.0 * u))
 	if Skills.max_rank(id) > 1:
 		var rt := "%d/%d" % [rk, Skills.max_rank(id)]
-		m._text(Vector2(c.x - m._w(rt, int(11 * u)) * 0.5, c.y + nr + 13 * u), rt, int(11 * u), Color(0.7, 0.68, 0.62))
+		m._text(Vector2(c.x - m._w(rt, int(11 * u)) * 0.5, c.y + nr * 1.35 + 11 * u), rt, int(11 * u), Color(0.7, 0.68, 0.62))
 
 
 static func _details(m, r: Rect2) -> void:
@@ -256,8 +296,8 @@ static func _details(m, r: Rect2) -> void:
 		"maxed":
 			status = g.L("sk_learned")
 			sc = Skills.BRANCH_COLORS[n.branch]
-		"sealed":
-			status = g.L("sk_why_sealed")
+		"sealed", "path":
+			status = g.L("sk_why_" + why)
 			sc = Color(0.85, 0.35, 0.3)
 		_:
 			status = g.L("sk_why_" + why)
@@ -267,6 +307,8 @@ static func _details(m, r: Rect2) -> void:
 	var title: String = g.L("sk_" + id)
 	if n.branch != "core":
 		title += "  ·  " + g.L("sk_" + n.branch)
+	if Skills.path_of(id) != "":
+		title += "  ·  " + g.L("sk_path_" + Skills.path_name(id))
 	var tc: Color = Skills.BRANCH_COLORS[n.branch]
 	m._text_fit(Vector2(r.position.x, r.position.y + 16 * u), title, int(19 * u), r.size.x - sw - 20 * u, tc, m.bold)
 	m._para(Vector2(r.position.x, r.position.y + 44 * u), g.L("sk_" + id + "_d"), r.size.x, int(14 * u), Color(0.8, 0.83, 0.8))

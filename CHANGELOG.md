@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-29
+
+### Added
+
+- **The skill tree splits into paths.** Each branch now has a trunk of
+  three tiers (Iron Hide, Quake or Shoulder Charge, Last Stand for the
+  bulwark) and then splits into two paths of four nodes, side by side.
+  Taking the first node of a path seals the other path of that branch, the
+  way a fork does. A full branch still costs seven points.
+  - **Bulwark:** the **Guardian** (Bastion, Aegis, Vengeance, Unbreakable)
+    soaks up blows; the **Warlord** (Heavy Mastery, Juggernaut, Rend,
+    Titan) hits with a heavy weapon.
+  - **Alchemist:** the **Poisoner** (Hex, Quicksilver, Venom Glass, Pyre)
+    burns; the **Knife Thrower** (Light Mastery, Blade Storm, Finishing
+    Throw, Philosopher's Stone) throws harder. Siphon is in the trunk.
+  - **Shade:** the **Duelist** (Blade Mastery, Iaido, Hemorrhage, Dance of
+    Death) crits; the **Assassin** (Long Lunge, Shadow Step, Evasion,
+    Ambush) strikes first and is hard to hit. Reaper is in the trunk.
+- Six new skills:
+  - **Aegis** (Guardian): a ward of 20 % of maximum health soaks up blows
+    before health does. It fills again, even mid-fight, after 3 seconds
+    without being hit, and shows as a pale line under the health blade.
+  - **Unbreakable** (Guardian): the parry window is half again as long; a
+    parry refills the ward, a block refills half of it.
+  - **Finishing Throw** (Knife Thrower): thrown weapons deal 80 % more
+    damage to foes below a third of their health.
+  - **Pyre** (Poisoner): a foe that dies burning bursts into flame; foes
+    nearby catch fire and take half a blow (and may burst in turn).
+  - **Evasion** (Assassin): a 15 % chance to slip any blow (not spikes).
+  - **Ambush** (Assassin): the first blow on an unhurt foe deals 2.5 times
+    the damage (not bosses).
+- `--browse` takes `.` to wait a step, for recordings.
+
+### Changed
+
+- **Titan** belongs to the Warlord now: +20 % damage and +10 % reach with
+  heavy weapons (was +15 % and 10 % less damage taken).
+- Last Stand, Siphon and Reaper moved into the trunks, so every build of
+  their branch can take them.
+- A save from before the paths keeps the path with more points in each
+  branch; points of skills the new tree no longer allows come back, and a
+  message says how many.
+- The skill tree names each path above it and puts the branch name between
+  the two paths; the help text explains paths.
+- Armour shows **Run speed** instead of just "Speed", so it is not mixed
+  up with attack speed.
+- The gameplay GIF shows the new tree: learning the Guardian path.
+
+### Fixed
+
+- The merchant's Haste said "running speed +0%": it showed what was
+  already bought, not what you buy. It now reads "Haste +5% running speed ·
+  Bought 0 of 6 · for good", like Vigor and the Whetstone.
+- In full screen the skill tree's labels sat on other text: the Alchemist
+  name ran into the title, the rank numbers of Vitality and Keen Edge sat
+  on their selection ring and the core's edge, and the middle branch's
+  first node sat on the core's lid. The tree has a row for path names, a
+  lower lid and a taller core now, so nothing overlaps.
+
 ## [0.12.1] - 2026-10-25
 
 ### Changed
@@ -24,6 +83,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the pause menu, the world list and the moves page were cut off or
   squeezed; they now shrink to fit the screen. The skill tree gives its
   tiers more room.
+
+## [0.12.0] - 2026-10-25
 
 ### Changed
 
@@ -674,7 +735,8 @@ First public release.
 - Bundled DejaVu Sans Mono font, used in the Web build (where system fonts are
   unavailable) and as a fallback for glyphs missing from the system font.
 
-[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.12.1...HEAD
+[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/drugdamage/glyphwood/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/drugdamage/glyphwood/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/drugdamage/glyphwood/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/drugdamage/glyphwood/compare/v0.11.0...v0.11.1

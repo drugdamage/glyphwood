@@ -155,8 +155,8 @@ var _shot_path := ""
 var _fitted := Vector2i.ZERO
 var _shot_time := 1.0
 var _bot := false
-## --browse=keys: arrow presses (u d l r, e for Enter) played into the open
-## menu one every BROWSE_STEP seconds, for recordings.
+## --browse=keys: arrow presses (u d l r, e for Enter, . to wait) played into
+## the open menu one every BROWSE_STEP seconds, for recordings.
 var _browse := ""
 var _browse_t := 0.0
 var _browse_i := 0
@@ -208,7 +208,9 @@ func _process(delta: float) -> void:
 		_browse_t += delta
 		if _browse_t >= BROWSE_STEP:
 			_browse_t = 0.0
-			_press_key(BROWSE_KEYS.get(_browse[_browse_i % _browse.length()], KEY_DOWN))
+			var ch := _browse[_browse_i % _browse.length()]
+			if ch != ".":
+				_press_key(BROWSE_KEYS.get(ch, KEY_DOWN))
 			_browse_i += 1
 	_dts.append(delta)
 	if delta > 0.03 and _shot_path != "":
@@ -692,8 +694,12 @@ func continue_run() -> void:
 		# saved before the belt: the weapon in hand and the second one make it up
 		player.belt = []
 	Items.fix_belt(player, saved.get("weapon2", ""))
+	# the tree may have changed since the save: points of nodes it no longer allows come back
+	var back := Skills.sanitize(player)
 	Hero.refresh(player)
 	_start_level_now()
+	if back > 0:
+		toast(L("toast_refund") % back, Skills.BRANCH_COLORS.shade)
 
 
 func _start_level_now() -> void:

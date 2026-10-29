@@ -428,7 +428,7 @@ func _shop_items() -> Array:
 		"label": game.L("shop_whet"), "color": Color(0.8, 0.85, 0.95), "note": game.L("shop_whet_d") % p.up_dmg})
 	if p.up_spd < Items.HASTE_MAX:
 		out.append({"type": "buy", "id": "haste", "price": Items.service_price(p, "haste", lvl), "act": _buy.bind("haste"),
-			"label": game.L("shop_haste"), "color": Color(0.6, 0.9, 1.0), "note": game.L("shop_haste_d") % (p.up_spd * 5)})
+			"label": game.L("shop_haste"), "color": Color(0.6, 0.9, 1.0), "note": game.L("shop_haste_d") % [p.up_spd, Items.HASTE_MAX]})
 	if Skills.spent(p) > 0:
 		out.append({"type": "buy", "id": "forget", "price": Items.service_price(p, "forget", lvl), "act": _buy.bind("forget"),
 			"label": game.L("shop_forget"), "color": Color(0.75, 0.6, 0.95), "note": game.L("shop_forget_d")})
@@ -879,7 +879,7 @@ func _draw() -> void:
 		"shop", "sell":
 			_draw_shop(vp, accent)
 		"skills":
-			_fit_unit(vp, 720.0, 640.0)
+			_fit_unit(vp, 720.0, 680.0)
 			SkillTree.draw(self, vp, accent)
 		"map":
 			_draw_map(vp, accent)

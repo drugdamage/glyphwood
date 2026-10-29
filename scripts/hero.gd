@@ -86,6 +86,12 @@ const ARMOR_FLOOR := 0.5
 ## Seconds of extra damage after a kill with Dance of Death, and how much.
 const DANCE_TIME := 2.0
 const DANCE_DMG := 1.2
+## Aegis: a ward of WARD_SHARE of max health soaks up blows before health
+## does (after armour). It fills again, even mid-fight, once no blow has
+## landed for WARD_DELAY seconds, at WARD_RATE of the ward per second.
+const WARD_SHARE := 0.2
+const WARD_DELAY := 3.0
+const WARD_RATE := 0.35
 
 
 ## Per-frame countdowns in the hero record (seconds, stopping at zero).
@@ -120,6 +126,8 @@ static func refresh(p: Dictionary) -> void:
 	p.st.armor = maxf(p.st.armor, ARMOR_FLOOR)
 	p.max_hp = int((p.base_hp + HP_PER_LEVEL * (p.xp_level - 1) + 10 * p.up_hp + p.st.max_hp) * p.st.hp_mult)
 	p.hp = mini(p.hp, p.max_hp)
+	p.st.ward_max = p.max_hp * WARD_SHARE if p.st.aegis else 0.0
+	p.ward = minf(p.get("ward", 0.0), p.st.ward_max)
 
 
 ## Experience needed to go from this level to the next.
@@ -137,6 +145,7 @@ static func place(p: Dictionary, foot: Vector2) -> void:
 		"sliding": false, "air_jumps": 0,
 		"dash_t": 0.0, "dash_cd": 0.0, "air_dash": true,
 		"guard": false, "guard_t": 0.0, "guard_cd": 0.0, "parry_t": 0.0, "swap_cd": 0.0, "draw_t": 0.0,
+		"ward": p.st.get("ward_max", 0.0), "ward_t": 0.0,
 		"atk_t": 0.0, "atk_len": ATTACK_TIME, "atk_kind": "side", "atk_hit": {}, "combo": 0, "combo_t": 0.0,
 		"throw_t": 0.0, "inv": 0.0, "blink": 0.0, "hurt_t": 0.0, "heal_t": 0.0,
 		"respawn_t": 0.0, "safe": foot - Vector2(size.x * 0.5, size.y), "swim": false,
@@ -191,6 +200,9 @@ static func update(g, p: Dictionary, dt: float) -> void:
 			p.regen -= n
 			if int(p.anim * 6.0) % 3 == 0:
 				g.burst(Physics.center(p) + Vector2(randf_range(-6, 6), 4), ["+", "·"], Color(0.55, 1.0, 0.6), 1, 20.0, -50.0)
+	p.ward_t += dt
+	if p.ward_t > WARD_DELAY and p.ward < st.ward_max:
+		p.ward = minf(st.ward_max, p.ward + st.ward_max * WARD_RATE * dt)
 
 	# Dash Lunge: attacking during (or right after) a dash turns it into a piercing thrust
 	if just.attack and (p.dash_t > 0.0 or p.dash_end > 0.0) and p.atk_t <= 0.0 and p.lunge_t <= 0.0:
@@ -426,7 +438,7 @@ static func _update_guard(g, p: Dictionary, dt: float) -> void:
 			p.facing = 1 if g.aim_vector(p).x >= 0.0 else -1
 		p.guard = true
 		p.guard_t = 0.0
-		p.parry_t = PARRY_TIME
+		p.parry_t = PARRY_TIME * p.st.parry_mult
 		p.slam = false
 		g.sfx("clink", -10.0, 0.7)
 

@@ -38,24 +38,122 @@ const STRINGS := {
 		"Scellée : l'autre côté a été choisi",
 		"封印：分岐のもう一方を選んだ",
 	],
+	"sk_why_path": [
+		"Sealed: the other path of this branch is chosen",
+		"Versiegelt: der andere Pfad dieses Zweigs ist gewählt",
+		"Закрыто: в этой ветви выбран другой путь",
+		"已封印：此分支已选择另一条道路",
+		"Sellada: elegiste la otra senda de esta rama",
+		"Scellée : l'autre voie de cette branche est choisie",
+		"封印：この系統のもう一方の道を選んだ",
+	],
 	"sk_why_maxed": ["Fully learned", "Voll erlernt", "Изучено полностью", "已学满", "Aprendida del todo", "Entièrement apprise", "習得済み"],
 	"sk_intro": [
-		"Every hero level gives a skill point. Learn a node with Enter or a click. At a fork (or) only one side can be chosen; "
-		+ "a merchant will make you forget everything, for a price.",
-		"Jede Heldenstufe gibt einen Talentpunkt. Erlerne Knoten mit Enter oder Klick. An einer Gabelung (oder) gilt nur eine Seite; "
-		+ "ein Händler lässt dich gegen Bezahlung alles vergessen.",
+		"Every hero level gives a skill point. Learn a node with Enter or a click. At a fork (or) only one side can be chosen, and "
+		+ "from the fourth tier each branch splits into two paths: take one and the other is sealed. A merchant will make you "
+		+ "forget everything, for a price.",
+		"Jede Heldenstufe gibt einen Talentpunkt. Erlerne Knoten mit Enter oder Klick. An einer Gabelung (oder) gilt nur eine Seite, "
+		+ "und ab der vierten Stufe teilt sich jeder Zweig in zwei Pfade: wählst du einen, ist der andere versiegelt. Ein Händler "
+		+ "lässt dich gegen Bezahlung alles vergessen.",
 		"Каждый уровень героя даёт очко навыка. Изучай узлы клавишей Enter или щелчком. На развилке (или) можно выбрать только одну "
-		+ "сторону; торговец за плату поможет всё забыть.",
-		"每升一级获得一个技能点。按回车或点击学习节点。岔路（或）只能选择一侧；商人可以收费让你遗忘全部技能。",
-		"Cada nivel da un punto. Aprende un nodo con Intro o un clic. En una bifurcación (o) solo puedes elegir un lado; "
-		+ "un mercader te hará olvidarlo todo, por un precio.",
-		"Chaque niveau donne un point. Apprends un nœud avec Entrée ou un clic. À une bifurcation (ou), un seul côté est possible ; "
-		+ "un marchand te fera tout oublier, contre paiement.",
-		"レベルが上がるごとにポイントを1つ得る。Enterかクリックで習得。分岐（または）は片方だけ選べる。商人に払えばすべて忘れられる。",
+		+ "сторону, а с четвёртого яруса каждая ветвь делится на два пути: выберешь один — другой закроется. Торговец за плату "
+		+ "поможет всё забыть.",
+		"每升一级获得一个技能点。按回车或点击学习节点。岔路（或）只能选择一侧；从第四层起每个分支分为两条道路，选择一条后另一条将被封印。"
+		+ "商人可以收费让你遗忘全部技能。",
+		"Cada nivel da un punto. Aprende un nodo con Intro o un clic. En una bifurcación (o) solo puedes elegir un lado, y desde el "
+		+ "cuarto nivel cada rama se divide en dos sendas: al tomar una, la otra queda sellada. Un mercader te hará olvidarlo todo, "
+		+ "por un precio.",
+		"Chaque niveau donne un point. Apprends un nœud avec Entrée ou un clic. À une bifurcation (ou), un seul côté est possible, "
+		+ "et dès le quatrième rang chaque branche se divise en deux voies : en prendre une scelle l'autre. Un marchand te fera tout "
+		+ "oublier, contre paiement.",
+		"レベルが上がるごとにポイントを1つ得る。Enterかクリックで習得。分岐（または）は片方だけ選べる。4段目から各系統は2つの道に分かれ、"
+		+ "片方を選ぶともう一方は封印される。商人に払えばすべて忘れられる。",
 	],
 	"sk_bulwark": ["Bulwark", "Bollwerk", "Оплот", "壁垒", "Baluarte", "Rempart", "城壁"],
 	"sk_alchemist": ["Alchemist", "Alchemist", "Алхимик", "炼金师", "Alquimista", "Alchimiste", "錬金術師"],
 	"sk_shade": ["Shade", "Schatten", "Тень", "暗影", "Sombra", "Ombre", "影"],
+	"sk_path_guardian": ["Guardian", "Wächter", "Страж", "守护者", "Guardián", "Gardien", "守護者"],
+	"sk_path_warlord": ["Warlord", "Kriegsherr", "Воитель", "战魁", "Señor de la guerra", "Seigneur de guerre", "武将"],
+	"sk_path_poisoner": ["Poisoner", "Giftmischer", "Отравитель", "投毒者", "Envenenador", "Empoisonneur", "毒使い"],
+	"sk_path_knifethrower": ["Knife Thrower", "Messerwerfer", "Метатель", "飞刀手", "Lanzacuchillos", "Lanceur de couteaux", "投げ刃使い"],
+	"sk_path_duelist": ["Duelist", "Duellant", "Дуэлянт", "决斗者", "Duelista", "Duelliste", "決闘者"],
+	"sk_path_assassin": ["Assassin", "Assassine", "Убийца", "刺客", "Asesino", "Assassin", "暗殺者"],
+	"sk_aegis": ["Aegis", "Ägis", "Эгида", "神盾", "Égida", "Égide", "イージス"],
+	"sk_aegis_d": [
+		"A ward of 20% of your maximum health soaks up blows before your health does. It fills again, even mid-fight, "
+		+ "after 3 seconds without being hit.",
+		"Ein Schutzschild von 20 % deines maximalen Lebens fängt Treffer ab, bevor sie dein Leben erreichen. Er lädt sich, "
+		+ "selbst im Kampf, nach 3 Sekunden ohne Treffer wieder auf.",
+		"Щит в 20% от максимума здоровья впитывает удары раньше, чем здоровье. Он снова наполняется — даже в бою — "
+		+ "если 3 секунды по тебе не попадали.",
+		"一层相当于最大生命 20% 的护盾会先于生命吸收伤害。3 秒未被击中后护盾会重新充满，即使在战斗中。",
+		"Una égida del 20 % de tu salud máxima absorbe los golpes antes que tu salud. Se recarga, incluso en combate, "
+		+ "tras 3 segundos sin recibir golpes.",
+		"Une égide de 20 % de ta santé max absorbe les coups avant ta santé. Elle se recharge, même en combat, "
+		+ "après 3 secondes sans être touché.",
+		"最大体力の20%の障壁が体力より先にダメージを吸収する。3秒間攻撃を受けなければ、戦闘中でも再び満たされる。",
+	],
+	"sk_unbreakable": ["Unbreakable", "Unbeugsam", "Несокрушимый", "不破", "Inquebrantable", "Inébranlable", "不壊"],
+	"sk_unbreakable_d": [
+		"The parry window is half again as long. A parry refills your Aegis ward; a block refills half of it.",
+		"Das Parierfenster ist anderthalbmal so lang. Eine Parade füllt deinen Ägis-Schild ganz, ein Block zur Hälfte.",
+		"Окно парирования в полтора раза длиннее. Парирование полностью наполняет щит Эгиды, блок — наполовину.",
+		"招架判定时间延长 50%。招架会完全充满神盾护盾，格挡会充满一半。",
+		"La ventana de parada dura la mitad más. Una parada llena tu égida; un bloqueo, la mitad.",
+		"La fenêtre de parade dure moitié plus. Une parade remplit ton égide ; un blocage, la moitié.",
+		"パリィの受付時間が1.5倍になる。パリィでイージスの障壁が満タンに、ガードで半分回復する。",
+	],
+	"sk_kill_shot": ["Finishing Throw", "Gnadenwurf", "Добивающий бросок", "终结投掷", "Lanzamiento de gracia", "Lancer de grâce",
+		"とどめの投擲"],
+	"sk_kill_shot_d": [
+		"Thrown weapons deal 80% more damage to foes below a third of their health.",
+		"Wurfwaffen richten an Feinden unter einem Drittel ihres Lebens 80 % mehr Schaden an.",
+		"Метательное оружие наносит на 80% больше урона врагам, у которых меньше трети здоровья.",
+		"投掷武器对生命低于三分之一的敌人伤害 +80%。",
+		"Las armas arrojadizas hacen un 80 % más de daño a enemigos con menos de un tercio de salud.",
+		"Les armes de jet infligent 80 % de dégâts en plus aux ennemis sous le tiers de leur santé.",
+		"体力が3分の1未満の敵に、投擲武器の与ダメージ +80%。",
+	],
+	"sk_pyre": ["Pyre", "Scheiterhaufen", "Погребальный костёр", "火葬堆", "Pira", "Bûcher", "火葬"],
+	"sk_pyre_d": [
+		"A foe that dies burning bursts into flame: foes nearby catch fire and take half a blow.",
+		"Ein Feind, der brennend stirbt, geht in Flammen auf: Feinde in der Nähe fangen Feuer und nehmen halben Schaden eines Hiebs.",
+		"Враг, умерший в огне, вспыхивает: враги рядом загораются и получают половину удара.",
+		"燃烧中死亡的敌人会爆燃：附近的敌人着火并受到半次攻击的伤害。",
+		"Un enemigo que muere ardiendo estalla en llamas: los cercanos se prenden y reciben medio golpe.",
+		"Un ennemi qui meurt en brûlant s'embrase : les ennemis proches prennent feu et subissent un demi-coup.",
+		"燃えたまま倒れた敵は炎を噴き、近くの敵に燃え移って半撃分のダメージを与える。",
+	],
+	"sk_evasion": ["Evasion", "Ausweichen", "Уклонение", "闪避", "Evasión", "Esquive", "回避"],
+	"sk_evasion_d": [
+		"15% chance to slip any blow entirely (not spikes).",
+		"15 % Chance, jedem Treffer ganz auszuweichen (nicht Stacheln).",
+		"15% шанс полностью уклониться от любого удара (кроме шипов).",
+		"15% 几率完全闪避任何攻击（尖刺除外）。",
+		"15 % de probabilidad de esquivar cualquier golpe por completo (no los pinchos).",
+		"15 % de chances d'esquiver totalement un coup (pas les pics).",
+		"15%の確率であらゆる攻撃を完全にかわす（トゲは除く）。",
+	],
+	"sk_ambush": ["Ambush", "Hinterhalt", "Засада", "伏击", "Emboscada", "Embuscade", "奇襲"],
+	"sk_ambush_d": [
+		"Your first blow on an unhurt foe deals 2.5 times the damage (not bosses).",
+		"Dein erster Hieb gegen einen unverletzten Feind richtet 2,5-fachen Schaden an (nicht bei Bossen).",
+		"Первый удар по нетронутому врагу наносит урон в 2,5 раза больше (кроме боссов).",
+		"对未受伤敌人的第一击造成 2.5 倍伤害（首领除外）。",
+		"Tu primer golpe a un enemigo ileso hace 2,5 veces el daño (no a jefes).",
+		"Ton premier coup sur un ennemi indemne inflige 2,5 fois les dégâts (pas les boss).",
+		"無傷の敵への最初の一撃は2.5倍のダメージ（ボスを除く）。",
+	],
+	"evade": ["EVADED", "AUSGEWICHEN", "УКЛОН", "闪避", "ESQUIVA", "ESQUIVE", "回避"],
+	"toast_refund": [
+		"The skill tree has grown · %d skill points returned",
+		"Der Talentbaum ist gewachsen · %d Talentpunkte zurück",
+		"Древо приёмов выросло · возвращено очков: %d",
+		"技能树已扩展 · 返还 %d 个技能点",
+		"El árbol ha crecido · %d puntos devueltos",
+		"L'arbre a grandi · %d points rendus",
+		"技能ツリーが広がった · ポイント%d個を返却",
+	],
 	"sk_vitality": ["Vitality", "Lebenskraft", "Живучесть", "活力", "Vitalidad", "Vitalité", "生命力"],
 	"sk_vitality_d": [
 		"+8 maximum health per rank.",
@@ -320,15 +418,23 @@ const STRINGS := {
 		"{skills}  arbre des techniques · dépense tes points",
 		"{skills}  技能ツリー · ポイントで新しい技を覚える",
 	],
-	"shop_haste": ["Haste", "Eile", "Резвость", "疾行", "Prisa", "Hâte", "俊敏"],
+	"shop_haste": [
+		"Haste  +5% running speed",
+		"Eile  +5 % Lauftempo",
+		"Резвость  +5% к скорости бега",
+		"疾行  奔跑速度 +5%",
+		"Prisa  +5 % de velocidad",
+		"Hâte  +5 % de vitesse de course",
+		"俊敏  走る速さ +5%",
+	],
 	"shop_haste_d": [
-		"running speed +%d%%",
-		"Lauftempo +%d %%",
-		"скорость бега +%d%%",
-		"奔跑速度 +%d%%",
-		"velocidad +%d %%",
-		"vitesse de course +%d %%",
-		"走る速さ +%d%%",
+		"Bought %d of %d times · for good",
+		"%d von %d Mal gekauft · dauerhaft",
+		"Куплено %d из %d · навсегда",
+		"已购买 %d / %d 次 · 永久",
+		"Comprado %d de %d veces · para siempre",
+		"Acheté %d fois sur %d · pour de bon",
+		"%d / %d 回購入 · 永続",
 	],
 	"shop_forget": ["Forget skills", "Talente vergessen", "Забыть навыки", "遗忘技能", "Olvidar técnicas", "Oublier les techniques", "技を忘れる"],
 	"shop_forget_d": [
@@ -741,13 +847,13 @@ const STRINGS := {
 		"巨人",
 	],
 	"sk_titan_d": [
-		"Take 10% less damage. With heavy weapons: 15% more damage and 10% more reach.",
-		"10 % weniger Schaden nehmen. Mit schweren Waffen: 15 % mehr Schaden und 10 % mehr Reichweite.",
-		"Получаешь на 10% меньше урона. С тяжёлым оружием: урон +15% и дальность +10%.",
-		"受到的伤害降低 10%。使用重型武器时：伤害 +15%，攻击距离 +10%。",
-		"Recibes un 10 % menos de daño. Con armas pesadas: +15 % de daño y +10 % de alcance.",
-		"Subis 10 % de dégâts en moins. Avec les armes lourdes : +15 % de dégâts et +10 % d'allonge.",
-		"受けるダメージ -10%。重武器装備時：与ダメージ +15%、間合い +10%。",
+		"With heavy weapons: 20% more damage and 10% more reach.",
+		"Mit schweren Waffen: 20 % mehr Schaden und 10 % mehr Reichweite.",
+		"С тяжёлым оружием: урон +20% и дальность +10%.",
+		"使用重型武器时：伤害 +20%，攻击距离 +10%。",
+		"Con armas pesadas: +20 % de daño y +10 % de alcance.",
+		"Avec les armes lourdes : +20 % de dégâts et +10 % d'allonge.",
+		"重武器装備時：与ダメージ +20%、間合い +10%。",
 	],
 	"sk_venom": [
 		"Venom Glass",
@@ -921,7 +1027,7 @@ const STRINGS := {
 		"最後の武器は手放せない。",
 	],
 	"stat_armor": ["Armour", "Rüstung", "Броня", "护甲", "Armadura", "Armure", "防御"],
-	"stat_run": ["Speed", "Tempo", "Скорость", "移速", "Velocidad", "Vitesse", "移動"],
+	"stat_run": ["Run speed", "Lauftempo", "Скорость бега", "移速", "Vel. de carrera", "Vitesse de course", "移動速度"],
 	"stat_dash": [
 		"Dash cooldown",
 		"Sprint-Abklingzeit",

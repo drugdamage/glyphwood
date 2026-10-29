@@ -42,6 +42,18 @@ const REND_DMG := 1.3
 const STONE_INK := 10.0
 ## Burning foes take this much more damage with Venom Glass.
 const VENOM_DMG := 1.25
+## Finishing Throw: thrown weapons hit foes below KILL_SHOT_HP of their
+## health this much harder.
+const KILL_SHOT_DMG := 1.8
+const KILL_SHOT_HP := 0.33
+## Pyre: a foe that dies burning bursts into flame; foes this close catch fire
+## and take this share of a blow.
+const PYRE_REACH := 56.0
+const PYRE_DMG := 0.5
+## Evasion: the chance to slip a blow entirely.
+const EVADE_CHANCE := 0.15
+## Ambush: the first melee blow on an unhurt foe (not a boss) deals this much.
+const AMBUSH_DMG := 2.5
 ## A parry gives back this much ink; foes right in front reel for PARRY_STUN.
 ## The foe that was parried can't be parried again for PARRY_AGAIN seconds
 ## (its next blow is only blocked), so walking foes can't be stun-locked.
@@ -49,6 +61,8 @@ const PARRY_INK := 15.0
 const PARRY_STUN := 0.7
 const PARRY_AGAIN := 3.0
 const PARRY_REACH := 52.0
+## The colour of the Aegis ward.
+const WARD_COLOR := Color(0.7, 0.85, 1.0)
 
 
 # ---------------------------------------------------------------- melee
@@ -180,6 +194,8 @@ static func hurt_enemy(g, e: Dictionary, dmg: float, kdir: Vector2, melee: bool 
 	var sure: bool = melee and p.iaido_t > 0.0
 	if p.st.venom and e.burn > 0.0:
 		dmg *= VENOM_DMG
+	if melee and p.st.ambush and not e.boss and e.hp >= e.max_hp:
+		dmg *= AMBUSH_DMG
 	if melee and (sure or g.rng.randf() < p.st.crit + crit_bonus):
 		dmg *= p.st.crit_mult
 		crit = true
@@ -266,12 +282,26 @@ static func kill_enemy(g, e: Dictionary) -> void:
 		p.ink = minf(Hero.MAX_INK, p.ink + STONE_INK)
 	if st.death_dance:
 		p.dance_t = Hero.DANCE_TIME
+	if st.pyre and e.burn > 0.0:
+		_pyre(g, Physics.center(e))
 	if not e.boss and g.rng.randf() < 0.2 * st.orbs:
 		g.pickups.append({"kind": "orb", "pos": Physics.center(e)})
 	if e.kind == "bomber":
 		explode(g, Physics.center(e), 48.0, false)
 	if e.boss:
 		g.on_boss_killed(e)
+
+
+## Pyre: flames burst from a foe that died burning and catch the foes near it
+## (which may burst in turn when they die).
+static func _pyre(g, at: Vector2) -> void:
+	var st: Dictionary = g.player.st
+	burst(g, at, ["*", "^", "'"], Color(1.0, 0.5, 0.15), 14, 160.0, -60.0)
+	g.sfx("fire", -6.0, 1.2)
+	for o in g.enemies.duplicate():
+		if g.enemies.has(o) and Physics.center(o).distance_to(at) < PYRE_REACH + o.size.x * 0.5:
+			o.burn = maxf(o.burn, 3.0)
+			hurt_enemy(g, o, st.dmg * st.dmg_mult * PYRE_DMG, (Physics.center(o) - at).normalized())
 
 
 static func drop_shards(g, at: Vector2, n: int) -> void:
@@ -314,6 +344,10 @@ static func hurt_player(g, units: float, src_x: float, spikes: bool = false, gua
 		if spikes:
 			p.respawn_t = 0.45
 		return
+	var st: Dictionary = p.st
+	if st.evasion and not spikes and g.rng.randf() < EVADE_CHANCE:
+		evade(g)
+		return
 	var blocked := false
 	if not spikes and guardable and Hero.guards_against(p, src_x):
 		if p.parry_t > 0.0 and foe.get("parried", 0.0) <= 0.0:
@@ -321,17 +355,31 @@ static func hurt_player(g, units: float, src_x: float, spikes: bool = false, gua
 			return
 		units *= Hero.CHIP
 		blocked = true
-	var st: Dictionary = p.st
 	var armor: float = st.armor
 	if st.last_stand and p.hp <= p.max_hp * 0.35:
 		armor *= 0.65
 	var dmg := maxi(1, int(round(units * g.hit_damage() * armor)))
-	p.hp -= dmg
+	# the Aegis ward soaks up what it can before health
+	var soaked := mini(dmg, int(p.ward))
+	p.ward -= soaked
+	p.ward_t = 0.0
+	if blocked and st.unbreakable:
+		p.ward = minf(st.ward_max, p.ward + st.ward_max * 0.5)
+	p.hp -= dmg - soaked
 	p.calm = 0.0
 	p.regen = 0.0
 	p.dash_t = 0.0
 	var away := 1.0 if Physics.center(p).x >= src_x else -1.0
-	if blocked:
+	if soaked >= dmg and not blocked and not spikes:
+		# all of it on the ward: a ring of steel instead of a wound
+		p.inv = 0.6 * st.inv_time
+		p.blink = p.inv
+		p.vel = Vector2(away * 140.0, minf(p.vel.y, -120.0))
+		g.hitstop = 0.06
+		g.shake_add(4.0)
+		g.sfx("clink", -3.0, 0.9)
+		burst(g, Physics.center(p), ["o", "'", "+"], WARD_COLOR, 10, 140.0)
+	elif blocked:
 		# the guard holds but breaks: a short slide back and a moment of safety
 		Hero.drop_guard(p)
 		p.inv = 0.5
@@ -350,8 +398,8 @@ static func hurt_player(g, units: float, src_x: float, spikes: bool = false, gua
 		g.hurt_flash = 1.0
 		g.sfx("hurt")
 		burst(g, Physics.center(p), ["*", "x", "·", "+"], Color(1.0, 0.35, 0.3), 12, 170.0)
-	g.popups.append({"pos": Physics.center(p) + Vector2(0, -18), "text": "-%d" % dmg, "color": Color(1.0, 0.35, 0.3), "life": 0.9,
-		"big": false})
+	g.popups.append({"pos": Physics.center(p) + Vector2(0, -18), "text": "-%d" % dmg,
+		"color": WARD_COLOR if soaked >= dmg else Color(1.0, 0.35, 0.3), "life": 0.9, "big": false})
 	if st.vengeance and p.hp > 0 and not blocked:
 		shockwave(g, Physics.center(p), 70.0, st.dmg * st.dmg_mult * 1.5, Color(1.0, 0.4, 0.3))
 	if p.hp <= 0:
@@ -369,6 +417,8 @@ static func hurt_player(g, units: float, src_x: float, spikes: bool = false, gua
 static func parry(g, foe: Dictionary = {}) -> void:
 	var p: Dictionary = g.player
 	Hero.drop_guard(p, Hero.PARRY_COOLDOWN)
+	if p.st.unbreakable:
+		p.ward = p.st.ward_max
 	p.inv = maxf(p.inv, 0.4)
 	p.ink = minf(Hero.MAX_INK, p.ink + PARRY_INK)
 	p.iaido_t = maxf(p.iaido_t, Hero.IAIDO_TIME)
@@ -396,6 +446,17 @@ static func parry(g, foe: Dictionary = {}) -> void:
 		g.particles.append({"p": at, "v": Vector2(cos(a), sin(a)) * 230.0, "g": "'" if i % 2 == 0 else "*",
 			"c": Color(1.0, 0.92, 0.6), "life": 0.3, "max": 0.3, "grav": 0.0, "drag": 6.0, "s": 1.0})
 	g.popups.append({"pos": c + Vector2(0, -22), "text": g.L("parry"), "color": Color(1.0, 0.9, 0.55), "life": 0.9, "big": true})
+
+
+## Evasion: the blow misses; a short moment of safety and a shadowy blur.
+static func evade(g) -> void:
+	var p: Dictionary = g.player
+	p.inv = maxf(p.inv, 0.4)
+	p.blink = maxf(p.blink, 0.4)
+	g.sfx("dash", -8.0, 1.4)
+	burst(g, Physics.center(p), ["~", "'", "·"], Color(0.45, 0.85, 0.75), 8, 110.0)
+	g.popups.append({"pos": Physics.center(p) + Vector2(0, -22), "text": g.L("evade"), "color": Color(0.55, 0.95, 0.85), "life": 0.7,
+		"big": false})
 
 
 static func check_contacts(g) -> void:
@@ -540,7 +601,7 @@ static func _hero_shot_hits(g, pr: Dictionary) -> void:
 				return
 			pr.t = maxf(pr.t, 0.4)
 			continue
-		hurt_enemy(g, e, pr.dmg, pr.vel.normalized())
+		hurt_enemy(g, e, _throw_dmg(st, e, pr.dmg), pr.vel.normalized())
 		g.sfx("hit", -4.0, 1.3)
 		if g.enemies.has(e):
 			if st.hex:
@@ -557,6 +618,13 @@ static func _hero_shot_hits(g, pr: Dictionary) -> void:
 		pr.pierce -= 1
 
 
+## A thrown weapon's damage to [e], with Finishing Throw.
+static func _throw_dmg(st: Dictionary, e: Dictionary, dmg: float) -> float:
+	if st.kill_shot and e.hp <= e.max_hp * KILL_SHOT_HP:
+		return dmg * KILL_SHOT_DMG
+	return dmg
+
+
 static func _burst_flask(g, pr: Dictionary) -> void:
 	g.projectiles.erase(pr)
 	g.sfx("splash", -2.0, 0.7)
@@ -564,7 +632,7 @@ static func _burst_flask(g, pr: Dictionary) -> void:
 	var st: Dictionary = g.player.st
 	for e in g.enemies.duplicate():
 		if Physics.center(e).distance_to(pr.pos) < 46.0 + e.size.x * 0.5:
-			hurt_enemy(g, e, pr.dmg, (Physics.center(e) - pr.pos).normalized())
+			hurt_enemy(g, e, _throw_dmg(st, e, pr.dmg), (Physics.center(e) - pr.pos).normalized())
 			if g.enemies.has(e):
 				e.burn = 3.0
 				if st.chill:

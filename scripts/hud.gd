@@ -384,6 +384,11 @@ func _draw_status_live(p: Dictionary) -> void:
 				_ci.draw_circle(Vector2(dx, top + 4 * u + f * f * 22 * u), 1.4 * u, Color(0.55, 0.03, 0.05, 1.0 - f))
 	if p.calm > Hero.REGEN_DELAY and p.hp < p.max_hp:
 		_text(Vector2(hr.end.x + 6 * u, 30.0 * u + 12 * u), "+", int(15 * u), Color(0.62, 0.78, 0.55, 0.45 + 0.35 * sin(t * 5.0)), bold)
+	# the Aegis ward: a thin line of pale steel under the blade
+	if p.st.ward_max > 0.0:
+		var wr := Rect2(hr.position.x + 10 * u, hr.end.y + 2 * u, hr.size.x - 20 * u, maxf(2.0, 3 * u))
+		_ci.draw_rect(wr, Color(0.04, 0.05, 0.08, 0.85))
+		_ci.draw_rect(Rect2(wr.position, Vector2(wr.size.x * p.ward / p.st.ward_max, wr.size.y)), Color(0.7, 0.85, 1.0, 0.9))
 	_draw_cooldowns(p)
 
 
