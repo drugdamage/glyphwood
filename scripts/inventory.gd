@@ -400,6 +400,10 @@ static func numbers(m, p: Dictionary, id: String) -> String:
 				parts.append("%s %+d%%" % [g.L("stat_run"), int(round((d.run - 1.0) * 100.0))])
 			if d.has("dash_cd"):
 				parts.append("%s %+d%%" % [g.L("stat_dash"), int(round((d.dash_cd - 1.0) * 100.0))])
+			if d.has("crit"):
+				parts.append("%s +%d%%" % [g.L("stat_crit"), roundi(d.crit * 100.0)])
+			if d.has("ink_gain"):
+				parts.append("%s +%d%%" % [g.L("stat_ink_gain"), roundi((d.ink_gain - 1.0) * 100.0)])
 			if lvl > 0:
 				parts.append(g.L("inv_reforged") % [lvl, Items.UPGRADE_MAX])
 			return "   ".join(PackedStringArray(parts))

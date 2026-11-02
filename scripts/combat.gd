@@ -10,6 +10,7 @@ const Physics := preload("res://scripts/physics.gd")
 const Hero := preload("res://scripts/hero.gd")
 const Foes := preload("res://scripts/foes.gd")
 const Items := preload("res://scripts/items.gd")
+const Expeditions := preload("res://scripts/expeditions.gd")
 const SpriteCache := preload("res://scripts/sprite_cache.gd")
 
 const INK_PER_HIT := 11.0
@@ -266,7 +267,7 @@ static func kill_enemy(g, e: Dictionary) -> void:
 	shatter(g, Foes.frame(e), pal, Physics.foot(e), e.dir, 1.1, 900.0, 3 if e.boss else 2)
 	var st: Dictionary = g.player.st
 	var base: int = D.ENEMIES[e.kind].shards
-	var n := int(round(base * (2.5 if e.elite else 1.0) * st.shard_mult))
+	var n := int(round(base * (2.5 if e.elite else 1.0) * st.shard_mult * Expeditions.reward_mult(g.biome)))
 	drop_shards(g, Physics.center(e), n)
 	g.gain_xp(base * 4.0 * (2.5 if e.elite else 1.0) * (1.0 + 0.1 * (g.level_num - 1)), Physics.center(e))
 	if g.rng.randf() < st.lifesteal:

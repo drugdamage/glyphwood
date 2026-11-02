@@ -5,6 +5,7 @@ extends RefCounted
 
 const D := preload("res://scripts/data.gd")
 const Items := preload("res://scripts/items.gd")
+const Merchant := preload("res://scripts/merchant.gd")
 const Level := preload("res://scripts/level.gd")
 const Physics := preload("res://scripts/physics.gd")
 const Hero := preload("res://scripts/hero.gd")
@@ -39,13 +40,6 @@ static func interact(g, pr: Dictionary) -> void:
 		"chest":
 			open_chest(g, pr)
 		"shop":
-			if pr.stock.is_empty():
-				var ex: Array = []
-				for i in 3:
-					var id := Items.random_unowned(g.player, g.rng, ex)
-					if id != "":
-						ex.append(id)
-				pr.stock = ex
 			g.open_shop(pr)
 		"sign":
 			g.read_sign(pr)
@@ -55,21 +49,29 @@ static func interact(g, pr: Dictionary) -> void:
 
 static func open_chest(g, pr: Dictionary) -> void:
 	var p: Dictionary = g.player
-	pr.open = true
+	if not Merchant.claim_chest(p, pr):
+		return
 	g.sfx("chest")
 	g.shake_add(2.0)
 	var at: Vector2 = pr.pos - Vector2(0, 14)
 	Combat.burst(g, at, ["*", "·", "+"], Color(1.0, 0.85, 0.4), 20, 130.0, -80.0)
-	var id := Items.random_unowned(p, g.rng) if g.rng.randf() < 0.6 else ""
-	if id != "":
+	var count := (2 if pr.get("secret", false) else 1) + (1 if g.biome.get("modifier", "") == "discovery" else 0)
+	Merchant.notify_fragments(g, Merchant.collect(p, g.biome.id, count))
+	# Shards are granted atomically with the ledger, including on save/reload.
+	p.shards += g.rng.randi_range(18, 30)
+	var pool: Array = []
+	for id in Merchant.stock(p, g.biome.id):
+		if not Merchant.needs_recipe(id):
+			pool.append(id)
+	if not pool.is_empty() and g.rng.randf() < 0.35:
+		var id: String = pool[g.rng.randi_range(0, pool.size() - 1)]
 		var equipped := Items.give(p, id)
 		Hero.refresh(p)
 		g.sfx("item", -2.0)
 		g.item_found(id, equipped)
-	else:
-		Combat.drop_shards(g, at, g.rng.randi_range(18, 30))
-		if g.rng.randf() < 0.5:
-			g.pickups.append({"kind": "heart", "pos": at})
+	elif g.rng.randf() < 0.5:
+		g.pickups.append({"kind": "heart", "pos": at})
+	g.save_run()
 
 
 # ---------------------------------------------------------------- lanterns
@@ -149,6 +151,7 @@ static func update_arenas(g) -> void:
 							var x: int = r.x0 + D.ROOM_W / 2
 							g.props.append({"kind": "chest", "pos": Vector2((x + 0.5) * D.TILE, (r.y0 + D.EDGE_FLOOR) * D.TILE),
 								"open": false})
+							Merchant.prepare_floor(p, g.level_num, g.props)
 							g.toast(g.L("toast_arena"), Color(1.0, 0.85, 0.4))
 							g.sfx("item", -4.0)
 

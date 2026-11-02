@@ -97,6 +97,8 @@ static func frame(e: Dictionary) -> Variant:
 
 
 static func update(g, e: Dictionary, dt: float) -> void:
+	if not e.boss and g.biome.get("modifier", "") == "restless":
+		dt *= 1.12
 	# a chilled foe (Frost Crown) moves and thinks at a slower pace
 	if e.chill > 0.0:
 		e.chill -= dt

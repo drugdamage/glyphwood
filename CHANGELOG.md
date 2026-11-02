@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-02
+
+### Added
+
+- **Biome collections:** each of the six merchants has its own fixed collection.
+  Basic Gravewood equipment and charms remain immediately available. Special
+  weapons, throwing weapons and armour require a three-fragment blueprint
+  before they can be bought for shards. Boss relics remain boss rewards.
+- **Exploration restores blueprints:** ordinary and arena chests give one local
+  fragment; chests hidden under cracked floors give two. Select a locked item
+  at the merchant, or a blueprint in the new pause-menu journal, to track it.
+  Local fragments finish the tracked recipe first, then partially restored
+  recipes. Completed recipes never receive duplicate fragments.
+- **Four armour sidegrades:** Cinder Veil (ink gain), Marsh Wrap (run speed and
+  critical chance), Choir Hood (critical chance and ink gain), and Rime Mail
+  (run speed and dash recovery), with their own pixel art. Existing weapon,
+  armour, reforge and Normal difficulty combat values are unchanged.
+- **Chosen expeditions after level 18:** three destinations at each exit, no
+  immediate repeat of the current biome, a shorter 4×3 room grid, two-wave
+  ordinary arenas, enemies from two biomes and blended environmental colours.
+  Every expedition ends with the selected biome's existing guardian.
+  - Elite Hunt: +15 percentage points of elite spawn chance and +40% kill shards.
+  - Restless: ordinary enemies act 12% faster and give +30% kill shards;
+    bosses retain their timing.
+  - Relic Trail: each chest gives one extra blueprint fragment.
+- A blueprint journal and expedition descriptions in all seven languages.
+  Route conditions are visible when selecting with keyboard or controller too.
+- A new README animation made from the game's pixel art, with reproducible
+  export/render tools. It is an update overview, not a gameplay recording.
+- Isolated progression regression tests, also run by CI before its smoke test.
+
+### Changed
+
+- Chests always give 18–30 shards alongside blueprint progress, with a 35%
+  chance of an unowned local charm/basic item; otherwise a heart may appear.
+  Completed collections still yield shards. Recipe-gated gear no longer drops
+  outright from chests.
+- Existing saves retain their items, upgrades, hero and depth. Owned recipe
+  gear is automatically unlocked; older endless worlds enter expeditions at
+  their saved level. The original first descent keeps its biome/boss order.
+- A merchant is guaranteed even when a generated floor has no side-room space.
+- Armour details now show critical chance and ink gain numerically.
+
+### Fixed
+
+- Floor side-room generation uses the floor's seeded RNG, so continuing a
+  world reconstructs the same layout. Current-floor chest claims persist;
+  reloading or replaying an arena cannot duplicate blueprint/chest rewards.
+- Purchases and sales save immediately. Purchase validation rejects locked,
+  already-owned and out-of-biome gear, and stale capped service purchases.
+
+### Validation
+
+- Local lint, headless import and isolated progression tests passed. No local
+  game session or existing player world was opened for this update.
+- Interactive balance, controller feel and windowed UI inspection remain for
+  the next playtest; see `docs/ROADMAP.md`.
+
 ## [0.13.0] - 2026-10-29
 
 ### Added
@@ -735,7 +793,8 @@ First public release.
 - Bundled DejaVu Sans Mono font, used in the Web build (where system fonts are
   unavailable) and as a fallback for glyphs missing from the system font.
 
-[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/drugdamage/glyphwood/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/drugdamage/glyphwood/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/drugdamage/glyphwood/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/drugdamage/glyphwood/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/drugdamage/glyphwood/compare/v0.11.1...v0.12.0
