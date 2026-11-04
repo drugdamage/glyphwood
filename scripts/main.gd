@@ -61,7 +61,7 @@ const DIFF := {
 	"nightmare": {"dmg": 2.2, "hp": 2.0, "speed": 1.16, "elite": 0.14, "toll": 1.0, "xp": 1.4, "regen": 0.5},
 }
 const RUN_KEYS := ["hp", "base_hp", "ink", "shards", "weapon", "charms", "bag", "xp", "xp_level", "up_hp", "up_dmg", "throw", "up_spd",
-	"skills", "belt", "wslot", "armor", "armor_up"]
+	"skills", "belt", "wslot", "armor", "armor_up", "axe_fragments", "axe_fragment_level", "axe_fragment_floor"]
 ## Glyph-level fallbacks for Chinese and Japanese text (system fonts).
 const CJK_FONTS := {
 	"zh": ["PingFang SC", "Hiragino Sans GB", "Heiti SC", "Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "Noto Sans SC",
@@ -694,6 +694,8 @@ func continue_run() -> void:
 		# saved before the belt: the weapon in hand and the second one make it up
 		player.belt = []
 	Items.fix_belt(player, saved.get("weapon2", ""))
+	if Items.owns(player, Items.AXE_BLUEPRINT):
+		player.axe_fragments = Items.AXE_FRAGMENTS
 	# the tree may have changed since the save: points of nodes it no longer allows come back
 	var back := Skills.sanitize(player)
 	Hero.refresh(player)

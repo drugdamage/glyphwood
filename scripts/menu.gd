@@ -418,7 +418,10 @@ func _shop_items() -> Array:
 	var p: Dictionary = game.player
 	var out: Array = []
 	for id in pr.get("stock", []):
-		out.append({"type": "buy", "id": id, "price": Items.def(id).price, "act": _buy.bind(id)})
+		var it := {"type": "buy", "id": id, "price": Items.def(id).price, "act": _buy.bind(id)}
+		if id == Items.AXE_BLUEPRINT and not Items.axe_ready(p):
+			it.note = game.L("axe_fragment_progress") % [p.axe_fragments, Items.AXE_FRAGMENTS]
+		out.append(it)
 	var lvl: int = game.level_num
 	out.append({"type": "buy", "id": "mend", "price": Items.service_price(p, "mend", lvl), "act": _buy.bind("mend"),
 		"label": game.L("shop_mend"), "color": Color(0.5, 1.0, 0.6), "note": "%d / %d" % [p.hp, p.max_hp]})
@@ -457,6 +460,12 @@ func _sell(id: String) -> void:
 func _buy(id: String) -> void:
 	var p: Dictionary = game.player
 	var service: bool = id in ["mend", "vigor", "whet", "haste", "forget"]
+	if id == Items.AXE_BLUEPRINT and Items.owns(p, id):
+		return
+	if id == Items.AXE_BLUEPRINT and not Items.axe_ready(p):
+		game.sfx("error", -6.0)
+		_message(game.L("axe_fragment_progress") % [p.axe_fragments, Items.AXE_FRAGMENTS])
+		return
 	var price: int = Items.service_price(p, id, game.level_num) if service else Items.def(id).price
 	if id == "mend" and p.hp >= p.max_hp:
 		game.sfx("error", -6.0)
@@ -1306,7 +1315,7 @@ func _draw_shop(vp: Vector2, _accent: Color) -> void:
 		_text_fit(Vector2(tx, y + row_h * 0.42), label, fs, tw, Color(1, 0.96, 0.88) if on else Color(0.82, 0.85, 0.83), bold)
 		# numbers say more than lore when buying: damage and speed of a weapon
 		var desc: String = it.get("note", "")
-		if not it.has("label"):
+		if not it.has("label") and not it.has("note"):
 			desc = Inventory.numbers(self, p, it.id)
 			if desc == "":
 				desc = game.L("item_" + it.id + "_d")

@@ -28,7 +28,7 @@ jobs:
         run: pip install "gdtoolkit==4.*"
 
       - name: Run gdlint
-        run: gdlint scripts
+        run: gdlint scripts tests
 
   import:
     name: Import & smoke test (Godot 4.5.1)
@@ -46,6 +46,9 @@ jobs:
             echo "::error::Godot reported script errors during import"
             exit 1
           fi
+
+      - name: Blueprint regression (no game scene)
+        run: godot --headless --path . --script tests/axe_blueprint.gd
 
       - name: Smoke test (bot plays for 20 seconds)
         run: |

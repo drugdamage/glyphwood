@@ -41,7 +41,9 @@ static func interact(g, pr: Dictionary) -> void:
 		"shop":
 			if pr.stock.is_empty():
 				var ex: Array = []
-				for i in 3:
+				if g.biome.id == "crypt" and not Items.owns(g.player, Items.AXE_BLUEPRINT):
+					ex.append(Items.AXE_BLUEPRINT)
+				for i in (2 if ex.size() > 0 else 3):
 					var id := Items.random_unowned(g.player, g.rng, g.biome.id, ex)
 					if id != "":
 						ex.append(id)
@@ -60,6 +62,11 @@ static func open_chest(g, pr: Dictionary) -> void:
 	g.shake_add(2.0)
 	var at: Vector2 = pr.pos - Vector2(0, 14)
 	Combat.burst(g, at, ["*", "·", "+"], Color(1.0, 0.85, 0.4), 20, 130.0, -80.0)
+	if g.biome.id == "crypt":
+		var found := Items.find_axe_fragments(p, g.level_num, pr.get("secret", false))
+		if found > 0:
+			g.toast(g.L("axe_fragment_found") % [p.axe_fragments, Items.AXE_FRAGMENTS], Items.def(Items.AXE_BLUEPRINT).color)
+			g.save_run()
 	var id := Items.random_unowned(p, g.rng, g.biome.id) if g.rng.randf() < 0.6 else ""
 	if id != "":
 		var equipped := Items.give(p, id)

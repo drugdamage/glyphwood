@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The Headsman's Axe is the first blueprint purchase: Crypt chests reveal
+  three fragments before its merchant will sell it. Hidden chests can reveal
+  two fragments at once. Progress is saved, and an old world that already
+  owns the axe keeps it unlocked. One floor awards at most two fragments,
+  including after a reload.
+
 ### Changed
 
 - Merchants and chests now draw equipment and charms from the current biome's

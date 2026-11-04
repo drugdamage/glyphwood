@@ -117,6 +117,34 @@ const BIOME_GOODS := {
 		"wraith_lantern"],
 }
 
+## First blueprint: the Crypt merchant keeps the Headsman's Axe on display,
+## but its purchase requires three fragments from Crypt chests.
+const AXE_BLUEPRINT := "headsman_axe"
+const AXE_FRAGMENTS := 3
+const AXE_FRAGMENTS_PER_FLOOR := 2
+
+
+static func axe_ready(p: Dictionary) -> bool:
+	return int(p.get("axe_fragments", 0)) >= AXE_FRAGMENTS or owns(p, AXE_BLUEPRINT)
+
+
+## Return the number newly found. The per-floor cap prevents save/reload
+## farming even when the procedural room layout changes on continue.
+static func find_axe_fragments(p: Dictionary, level_num: int, secret: bool) -> int:
+	if axe_ready(p):
+		return 0
+	if int(p.get("axe_fragment_level", -1)) != level_num:
+		p.axe_fragment_level = level_num
+		p.axe_fragment_floor = 0
+	var room := AXE_FRAGMENTS_PER_FLOOR - int(p.get("axe_fragment_floor", 0))
+	var needed := AXE_FRAGMENTS - int(p.get("axe_fragments", 0))
+	var amount := mini(2 if secret else 1, mini(room, needed))
+	if amount > 0:
+		p.axe_fragments = int(p.get("axe_fragments", 0)) + amount
+		p.axe_fragment_floor = int(p.get("axe_fragment_floor", 0)) + amount
+	return amount
+
+
 ## Charms dropped by bosses (never in shops or chests).
 const BOSS_DROPS := {"warden": "root_crown", "wraith": "moon_lens", "colossus": "ember_heart", "hangman": "gallows_knot",
 	"abbess": "tide_pearl", "frost_king": "frost_crown"}
@@ -452,10 +480,11 @@ static func sell(p: Dictionary, id: String) -> int:
 
 ## Draws an unowned item from this biome's collection. One source of truth
 ## for merchant stock and chest drops keeps the progression consistent.
+## The blueprint axe is deliberately excluded; its shop slot is reserved.
 static func random_unowned(p: Dictionary, rng: RandomNumberGenerator, biome_id: String, exclude: Array = []) -> String:
 	var pool: Array = []
 	for id in BIOME_GOODS.get(biome_id, []):
-		if not owns(p, id) and not exclude.has(id):
+		if id != AXE_BLUEPRINT and not owns(p, id) and not exclude.has(id):
 			pool.append(id)
 	if pool.is_empty():
 		return ""

@@ -452,7 +452,7 @@ func _secret(r: Dictionary) -> void:
 				set_t(r.x0 + k, r.y0 + yy, AIR)
 			r.protect.append(k)
 		if _rng.randf() < 0.5:
-			_add_prop("chest", r.x0 + x + 2, r.y0 + y + 3, {"open": false})
+			_add_prop("chest", r.x0 + x + 2, r.y0 + y + 3, {"open": false, "secret": true})
 		else:
 			pickups.append({"kind": "cache", "pos": _foot(r.x0 + x + 2, r.y0 + y + 3) - Vector2(0, 8)})
 		return

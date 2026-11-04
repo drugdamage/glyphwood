@@ -4,6 +4,11 @@
 extends RefCounted
 
 const STRINGS := {
+	"axe_fragment_progress": ["Axe blueprint %d/%d · find Crypt chests", "Axtbauplan %d/%d · Grufttruhen",
+		"Чертёж топора %d/%d · сундуки склепа", "战斧蓝图 %d/%d · 寻找墓穴宝箱", "Plano del hacha %d/%d · cofres de la cripta",
+		"Plan de la hache %d/%d · coffres de la crypte", "斧の設計図 %d/%d · 地下墓所の宝箱"],
+	"axe_fragment_found": ["Axe blueprint: %d/%d", "Axtbauplan: %d/%d", "Чертёж топора: %d/%d", "战斧蓝图：%d/%d",
+		"Plano del hacha: %d/%d", "Plan de la hache : %d/%d", "斧の設計図：%d/%d"],
 	"a_skills": ["Skill tree", "Talentbaum", "Древо приёмов", "技能树", "Árbol de técnicas", "Arbre des techniques", "技能ツリー"],
 	"m_skills": ["Skill tree", "Talentbaum", "Древо приёмов", "技能树", "Árbol de técnicas", "Arbre des techniques", "技能ツリー"],
 	"sk_points": ["Skill points: %d", "Talentpunkte: %d", "Очки навыков: %d", "技能点：%d", "Puntos: %d", "Points : %d", "スキルポイント：%d"],
