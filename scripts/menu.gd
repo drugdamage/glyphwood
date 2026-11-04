@@ -8,8 +8,6 @@ extends Node2D
 const D := preload("res://scripts/data.gd")
 const T := preload("res://scripts/strings.gd")
 const Items := preload("res://scripts/items.gd")
-const Merchant := preload("res://scripts/merchant.gd")
-const Expeditions := preload("res://scripts/expeditions.gd")
 const Hero := preload("res://scripts/hero.gd")
 const Physics := preload("res://scripts/physics.gd")
 const Settings := preload("res://scripts/settings.gd")
@@ -235,7 +233,6 @@ func _build(name: String) -> Array:
 			out.append(_btn(game.L("m_resume"), close))
 			out.append(_btn(game.L("m_inventory"), open.bind("inventory")))
 			out.append(_btn(game.L("m_map"), open.bind("map")))
-			out.append(_btn(game.L("recipes"), open.bind("recipes")))
 			out.append(_btn(game.L("m_skills"), open.bind("skills")))
 			out.append(_btn(game.L("m_moves"), open.bind("moves")))
 			out.append(_btn(game.L("m_settings"), open.bind("settings")))
@@ -271,11 +268,7 @@ func _build(name: String) -> Array:
 		"inventory":
 			out = Inventory.items(self)
 		"shop":
-			out = Merchant.shop_items(self)
-		"recipes":
-			out = Merchant.collection(self)
-		"expedition":
-			out = Expeditions.menu_items(self)
+			out = _shop_items()
 		"sell":
 			out = _sell_items()
 		"skills":
@@ -420,6 +413,31 @@ func _reset_all() -> void:
 	_message(game.L("reset_done"))
 
 
+func _shop_items() -> Array:
+	var pr: Dictionary = game.shop_prop
+	var p: Dictionary = game.player
+	var out: Array = []
+	for id in pr.get("stock", []):
+		out.append({"type": "buy", "id": id, "price": Items.def(id).price, "act": _buy.bind(id)})
+	var lvl: int = game.level_num
+	out.append({"type": "buy", "id": "mend", "price": Items.service_price(p, "mend", lvl), "act": _buy.bind("mend"),
+		"label": game.L("shop_mend"), "color": Color(0.5, 1.0, 0.6), "note": "%d / %d" % [p.hp, p.max_hp]})
+	out.append({"type": "buy", "id": "vigor", "price": Items.service_price(p, "vigor", lvl), "act": _buy.bind("vigor"),
+		"label": game.L("shop_vigor"), "color": Color(1.0, 0.35, 0.45), "note": game.L("shop_vigor_d") % p.up_hp})
+	out.append({"type": "buy", "id": "whet", "price": Items.service_price(p, "whet", lvl), "act": _buy.bind("whet"),
+		"label": game.L("shop_whet"), "color": Color(0.8, 0.85, 0.95), "note": game.L("shop_whet_d") % p.up_dmg})
+	if p.up_spd < Items.HASTE_MAX:
+		out.append({"type": "buy", "id": "haste", "price": Items.service_price(p, "haste", lvl), "act": _buy.bind("haste"),
+			"label": game.L("shop_haste"), "color": Color(0.6, 0.9, 1.0), "note": game.L("shop_haste_d") % [p.up_spd, Items.HASTE_MAX]})
+	if Skills.spent(p) > 0:
+		out.append({"type": "buy", "id": "forget", "price": Items.service_price(p, "forget", lvl), "act": _buy.bind("forget"),
+			"label": game.L("shop_forget"), "color": Color(0.75, 0.6, 0.95), "note": game.L("shop_forget_d")})
+	if not p.bag.is_empty():
+		out.append(_btn(game.L("shop_sell"), open.bind("sell"), {"note": str(p.bag.size())}))
+	out.append(_btn(game.L("m_leave"), close))
+	return out
+
+
 func _sell_items() -> Array:
 	var out: Array = []
 	for id in game.player.bag:
@@ -434,7 +452,44 @@ func _sell(id: String) -> void:
 		game.sfx("shard", 0.0, 0.8)
 		game.sfx("buy", -6.0, 0.8)
 		_message(game.L("shop_sold") % [_item_name(id), paid])
-		game.save_run()
+
+
+func _buy(id: String) -> void:
+	var p: Dictionary = game.player
+	var service: bool = id in ["mend", "vigor", "whet", "haste", "forget"]
+	var price: int = Items.service_price(p, id, game.level_num) if service else Items.def(id).price
+	if id == "mend" and p.hp >= p.max_hp:
+		game.sfx("error", -6.0)
+		_message(game.L("shop_full"))
+		return
+	if p.shards < price:
+		game.sfx("error", -6.0)
+		_message(game.L("shop_poor"))
+		return
+	p.shards -= price
+	game.sfx("buy")
+	match id:
+		"mend":
+			p.hp = p.max_hp
+		"vigor":
+			p.up_hp += 1
+			Hero.refresh(p)
+			p.hp = mini(p.max_hp, p.hp + 10)
+		"whet":
+			p.up_dmg += 1
+			Hero.refresh(p)
+		"haste":
+			p.up_spd += 1
+			Hero.refresh(p)
+		"forget":
+			Skills.forget_all(p)
+			Hero.refresh(p)
+			_message(game.L("shop_forgot"))
+		_:
+			game.shop_prop.stock.erase(id)
+			var equipped := Items.give(p, id)
+			Hero.refresh(p)
+			game.item_found(id, equipped)
 
 
 # ---------------------------------------------------------------- input
@@ -806,11 +861,6 @@ func _draw() -> void:
 			_draw_list(vp, game.L("paused"), accent, 360.0)
 		"new_world":
 			_draw_list(vp, game.L("m_new_world"), accent, 640.0)
-		"expedition":
-			var detail: String = game.L("exp_intro")
-			if sel < items.size() and items[sel].has("tip"):
-				detail += "\n" + items[sel].tip
-			_draw_list(vp, game.L("exp_choose"), accent, 780.0, detail)
 		"worlds":
 			_draw_worlds(vp, accent)
 		"world":
@@ -826,7 +876,7 @@ func _draw() -> void:
 		"inventory":
 			_fit_unit(vp, 840.0, 480.0)
 			Inventory.draw(self, vp, accent)
-		"shop", "sell", "recipes":
+		"shop", "sell":
 			_draw_shop(vp, accent)
 		"skills":
 			_fit_unit(vp, 720.0, 680.0)
@@ -834,7 +884,7 @@ func _draw() -> void:
 		"map":
 			_draw_map(vp, accent)
 	_bounds = Rect2()
-	if _msg_t > 0.0 and not (name in ["shop", "sell", "recipes"]):
+	if _msg_t > 0.0 and not (name in ["shop", "sell"]):
 		var a := minf(1.0, _msg_t * 2.0)
 		var mw := _w(_msg, int(16 * u), bold) + 40 * u
 		draw_rect(Rect2((vp.x - mw) * 0.5, vp.y - 98 * u, mw, 40 * u), Color(0.02, 0.02, 0.03, 0.9 * a))
@@ -1210,17 +1260,12 @@ func _draw_shop(vp: Vector2, _accent: Color) -> void:
 	var r := Rect2((vp.x - w) * 0.5, (vp.y - h) * 0.5, w, h)
 	var selling := top() == "sell"
 	_panel(r, Color(0.85, 0.7, 0.95))
-	var title: String = game.L("recipes" if top() == "recipes" else ("shop_sell" if selling else "act_shop"))
-	_center(r.position.y + 42 * u, title, int(26 * u), Color(0.95, 0.95, 0.9), bold)
+	_center(r.position.y + 42 * u, game.L("shop_sell" if selling else "act_shop"), int(26 * u), Color(0.95, 0.95, 0.9), bold)
 	# a message (sold, too poor) takes the greeting's place
 	if _msg_t > 0.0:
-		_text_fit(Vector2(r.position.x + 24 * u, r.position.y + 70 * u), _msg, int(14 * u), w - 48 * u,
-			Color(1.0, 0.85, 0.5, minf(1.0, _msg_t * 2.0)), bold)
+		_center(r.position.y + 70 * u, _msg, int(14 * u), Color(1.0, 0.85, 0.5, minf(1.0, _msg_t * 2.0)), bold)
 	else:
-		var greet: String = game.L("shop_sell_greet") if selling else game.biome_name() + " · " + game.L("recipe_shop")
-		if top() == "recipes":
-			greet = game.L("recipe_help")
-		_text_fit(Vector2(r.position.x + 24 * u, r.position.y + 70 * u), greet, int(14 * u), w - 48 * u, Color(0.75, 0.7, 0.85))
+		_center(r.position.y + 70 * u, game.L("shop_sell_greet" if selling else "shop_greet"), int(14 * u), Color(0.75, 0.7, 0.85))
 	var money := "◆ %d" % p.shards
 	_text(Vector2(r.end.x - 26 * u - _w(money, int(17 * u), bold), r.position.y + 42 * u), money, int(17 * u), Color(1.0, 0.85, 0.35), bold)
 	# the list scrolls a whole row at a time, keeping the selected row in view
@@ -1254,8 +1299,6 @@ func _draw_shop(vp: Vector2, _accent: Color) -> void:
 		_draw_icon(Rect2(rect.position + Vector2(6, 5) * u, Vector2(row_h - 10 * u, row_h - 10 * u)), it.id, gc, on)
 		var tx := rect.position.x + row_h + 8 * u
 		var price := ("+◆ %d" if it.get("sell", false) else "◆ %d") % it.price
-		if it.get("collection", false):
-			price = ""
 		var pc := Color(1.0, 0.85, 0.35) if p.shards >= it.price or it.get("sell", false) else Color(0.6, 0.35, 0.3)
 		var pw := _w(price, fs, bold)
 		_text(Vector2(rect.end.x - 14 * u - pw, y + row_h * 0.6), price, fs, pc, bold)
@@ -1263,7 +1306,7 @@ func _draw_shop(vp: Vector2, _accent: Color) -> void:
 		_text_fit(Vector2(tx, y + row_h * 0.42), label, fs, tw, Color(1, 0.96, 0.88) if on else Color(0.82, 0.85, 0.83), bold)
 		# numbers say more than lore when buying: damage and speed of a weapon
 		var desc: String = it.get("note", "")
-		if not it.has("label") and not it.has("note"):
+		if not it.has("label"):
 			desc = Inventory.numbers(self, p, it.id)
 			if desc == "":
 				desc = game.L("item_" + it.id + "_d")
@@ -1292,7 +1335,7 @@ func _draw_shop(vp: Vector2, _accent: Color) -> void:
 
 ## Scrolls the shop list by [rows] when [pos] is over it; true when it was.
 func _scroll_list(pos: Vector2, rows: int) -> bool:
-	if not (top() in ["shop", "sell", "recipes", "settings"]) or not _list_rect.has_point(pos) or _list_max == 0:
+	if not (top() in ["shop", "sell", "settings"]) or not _list_rect.has_point(pos) or _list_max == 0:
 		return false
 	_list_top = clampi(_list_top + rows, 0, _list_max)
 	_list_sel = sel

@@ -731,10 +731,6 @@ func _draw_banner(vp: Vector2) -> void:
 		c.a = a
 		_center(vp.y * 0.3, game.biome_name().to_upper(), int(46 * u), c, bold)
 		_center(vp.y * 0.3 + 34 * u, "— " + (game.L("level") % game.level_num) + " —", int(17 * u), Color(0.8, 0.85, 0.82, a * 0.8))
-		if game.level_num > D.FINAL_LEVEL:
-			var detail: String = game.L("exp_number") % (game.level_num - D.FINAL_LEVEL)
-			detail += " · " + game.L("exp_" + game.biome.get("modifier", "hunt"))
-			_center(vp.y * 0.3 + 58 * u, detail, int(14 * u), Color(0.9, 0.8, 0.6, a))
 	var has_boss: bool = not game.boss.is_empty()
 	if has_boss and not _had_boss:
 		_boss_name_t = 0.0

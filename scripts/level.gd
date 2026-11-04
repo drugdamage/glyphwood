@@ -52,9 +52,6 @@ func build(level_num: int, b: Dictionary, rng: RandomNumberGenerator, with_boss:
 	# levels grow as the descent goes on: wider from the third, taller from the fifth
 	gw = 4 if level_num < 3 else (5 if level_num < 7 else 6)
 	gh = 2 if level_num == 1 else (3 if level_num < 5 else 4)
-	if level_num > D.FINAL_LEVEL:
-		gw = 4
-		gh = 3
 	w = gw * RW
 	h = gh * RH
 	tiles = PackedByteArray()
@@ -74,21 +71,6 @@ func build(level_num: int, b: Dictionary, rng: RandomNumberGenerator, with_boss:
 	for r in rooms:
 		if r != null:
 			_gen_room(r)
-
-	var has_shop := false
-	for pr in props:
-		has_shop = has_shop or pr.kind == "shop"
-	if not has_shop:
-		props.append({"kind": "shop", "pos": start, "stock": []})
-
-
-## Use only the floor RNG: continuing a save must restore the same chest positions.
-func _shuffle(list: Array) -> void:
-	for i in range(list.size() - 1, 0, -1):
-		var j := _rng.randi_range(0, i)
-		var value = list[i]
-		list[i] = list[j]
-		list[j] = value
 
 
 # ---------------------------------------------------------------- layout
@@ -169,14 +151,14 @@ func _make_path() -> void:
 func _make_side_rooms() -> void:
 	var wanted := ["shop"]
 	var extra := ["treasure", "vault", "treasure", "vault", "treasure"]
-	_shuffle(extra)
+	extra.shuffle()
 	wanted.append_array(extra)
 	var cells: Array = []
 	for gy in gh:
 		for gx in gw:
 			if rooms[gy * gw + gx] == null:
 				cells.append(Vector2i(gx, gy))
-	_shuffle(cells)
+	cells.shuffle()
 	for c in cells:
 		if wanted.is_empty():
 			break
@@ -470,7 +452,7 @@ func _secret(r: Dictionary) -> void:
 				set_t(r.x0 + k, r.y0 + yy, AIR)
 			r.protect.append(k)
 		if _rng.randf() < 0.5:
-			_add_prop("chest", r.x0 + x + 2, r.y0 + y + 3, {"open": false, "secret": true})
+			_add_prop("chest", r.x0 + x + 2, r.y0 + y + 3, {"open": false})
 		else:
 			pickups.append({"kind": "cache", "pos": _foot(r.x0 + x + 2, r.y0 + y + 3) - Vector2(0, 8)})
 		return
@@ -508,8 +490,7 @@ func _arena(r: Dictionary, boss: bool) -> void:
 		var lift := Vector2(0, 90) if D.ENEMIES[biome.boss].fly else Vector2.ZERO
 		waves.append([{"kind": biome.boss, "pos": _foot(x0 + RW / 2, y0 + D.EDGE_FLOOR) - lift, "elite": false}])
 	else:
-		var wave_count := 2 if _level > D.FINAL_LEVEL else 2 + (1 if _level > 3 else 0) + (1 if _level > 9 else 0)
-		for wv in wave_count:
+		for wv in 2 + (1 if _level > 3 else 0) + (1 if _level > 9 else 0):
 			var list: Array = []
 			for i in mini(7, 2 + wv + int(_level / 4)):
 				list.append(_spawn_def(r, _rng.randi_range(5, RW - 6), true))
@@ -553,8 +534,7 @@ func _spawn_def(r: Dictionary, lx: int, ground_only: bool = false) -> Dictionary
 	var pos := _foot(r.x0 + lx, r.y0 + f[lx])
 	if fly:
 		pos.y -= _rng.randf_range(3.0, 6.0) * D.TILE
-	var elite_chance := minf(0.4, 0.05 + 0.015 * _level) + (0.15 if biome.get("modifier", "") == "hunt" else 0.0)
-	return {"kind": kind, "pos": pos, "elite": _rng.randf() < elite_chance}
+	return {"kind": kind, "pos": pos, "elite": _rng.randf() < minf(0.4, 0.05 + 0.015 * _level)}
 
 
 func _enemies(r: Dictionary) -> void:

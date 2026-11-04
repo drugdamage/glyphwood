@@ -16,8 +16,8 @@ const EDGE_FLOOR := ROOM_H - 5
 const DOOR_H := 7
 const SHAFT_W := 4
 
-## Three levels per biome; the last ends with its boss. After the first
-## eighteen levels, chosen single-floor expeditions continue the descent.
+## Three levels per biome; the last one ends with the biome's boss. After the
+## last biome the world starts over deeper, with the biomes in a new order.
 const LEVELS_PER_BIOME := 3
 const FINAL_LEVEL := 18
 ## Depth after which enemies grow faster: the first levels are a gentle start.

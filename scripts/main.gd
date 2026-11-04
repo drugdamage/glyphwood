@@ -1,6 +1,6 @@
 ## Game state, level flow, saving, input routing and the shared API that the
 ## hero, enemies, combat and props scripts call back into.
-## The descent never ends: after the campaign, chosen expeditions continue it. Falling in battle
+## The descent never ends: biomes repeat, deeper and harder. Falling in battle
 ## sends the hero back to the last lantern with full health and a few shards
 ## less; levels, gear and experience are kept.
 extends Node2D
@@ -8,8 +8,6 @@ extends Node2D
 const D := preload("res://scripts/data.gd")
 const T := preload("res://scripts/strings.gd")
 const Items := preload("res://scripts/items.gd")
-const Merchant := preload("res://scripts/merchant.gd")
-const Expeditions := preload("res://scripts/expeditions.gd")
 const Level := preload("res://scripts/level.gd")
 const Physics := preload("res://scripts/physics.gd")
 const Hero := preload("res://scripts/hero.gd")
@@ -26,7 +24,6 @@ const Hud := preload("res://scripts/hud.gd")
 const Menu := preload("res://scripts/menu.gd")
 const Skills := preload("res://scripts/skills.gd")
 const T2 := preload("res://scripts/strings_more.gd")
-const T3 := preload("res://scripts/strings_expeditions.gd")
 const PostShader := preload("res://shaders/post.gdshader")
 const PixelShader := preload("res://shaders/pixel.gdshader")
 ## The picture keeps at least this many lines, so the HUD and menus fit.
@@ -64,7 +61,7 @@ const DIFF := {
 	"nightmare": {"dmg": 2.2, "hp": 2.0, "speed": 1.16, "elite": 0.14, "toll": 1.0, "xp": 1.4, "regen": 0.5},
 }
 const RUN_KEYS := ["hp", "base_hp", "ink", "shards", "weapon", "charms", "bag", "xp", "xp_level", "up_hp", "up_dmg", "throw", "up_spd",
-	"skills", "belt", "wslot", "armor", "armor_up", "fragments", "research", "loot_level", "opened_chests", "expedition"]
+	"skills", "belt", "wslot", "armor", "armor_up"]
 ## Glyph-level fallbacks for Chinese and Japanese text (system fonts).
 const CJK_FONTS := {
 	"zh": ["PingFang SC", "Hiragino Sans GB", "Heiti SC", "Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "Noto Sans SC",
@@ -531,7 +528,7 @@ func particle_cap() -> int:
 
 
 func L(key: String) -> String:
-	var row: Array = T.STRINGS.get(key, T2.STRINGS.get(key, T3.STRINGS.get(key, [])))
+	var row: Array = T.STRINGS.get(key, T2.STRINGS.get(key, []))
 	if row.is_empty():
 		return key
 	return row[lang_idx] if lang_idx < row.size() and row[lang_idx] != "" else row[0]
@@ -697,7 +694,6 @@ func continue_run() -> void:
 		# saved before the belt: the weapon in hand and the second one make it up
 		player.belt = []
 	Items.fix_belt(player, saved.get("weapon2", ""))
-	Merchant.migrate(player)
 	# the tree may have changed since the save: points of nodes it no longer allows come back
 	var back := Skills.sanitize(player)
 	Hero.refresh(player)
@@ -732,9 +728,28 @@ func save_run() -> void:
 	cf.save(WORLD_PATH % world_slot)
 
 
+## The biome of level n. The first time through they come in order; every
+## later cycle shuffles them (the same way for the same world).
+func biome_index(n: int) -> int:
+	var nb := D.BIOMES.size()
+	var slot := int((n - 1) / D.LEVELS_PER_BIOME)
+	var cycle := int(slot / nb)
+	if cycle == 0:
+		return slot
+	var order: Array = range(nb)
+	var r := RandomNumberGenerator.new()
+	r.seed = hash([run_seed, cycle])
+	for i in range(nb - 1, 0, -1):
+		var j := r.randi_range(0, i)
+		var tmp: int = order[i]
+		order[i] = order[j]
+		order[j] = tmp
+	return order[slot % nb]
+
+
 func _build_level() -> void:
-	biome = Expeditions.biome(player, run_seed, level_num)
-	var boss_level := level_num > D.FINAL_LEVEL or level_num % D.LEVELS_PER_BIOME == 0
+	biome = D.BIOMES[biome_index(level_num)]
+	var boss_level := level_num % D.LEVELS_PER_BIOME == 0
 	lv = Level.new()
 	var lrng := RandomNumberGenerator.new()
 	lrng.seed = hash([run_seed, level_num])
@@ -766,7 +781,6 @@ func _build_level() -> void:
 			e.stun = 99.0
 			enemies.append(e)
 	props = lv.props
-	Merchant.prepare_floor(player, level_num, props)
 	pickups = lv.pickups
 	projectiles.clear()
 	hazards.clear()
@@ -790,15 +804,16 @@ func _build_level() -> void:
 		audio.ambient(biome.id)
 
 
-## Goes deeper without resetting the hero. The first victory opens expeditions.
+## Goes one level deeper. After the last biome's boss the biomes start over,
+## with tougher enemies.
 func _next_level() -> void:
 	audio.play("door")
-	var cycle := level_num == D.FINAL_LEVEL
+	var cycle := level_num % D.FINAL_LEVEL == 0
 	level_num += 1
 	_record_profile(cycle)
 	_start_level_now()
 	if cycle:
-		toast(L("exp_unlocked"), Color(1.0, 0.85, 0.4))
+		toast(L("toast_cycle") % (level_num / D.FINAL_LEVEL + 1), Color(1.0, 0.85, 0.4))
 		audio.play("victory", -4.0)
 
 
@@ -895,18 +910,6 @@ func in_combat() -> bool:
 
 ## Goes through the open exit (the hero chose to: see _step_play).
 func descend() -> void:
-	if not lv.door_open:
-		return
-	if level_num >= D.FINAL_LEVEL:
-		menu.open("expedition")
-	else:
-		_next_level()
-
-
-func choose_expedition(route: Dictionary) -> void:
-	if not lv.door_open or level_num < D.FINAL_LEVEL or not Expeditions.valid(route, level_num + 1):
-		return
-	player.expedition = route.duplicate()
 	_next_level()
 
 

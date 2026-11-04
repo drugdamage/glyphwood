@@ -28,7 +28,7 @@ jobs:
         run: pip install "gdtoolkit==4.*"
 
       - name: Run gdlint
-        run: gdlint scripts tests tools
+        run: gdlint scripts
 
   import:
     name: Import & smoke test (Godot 4.5.1)
@@ -44,14 +44,6 @@ jobs:
           godot --headless --path . --import 2>&1 | tee import.log
           if grep -nE "SCRIPT ERROR|Parse Error|Failed to load script" import.log; then
             echo "::error::Godot reported script errors during import"
-            exit 1
-          fi
-
-      - name: Progression regression (isolated, no game scene)
-        run: |
-          set -o pipefail
-          godot --headless --path . --script tests/progression.gd 2>&1 | tee progression.log
-          if grep -nE "SCRIPT ERROR|Parse Error|Failed to load script" progression.log; then
             exit 1
           fi
 

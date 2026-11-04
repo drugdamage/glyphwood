@@ -60,25 +60,13 @@ CI runs the same steps on every push and pull request:
 
 ```sh
 pip install "gdtoolkit==4.*"
-gdlint scripts tests tools                       # style / naming lint (.gdlintrc)
+gdlint scripts                                   # style / naming lint (.gdlintrc)
 godot --headless --path . --import               # must print no SCRIPT ERROR
-godot --headless --path . --script tests/progression.gd  # isolated logic checks
 godot --headless --path . --quit-after 1200 -- --play --bot --seed=1   # smoke test
 ```
 
 If you change menu or HUD text, also run `godot --path . -- --uicheck=1.3` (it
 needs a window): it prints every text that leaves its panel or the window.
-
-### Update overview without launching the game
-
-```sh
-godot --headless --path . --script tools/export_update_art.gd -- /tmp/glyphwood-art
-python -m pip install Pillow
-python tools/render_update_gif.py /tmp/glyphwood-art
-```
-
-This renders `docs/expeditions.gif` from repository sprites. Label it as an
-update overview; use `--record` for an actual gameplay recording.
 
 ## Code style
 

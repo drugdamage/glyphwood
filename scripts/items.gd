@@ -75,14 +75,6 @@ const ITEMS := {
 		"run": 0.97},
 	"thorned_sabatons": {"slot": "armor", "part": "legs", "glyph": "Ψ", "color": Color(0.6, 0.52, 0.46), "price": 160, "armor": 0.94,
 		"thorns": 10},
-	"cinder_veil": {"slot": "armor", "part": "head", "glyph": "∩", "color": Color(0.95, 0.48, 0.3), "price": 210,
-		"armor": 0.94, "ink_gain": 1.35, "max_hp": 6},
-	"marsh_wrap": {"slot": "armor", "part": "body", "glyph": "#", "color": Color(0.48, 0.67, 0.4), "price": 230,
-		"armor": 0.9, "run": 1.06, "crit": 0.04},
-	"choir_hood": {"slot": "armor", "part": "head", "glyph": "∩", "color": Color(0.7, 0.72, 0.95), "price": 240,
-		"armor": 0.94, "crit": 0.06, "ink_gain": 1.2},
-	"rime_mail": {"slot": "armor", "part": "body", "glyph": "#", "color": Color(0.64, 0.85, 0.95), "price": 280,
-		"armor": 0.86, "dash_cd": 0.85, "run": 1.03},
 	"heart_glyph": {"slot": "charm", "glyph": "♥", "color": Color(1.0, 0.35, 0.45), "price": 110, "max_hp": 30},
 	"phantom_step": {"slot": "charm", "glyph": "»", "color": Color(0.6, 0.85, 1.0), "price": 150, "dash_inv": true},
 	"feather": {"slot": "charm", "glyph": "∫", "color": Color(0.95, 0.95, 0.8), "price": 160, "air_jumps": 1},
@@ -107,6 +99,22 @@ const ITEMS := {
 	"gallows_knot": {"slot": "charm", "glyph": "∞", "color": Color(0.75, 0.65, 0.45), "price": 0, "air_jumps": 1, "run": 1.06},
 	"tide_pearl": {"slot": "charm", "glyph": "◦", "color": Color(0.55, 0.75, 1.0), "price": 0, "regen": 1.5, "boss_regen": true},
 	"frost_crown": {"slot": "charm", "glyph": "♔", "color": Color(0.7, 0.9, 1.0), "price": 0, "chill": true, "dmg_mult": 1.1},
+}
+
+## Every priced item belongs to one biome's collection. Merchants and chests
+## draw from the same collection, so late gear cannot appear in early areas.
+## Boss relics (price 0) remain exclusive to bosses.
+const BIOME_GOODS := {
+	"wood": ["pilgrim_sword", "glyph_saber", "thorn_chakram", "pilgrim_hood", "gambeson", "wanderer_boots",
+		"feather", "lodestone", "thorn_ring"],
+	"hollow": ["hollow_spear", "grave_maul", "bone_boomerang", "iron_sallet", "chain_hauberk", "iron_greaves",
+		"inkwell", "stone_skin", "iron_shroud"],
+	"ember": ["ember_brand", "greatblade", "quickhand", "black_candle", "heart_glyph"],
+	"mire": ["widow_fangs", "bloodletter", "bile_flask", "plague_mask", "thorned_sabatons", "fang", "lucky_coin"],
+	"cathedral": ["bell_halberd", "bone_scythe", "grave_javelin", "cathedral_plate", "funeral_bell", "saints_finger",
+		"penitent_chain"],
+	"crypt": ["night_katana", "frost_brand", "headsman_axe", "phantom_step", "raven_quill", "blood_rosary",
+		"wraith_lantern"],
 }
 
 ## Charms dropped by bosses (never in shops or chests).
@@ -442,11 +450,12 @@ static func sell(p: Dictionary, id: String) -> int:
 	return price
 
 
-## Picks a random item the hero does not own yet, from those with a price.
-static func random_unowned(p: Dictionary, rng: RandomNumberGenerator, exclude: Array = []) -> String:
+## Draws an unowned item from this biome's collection. One source of truth
+## for merchant stock and chest drops keeps the progression consistent.
+static func random_unowned(p: Dictionary, rng: RandomNumberGenerator, biome_id: String, exclude: Array = []) -> String:
 	var pool: Array = []
-	for id in ITEMS:
-		if ITEMS[id].price > 0 and not owns(p, id) and not exclude.has(id):
+	for id in BIOME_GOODS.get(biome_id, []):
+		if not owns(p, id) and not exclude.has(id):
 			pool.append(id)
 	if pool.is_empty():
 		return ""

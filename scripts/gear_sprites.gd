@@ -197,14 +197,6 @@ const SHIELD := [
 ## Helmets laid over the hero (colour 1 is the helmet's); "helm" is worn when
 ## no helmet is.
 const HEADS := {
-	"cinder_veil": [
-		"...1..1...", "..1B111...", ".1B11111..", ".1B11kk1..", ".1B1kkk1..", ".1B1kkrR..", ".1b11111..", ".1bb11bb..",
-		"..b111b...", "..x6G6x...",
-	],
-	"choir_hood": [
-		"....1.....", "...1B1....", "..1B111...", ".1B11111..", ".1B1kk11..", ".1B1kkrR..", ".1B11111..", ".1b11111b.",
-		"..b1b1bb..", "..x6G6x...",
-	],
 	"helm": [
 		"u.......u.", "vu.....uv.", ".vu111uv..", ".1111111..", "1B111111b.", "1B1kkkkrR.", "1B111k11b.", ".b11111b..", "..bbbbb...",
 		"..x6G6x...",
@@ -225,14 +217,6 @@ const HEADS := {
 
 ## Body armour laid over the torso (colour 0 is the armour's).
 const BODIES := {
-	"marsh_wrap": [
-		"..AA000AAAa.", "..aA000a0A..", "..a.0A0a0...", "..a.a0A0a...", "..a.0a0A0...", "..a.a0a0A...", "..x.0a0a0...", "..x.wWWWw...",
-		"....0a0a0...", "....a0a0a...",
-	],
-	"rime_mail": [
-		".AAA00AAAAa.", "..aA0A0A0A..", "..a.A030A...", "..a.0A3A0...", "..a.00300...", "..a.a030a...", "..x.AaAaA...", "..x.g6G6g...",
-		"....A030A...", "....0a0a0...",
-	],
 	"gambeson": [
 		"..AA000AAAa.", "..aA0a0a0A..", "..a.0a0a0...", "..a.aaaaa...", "..a.0a0a0...", "..a.0a0a0...", "..x.aaaaa...", "..x.wWWWw...",
 		"....a0a0a...", "....0a0a0...",
