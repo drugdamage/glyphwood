@@ -52,6 +52,9 @@ func build(level_num: int, b: Dictionary, rng: RandomNumberGenerator, with_boss:
 	# levels grow as the descent goes on: wider from the third, taller from the fifth
 	gw = 4 if level_num < 3 else (5 if level_num < 7 else 6)
 	gh = 2 if level_num == 1 else (3 if level_num < 5 else 4)
+	if level_num > D.FINAL_LEVEL:
+		gw = 4
+		gh = 3
 	w = gw * RW
 	h = gh * RH
 	tiles = PackedByteArray()
@@ -71,6 +74,23 @@ func build(level_num: int, b: Dictionary, rng: RandomNumberGenerator, with_boss:
 	for r in rooms:
 		if r != null:
 			_gen_room(r)
+	if level_num > D.FINAL_LEVEL:
+		var has_shop := false
+		for pr in props:
+			has_shop = has_shop or pr.kind == "shop"
+		if not has_shop:
+			# A short floor can have no free side room; the start is always safe.
+			props.append({"kind": "shop", "pos": start, "stock": []})
+
+
+## All room choices use the floor seed, including side-room order. A continued
+## world rebuilds the same terrain and chest positions.
+func _shuffle(list: Array) -> void:
+	for i in range(list.size() - 1, 0, -1):
+		var j := _rng.randi_range(0, i)
+		var value = list[i]
+		list[i] = list[j]
+		list[j] = value
 
 
 # ---------------------------------------------------------------- layout
@@ -151,14 +171,14 @@ func _make_path() -> void:
 func _make_side_rooms() -> void:
 	var wanted := ["shop"]
 	var extra := ["treasure", "vault", "treasure", "vault", "treasure"]
-	extra.shuffle()
+	_shuffle(extra)
 	wanted.append_array(extra)
 	var cells: Array = []
 	for gy in gh:
 		for gx in gw:
 			if rooms[gy * gw + gx] == null:
 				cells.append(Vector2i(gx, gy))
-	cells.shuffle()
+	_shuffle(cells)
 	for c in cells:
 		if wanted.is_empty():
 			break
@@ -490,7 +510,8 @@ func _arena(r: Dictionary, boss: bool) -> void:
 		var lift := Vector2(0, 90) if D.ENEMIES[biome.boss].fly else Vector2.ZERO
 		waves.append([{"kind": biome.boss, "pos": _foot(x0 + RW / 2, y0 + D.EDGE_FLOOR) - lift, "elite": false}])
 	else:
-		for wv in 2 + (1 if _level > 3 else 0) + (1 if _level > 9 else 0):
+		var waves_count := 2 if _level > D.FINAL_LEVEL else 2 + (1 if _level > 3 else 0) + (1 if _level > 9 else 0)
+		for wv in waves_count:
 			var list: Array = []
 			for i in mini(7, 2 + wv + int(_level / 4)):
 				list.append(_spawn_def(r, _rng.randi_range(5, RW - 6), true))

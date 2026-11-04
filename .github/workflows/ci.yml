@@ -47,8 +47,11 @@ jobs:
             exit 1
           fi
 
-      - name: Blueprint regression (no game scene)
-        run: godot --headless --path . --script tests/axe_blueprint.gd
+      - name: Progression regressions (no game scene)
+        run: |
+          godot --headless --path . --script tests/biome_goods.gd
+          godot --headless --path . --script tests/blueprints.gd
+          godot --headless --path . --script tests/endless.gd
 
       - name: Smoke test (bot plays for 20 seconds)
         run: |

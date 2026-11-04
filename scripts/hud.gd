@@ -730,7 +730,10 @@ func _draw_banner(vp: Vector2) -> void:
 		var c: Color = game.biome.top
 		c.a = a
 		_center(vp.y * 0.3, game.biome_name().to_upper(), int(46 * u), c, bold)
-		_center(vp.y * 0.3 + 34 * u, "— " + (game.L("level") % game.level_num) + " —", int(17 * u), Color(0.8, 0.85, 0.82, a * 0.8))
+		var floor_text: String = game.L("level") % game.level_num
+		if game.level_num > D.FINAL_LEVEL:
+			floor_text += " · " + (game.L("endless_floor") % (game.level_num - D.FINAL_LEVEL))
+		_center(vp.y * 0.3 + 34 * u, "— " + floor_text + " —", int(17 * u), Color(0.8, 0.85, 0.82, a * 0.8))
 	var has_boss: bool = not game.boss.is_empty()
 	if has_boss and not _had_boss:
 		_boss_name_t = 0.0

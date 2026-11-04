@@ -75,6 +75,10 @@ const ITEMS := {
 		"run": 0.97},
 	"thorned_sabatons": {"slot": "armor", "part": "legs", "glyph": "Ψ", "color": Color(0.6, 0.52, 0.46), "price": 160, "armor": 0.94,
 		"thorns": 10},
+	"marsh_wrap": {"slot": "armor", "part": "body", "glyph": "#", "color": Color(0.5, 0.65, 0.42), "price": 230,
+		"armor": 0.9, "run": 1.06, "crit": 0.04},
+	"rime_mail": {"slot": "armor", "part": "body", "glyph": "#", "color": Color(0.62, 0.82, 0.95), "price": 280,
+		"armor": 0.86, "run": 1.04, "dash_cd": 0.85},
 	"heart_glyph": {"slot": "charm", "glyph": "♥", "color": Color(1.0, 0.35, 0.45), "price": 110, "max_hp": 30},
 	"phantom_step": {"slot": "charm", "glyph": "»", "color": Color(0.6, 0.85, 1.0), "price": 150, "dash_inv": true},
 	"feather": {"slot": "charm", "glyph": "∫", "color": Color(0.95, 0.95, 0.8), "price": 160, "air_jumps": 1},
@@ -110,38 +114,57 @@ const BIOME_GOODS := {
 	"hollow": ["hollow_spear", "grave_maul", "bone_boomerang", "iron_sallet", "chain_hauberk", "iron_greaves",
 		"inkwell", "stone_skin", "iron_shroud"],
 	"ember": ["ember_brand", "greatblade", "quickhand", "black_candle", "heart_glyph"],
-	"mire": ["widow_fangs", "bloodletter", "bile_flask", "plague_mask", "thorned_sabatons", "fang", "lucky_coin"],
+	"mire": ["widow_fangs", "bloodletter", "bile_flask", "plague_mask", "thorned_sabatons", "marsh_wrap", "fang", "lucky_coin"],
 	"cathedral": ["bell_halberd", "bone_scythe", "grave_javelin", "cathedral_plate", "funeral_bell", "saints_finger",
 		"penitent_chain"],
-	"crypt": ["night_katana", "frost_brand", "headsman_axe", "phantom_step", "raven_quill", "blood_rosary",
+	"crypt": ["night_katana", "frost_brand", "headsman_axe", "rime_mail", "phantom_step", "raven_quill", "blood_rosary",
 		"wraith_lantern"],
 }
 
-## First blueprint: the Crypt merchant keeps the Headsman's Axe on display,
-## but its purchase requires three fragments from Crypt chests.
-const AXE_BLUEPRINT := "headsman_axe"
-const AXE_FRAGMENTS := 3
-const AXE_FRAGMENTS_PER_FLOOR := 2
+## One signature blueprint per biome. These six items must be restored before
+## purchase, while the rest of each collection stays freely tradeable.
+const BLUEPRINTS := {
+	"wood": "glyph_saber", "hollow": "grave_maul", "ember": "ember_brand",
+	"mire": "bloodletter", "cathedral": "cathedral_plate", "crypt": "headsman_axe",
+}
+const FRAGMENTS_NEEDED := 3
+const FRAGMENTS_PER_FLOOR := 2
 
 
-static func axe_ready(p: Dictionary) -> bool:
-	return int(p.get("axe_fragments", 0)) >= AXE_FRAGMENTS or owns(p, AXE_BLUEPRINT)
+static func fragment_count(p: Dictionary, id: String) -> int:
+	return clampi(int(p.get("fragments", {}).get(id, 0)), 0, FRAGMENTS_NEEDED)
 
 
-## Return the number newly found. The per-floor cap prevents save/reload
-## farming even when the procedural room layout changes on continue.
-static func find_axe_fragments(p: Dictionary, level_num: int, secret: bool) -> int:
-	if axe_ready(p):
+static func blueprint_ready(p: Dictionary, id: String) -> bool:
+	return not BLUEPRINTS.values().has(id) or fragment_count(p, id) >= FRAGMENTS_NEEDED or owns(p, id)
+
+
+## Carry forward the axe pilot and mark every previously owned item complete.
+static func migrate_blueprints(p: Dictionary, saved: Dictionary) -> void:
+	p.fragments["headsman_axe"] = maxi(fragment_count(p, "headsman_axe"), int(saved.get("axe_fragments", 0)))
+	if not saved.has("fragment_level"):
+		p.fragment_level = int(saved.get("axe_fragment_level", -1))
+		p.fragment_floor = int(saved.get("axe_fragment_floor", 0))
+	for id in BLUEPRINTS.values():
+		if owns(p, id):
+			p.fragments[id] = FRAGMENTS_NEEDED
+
+
+## The floor cap prevents reload farming even if its rooms regenerate.
+## Chests still give their usual item or shards independently of a fragment.
+static func find_fragments(p: Dictionary, level_num: int, biome_id: String, secret: bool) -> int:
+	var id: String = BLUEPRINTS.get(biome_id, "")
+	if id == "" or blueprint_ready(p, id):
 		return 0
-	if int(p.get("axe_fragment_level", -1)) != level_num:
-		p.axe_fragment_level = level_num
-		p.axe_fragment_floor = 0
-	var room := AXE_FRAGMENTS_PER_FLOOR - int(p.get("axe_fragment_floor", 0))
-	var needed := AXE_FRAGMENTS - int(p.get("axe_fragments", 0))
-	var amount := mini(2 if secret else 1, mini(room, needed))
+	if int(p.get("fragment_level", -1)) != level_num:
+		p.fragment_level = level_num
+		p.fragment_floor = 0
+	var room := FRAGMENTS_PER_FLOOR - int(p.get("fragment_floor", 0))
+	var needed := FRAGMENTS_NEEDED - fragment_count(p, id)
+	var amount := maxi(0, mini(2 if secret else 1, mini(room, needed)))
 	if amount > 0:
-		p.axe_fragments = int(p.get("axe_fragments", 0)) + amount
-		p.axe_fragment_floor = int(p.get("axe_fragment_floor", 0)) + amount
+		p.fragments[id] = fragment_count(p, id) + amount
+		p.fragment_floor = int(p.get("fragment_floor", 0)) + amount
 	return amount
 
 
@@ -480,11 +503,11 @@ static func sell(p: Dictionary, id: String) -> int:
 
 ## Draws an unowned item from this biome's collection. One source of truth
 ## for merchant stock and chest drops keeps the progression consistent.
-## The blueprint axe is deliberately excluded; its shop slot is reserved.
+## Signature blueprints are excluded; their shop slots are reserved.
 static func random_unowned(p: Dictionary, rng: RandomNumberGenerator, biome_id: String, exclude: Array = []) -> String:
 	var pool: Array = []
 	for id in BIOME_GOODS.get(biome_id, []):
-		if id != AXE_BLUEPRINT and not owns(p, id) and not exclude.has(id):
+		if not BLUEPRINTS.values().has(id) and not owns(p, id) and not exclude.has(id):
 			pool.append(id)
 	if pool.is_empty():
 		return ""

@@ -1,6 +1,6 @@
 ## Game state, level flow, saving, input routing and the shared API that the
 ## hero, enemies, combat and props scripts call back into.
-## The descent never ends: biomes repeat, deeper and harder. Falling in battle
+## The descent never ends: short mixed-biome floors follow the first descent. Falling in battle
 ## sends the hero back to the last lantern with full health and a few shards
 ## less; levels, gear and experience are kept.
 extends Node2D
@@ -9,6 +9,7 @@ const D := preload("res://scripts/data.gd")
 const T := preload("res://scripts/strings.gd")
 const Items := preload("res://scripts/items.gd")
 const Level := preload("res://scripts/level.gd")
+const Endless := preload("res://scripts/endless.gd")
 const Physics := preload("res://scripts/physics.gd")
 const Hero := preload("res://scripts/hero.gd")
 const Foes := preload("res://scripts/foes.gd")
@@ -61,7 +62,7 @@ const DIFF := {
 	"nightmare": {"dmg": 2.2, "hp": 2.0, "speed": 1.16, "elite": 0.14, "toll": 1.0, "xp": 1.4, "regen": 0.5},
 }
 const RUN_KEYS := ["hp", "base_hp", "ink", "shards", "weapon", "charms", "bag", "xp", "xp_level", "up_hp", "up_dmg", "throw", "up_spd",
-	"skills", "belt", "wslot", "armor", "armor_up", "axe_fragments", "axe_fragment_level", "axe_fragment_floor"]
+	"skills", "belt", "wslot", "armor", "armor_up", "fragments", "fragment_level", "fragment_floor"]
 ## Glyph-level fallbacks for Chinese and Japanese text (system fonts).
 const CJK_FONTS := {
 	"zh": ["PingFang SC", "Hiragino Sans GB", "Heiti SC", "Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "Noto Sans SC",
@@ -694,8 +695,7 @@ func continue_run() -> void:
 		# saved before the belt: the weapon in hand and the second one make it up
 		player.belt = []
 	Items.fix_belt(player, saved.get("weapon2", ""))
-	if Items.owns(player, Items.AXE_BLUEPRINT):
-		player.axe_fragments = Items.AXE_FRAGMENTS
+	Items.migrate_blueprints(player, saved)
 	# the tree may have changed since the save: points of nodes it no longer allows come back
 	var back := Skills.sanitize(player)
 	Hero.refresh(player)
@@ -730,28 +730,9 @@ func save_run() -> void:
 	cf.save(WORLD_PATH % world_slot)
 
 
-## The biome of level n. The first time through they come in order; every
-## later cycle shuffles them (the same way for the same world).
-func biome_index(n: int) -> int:
-	var nb := D.BIOMES.size()
-	var slot := int((n - 1) / D.LEVELS_PER_BIOME)
-	var cycle := int(slot / nb)
-	if cycle == 0:
-		return slot
-	var order: Array = range(nb)
-	var r := RandomNumberGenerator.new()
-	r.seed = hash([run_seed, cycle])
-	for i in range(nb - 1, 0, -1):
-		var j := r.randi_range(0, i)
-		var tmp: int = order[i]
-		order[i] = order[j]
-		order[j] = tmp
-	return order[slot % nb]
-
-
 func _build_level() -> void:
-	biome = D.BIOMES[biome_index(level_num)]
-	var boss_level := level_num % D.LEVELS_PER_BIOME == 0
+	biome = Endless.biome(run_seed, level_num)
+	var boss_level := level_num > D.FINAL_LEVEL or level_num % D.LEVELS_PER_BIOME == 0
 	lv = Level.new()
 	var lrng := RandomNumberGenerator.new()
 	lrng.seed = hash([run_seed, level_num])
@@ -806,16 +787,15 @@ func _build_level() -> void:
 		audio.ambient(biome.id)
 
 
-## Goes one level deeper. After the last biome's boss the biomes start over,
-## with tougher enemies.
+## Goes one level deeper. The first victory opens short mixed-biome floors.
 func _next_level() -> void:
 	audio.play("door")
-	var cycle := level_num % D.FINAL_LEVEL == 0
+	var cycle := level_num == D.FINAL_LEVEL
 	level_num += 1
 	_record_profile(cycle)
 	_start_level_now()
 	if cycle:
-		toast(L("toast_cycle") % (level_num / D.FINAL_LEVEL + 1), Color(1.0, 0.85, 0.4))
+		toast(L("endless_begin"), Color(1.0, 0.85, 0.4))
 		audio.play("victory", -4.0)
 
 

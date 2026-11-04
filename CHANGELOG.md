@@ -9,19 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- The Headsman's Axe is the first blueprint purchase: Crypt chests reveal
-  three fragments before its merchant will sell it. Hidden chests can reveal
-  two fragments at once. Progress is saved, and an old world that already
-  owns the axe keeps it unlocked. One floor awards at most two fragments,
-  including after a reload.
+- One signature blueprint per biome: Glyph Saber, Grave Maul, Ember Brand,
+  Bloodletter, Cathedral Plate and the Headsman's Axe. Each needs three
+  fragments from local chests before its merchant will sell it. Hidden chests
+  can give two fragments; a floor gives at most two, even after a reload.
+  The featured item is always on display, with its progress shown in the shop.
+- Marsh Wrap and Rime Mail, two late-game body armours with new pixel art.
+  Marsh Wrap favours running and critical strikes; Rime Mail favours running
+  and dash recovery. Existing iron armour and weapon stats are unchanged.
+- After the first 18 levels, each deeper floor is a shorter, four-by-three
+  room expedition with one guardian. Every six expeditions visit all six
+  biomes in a new, seeded order. Enemies from a second biome enter each floor,
+  and the environment takes a hint of its colours. Adjacent floors do not
+  repeat a biome. The hero, depth, experience and equipment continue.
 
 ### Changed
 
-- Merchants and chests now draw equipment and charms from the current biome's
-  own collection. Every priced item has one home biome; the Headsman's Axe
-  appears in the Frostbound Crypt rather than the early descent. Boss relics,
-  item stats, prices, and the existing endless loop are unchanged.
+- All 44 original priced items remain assigned to one biome's merchant and
+  chests; the two new armours join the Mire and Crypt collections. Signature
+  blueprint gear no longer drops outright from chests. Boss relics stay boss
+  rewards. Ordinary items and shop services remain immediately available.
+- Existing worlds keep their gear and upgrades. Owned signature items count
+  as complete blueprints; progress on the earlier axe-only blueprint transfers.
+  Existing endless saves resume at their saved depth under the shorter-floor
+  rules. The first 18 levels retain their original biome and boss order.
+- Side-room shuffling now uses the floor's seed, so continuing a world rebuilds
+  the same chest positions. A postgame floor with no space for a side-room
+  merchant places one at the safe starting point.
 
+### Validation
+
+- Isolated blueprint and endless-generation checks run in CI. Windowed play,
+  Normal-difficulty balance and controller layout await the next playtest.
 
 ## [0.13.0] - 2026-10-29
 

@@ -419,8 +419,9 @@ func _shop_items() -> Array:
 	var out: Array = []
 	for id in pr.get("stock", []):
 		var it := {"type": "buy", "id": id, "price": Items.def(id).price, "act": _buy.bind(id)}
-		if id == Items.AXE_BLUEPRINT and not Items.axe_ready(p):
-			it.note = game.L("axe_fragment_progress") % [p.axe_fragments, Items.AXE_FRAGMENTS]
+		if Items.BLUEPRINTS.values().has(id) and not Items.blueprint_ready(p, id):
+			it.note = game.L("blueprint_progress") % [Items.fragment_count(p, id), Items.FRAGMENTS_NEEDED]
+			it.tip = game.L("blueprint_hint")
 		out.append(it)
 	var lvl: int = game.level_num
 	out.append({"type": "buy", "id": "mend", "price": Items.service_price(p, "mend", lvl), "act": _buy.bind("mend"),
@@ -460,12 +461,13 @@ func _sell(id: String) -> void:
 func _buy(id: String) -> void:
 	var p: Dictionary = game.player
 	var service: bool = id in ["mend", "vigor", "whet", "haste", "forget"]
-	if id == Items.AXE_BLUEPRINT and Items.owns(p, id):
-		return
-	if id == Items.AXE_BLUEPRINT and not Items.axe_ready(p):
-		game.sfx("error", -6.0)
-		_message(game.L("axe_fragment_progress") % [p.axe_fragments, Items.AXE_FRAGMENTS])
-		return
+	if Items.BLUEPRINTS.values().has(id):
+		if Items.owns(p, id):
+			return
+		if not Items.blueprint_ready(p, id):
+			game.sfx("error", -6.0)
+			_message(game.L("blueprint_progress") % [Items.fragment_count(p, id), Items.FRAGMENTS_NEEDED])
+			return
 	var price: int = Items.service_price(p, id, game.level_num) if service else Items.def(id).price
 	if id == "mend" and p.hp >= p.max_hp:
 		game.sfx("error", -6.0)
