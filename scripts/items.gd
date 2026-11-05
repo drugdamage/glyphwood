@@ -152,16 +152,16 @@ static func migrate_blueprints(p: Dictionary, saved: Dictionary) -> void:
 
 ## The floor cap prevents reload farming even if its rooms regenerate.
 ## Chests still give their usual item or shards independently of a fragment.
-static func find_fragments(p: Dictionary, level_num: int, biome_id: String, secret: bool) -> int:
+static func find_fragments(p: Dictionary, level_num: int, biome_id: String, secret: bool, bonus: int = 0) -> int:
 	var id: String = BLUEPRINTS.get(biome_id, "")
 	if id == "" or blueprint_ready(p, id):
 		return 0
 	if int(p.get("fragment_level", -1)) != level_num:
 		p.fragment_level = level_num
 		p.fragment_floor = 0
-	var room := FRAGMENTS_PER_FLOOR - int(p.get("fragment_floor", 0))
+	var room := FRAGMENTS_PER_FLOOR + bonus - int(p.get("fragment_floor", 0))
 	var needed := FRAGMENTS_NEEDED - fragment_count(p, id)
-	var amount := maxi(0, mini(2 if secret else 1, mini(room, needed)))
+	var amount := maxi(0, mini((2 if secret else 1) + bonus, mini(room, needed)))
 	if amount > 0:
 		p.fragments[id] = fragment_count(p, id) + amount
 		p.fragment_floor = int(p.get("fragment_floor", 0)) + amount

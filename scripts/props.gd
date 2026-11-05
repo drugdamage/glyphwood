@@ -65,11 +65,14 @@ static func open_chest(g, pr: Dictionary) -> void:
 	Combat.burst(g, at, ["*", "·", "+"], Color(1.0, 0.85, 0.4), 20, 130.0, -80.0)
 	var signature: String = Items.BLUEPRINTS.get(g.biome.id, "")
 	if signature != "":
-		var found := Items.find_fragments(p, g.level_num, g.biome.id, pr.get("secret", false))
+		var found := Items.find_fragments(p, g.level_num, g.biome.id, pr.get("secret", false),
+			1 if g.biome.get("mode", "") == "relic" else 0)
 		if found > 0:
 			g.toast(g.L("blueprint_found") % [g.L("item_" + signature), Items.fragment_count(p, signature),
 				Items.FRAGMENTS_NEEDED], Items.def(signature).color)
 			g.save_run()
+	if g.biome.get("mode", "") == "relic":
+		Combat.drop_shards(g, at, 20)
 	var id := Items.random_unowned(p, g.rng, g.biome.id) if g.rng.randf() < 0.6 else ""
 	if id != "":
 		var equipped := Items.give(p, id)

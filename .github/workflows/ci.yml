@@ -52,6 +52,7 @@ jobs:
           godot --headless --path . --script tests/biome_goods.gd
           godot --headless --path . --script tests/blueprints.gd
           godot --headless --path . --script tests/endless.gd
+          godot --headless --path . --script tests/expeditions.gd
 
       - name: Smoke test (bot plays for 20 seconds)
         run: |

@@ -107,7 +107,7 @@ static func create() -> Dictionary:
 		"weapon": Items.START_WEAPON, "belt": [Items.START_WEAPON, "", ""], "wslot": 0, "throw": Items.START_THROW,
 		"charms": [], "bag": [], "st": {},
 		"armor": {"head": "", "body": "", "legs": ""}, "armor_up": {},
-		"fragments": {}, "fragment_level": -1, "fragment_floor": 0,
+		"fragments": {}, "fragment_level": -1, "fragment_floor": 0, "route": {},
 		"xp": 0, "xp_level": 1, "up_hp": 0, "up_dmg": 0, "up_spd": 0, "skills": {},
 	}
 	refresh(p)

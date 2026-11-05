@@ -511,6 +511,8 @@ func _arena(r: Dictionary, boss: bool) -> void:
 		waves.append([{"kind": biome.boss, "pos": _foot(x0 + RW / 2, y0 + D.EDGE_FLOOR) - lift, "elite": false}])
 	else:
 		var waves_count := 2 if _level > D.FINAL_LEVEL else 2 + (1 if _level > 3 else 0) + (1 if _level > 9 else 0)
+		if biome.get("mode", "") == "onslaught":
+			waves_count += 1
 		for wv in waves_count:
 			var list: Array = []
 			for i in mini(7, 2 + wv + int(_level / 4)):

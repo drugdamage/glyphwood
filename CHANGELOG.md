@@ -18,10 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Marsh Wrap favours running and critical strikes; Rime Mail favours running
   and dash recovery. Existing iron armour and weapon stats are unchanged.
 - After the first 18 levels, each deeper floor is a shorter, four-by-three
-  room expedition with one guardian. Every six expeditions visit all six
-  biomes in a new, seeded order. Enemies from a second biome enter each floor,
-  and the environment takes a hint of its colours. Adjacent floors do not
-  repeat a biome. The hero, depth, experience and equipment continue.
+  room expedition with one guardian. At each exit, choose one of three routes
+  to different biomes, with a second biome lending enemies and colour. Routes
+  offer an extra arena wave for more shards, faster foes for more shards, or
+  extra blueprint fragments and shards in chests. The next choices exclude
+  the two most recent biomes. The hero, depth, experience and equipment continue.
+- Merchants can transfer one reinforcement from an owned armour piece to
+  another owned piece of the same body part for a small shard fee. This lets
+  an upgraded iron set give way to later armour without buying every level
+  again; the source loses exactly the level the destination gains.
 
 ### Changed
 
@@ -32,7 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Existing worlds keep their gear and upgrades. Owned signature items count
   as complete blueprints; progress on the earlier axe-only blueprint transfers.
   Existing endless saves resume at their saved depth under the shorter-floor
-  rules. The first 18 levels retain their original biome and boss order.
+  rules. Until a new route is chosen, they follow the seeded six-biome tour.
+  The first 18 levels retain their original biome and boss order.
 - Side-room shuffling now uses the floor's seed, so continuing a world rebuilds
   the same chest positions. A postgame floor with no space for a side-room
   merchant places one at the safe starting point.
