@@ -53,7 +53,7 @@ func build(level_num: int, b: Dictionary, rng: RandomNumberGenerator, with_boss:
 	gw = 4 if level_num < 3 else (5 if level_num < 7 else 6)
 	gh = 2 if level_num == 1 else (3 if level_num < 5 else 4)
 	if level_num > D.FINAL_LEVEL:
-		gw = 4
+		gw = 5 if b.get("mode", "") == "relic" else 4
 		gh = 3
 	w = gw * RW
 	h = gh * RH
@@ -170,6 +170,8 @@ func _make_path() -> void:
 
 func _make_side_rooms() -> void:
 	var wanted := ["shop"]
+	if biome.get("mode", "") == "relic":
+		wanted.append("treasure")
 	var extra := ["treasure", "vault", "treasure", "vault", "treasure"]
 	_shuffle(extra)
 	wanted.append_array(extra)

@@ -63,7 +63,7 @@ const DIFF := {
 	"nightmare": {"dmg": 2.2, "hp": 2.0, "speed": 1.16, "elite": 0.14, "toll": 1.0, "xp": 1.4, "regen": 0.5},
 }
 const RUN_KEYS := ["hp", "base_hp", "ink", "shards", "weapon", "charms", "bag", "xp", "xp_level", "up_hp", "up_dmg", "throw", "up_spd",
-	"skills", "belt", "wslot", "armor", "armor_up", "fragments", "fragment_level", "fragment_floor", "route"]
+	"skills", "belt", "wslot", "armor", "armor_up", "weapon_up", "fragments", "fragment_level", "fragment_floor", "route", "route_refresh"]
 ## Glyph-level fallbacks for Chinese and Japanese text (system fonts).
 const CJK_FONTS := {
 	"zh": ["PingFang SC", "Hiragino Sans GB", "Heiti SC", "Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "Noto Sans SC",
@@ -903,11 +903,8 @@ func descend() -> void:
 func choose_route(route: Dictionary) -> void:
 	if level_num < D.FINAL_LEVEL or not lv.door_open:
 		return
-	var current := Endless.index_for_id(biome.id)
-	var previous: int = int(player.get("route", {}).get("previous", -1))
-	if not Endless.options(run_seed, level_num + 1, current, previous).has(route):
+	if not Endless.select_route(player, route, run_seed, level_num, Endless.index_for_id(biome.id)):
 		return
-	player.route = route.duplicate()
 	_next_level()
 
 
@@ -968,11 +965,10 @@ func on_boss_killed(e: Dictionary) -> void:
 	lv.door_open = true
 	slowmo = 0.4
 	toast(L("toast_boss") % L("boss_" + e.kind), Color(1.0, 0.85, 0.4))
-	var id: String = Items.BOSS_DROPS.get(e.kind, "")
-	if id != "" and Items.give(player, id):
+	var reward := Items.claim_boss_relic(player, e.kind)
+	if not reward.is_empty():
 		Hero.refresh(player)
-	if id != "":
-		item_found(id, player.charms.has(id))
+		item_found(reward.id, reward.equipped)
 	for x in hazards.duplicate():
 		hazards.erase(x)
 	for pr in projectiles.duplicate():
@@ -1255,7 +1251,7 @@ func _ui_check_step() -> void:
 		for l in T.LANGS:
 			for m in ["", "new_world", "worlds", "world", "confirm_delete"]:
 				_ui_steps.append([l, "title", m, 0])
-			for m in ["", "pause", "inventory", "shop", "sell", "map", "moves", "skills"]:
+			for m in ["", "pause", "inventory", "shop", "sell", "forge", "hone", "routes", "map", "moves", "skills"]:
 				_ui_steps.append([l, "play", m, 0])
 			# one past the last tab: Controls with the gamepad's buttons
 			for k in Menu.TABS.size() + 1:
@@ -1283,9 +1279,12 @@ func _ui_check_step() -> void:
 		new_run()
 		player.xp_level = 20
 		player.bag = Items.ITEMS.keys().filter(func(id: String) -> bool: return id != player.weapon)
+		player.armor.body = "chain_hauberk"
+		player.armor_up.chain_hauberk = 1
 		Hero.refresh(player)
 		shop_prop = {"stock": ["glyph_saber", "phantom_step", "lucky_coin"]}
 	menu.close_all()
+	level_num = 18 if s[2] == "routes" else level_num
 	if s[1] == "title":
 		menu.open("title")
 	hint = s[2] if s[1] == "hint" else ""

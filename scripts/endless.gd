@@ -5,6 +5,7 @@ extends RefCounted
 const D := preload("res://scripts/data.gd")
 
 const MODES := ["onslaught", "restless", "relic"]
+const SCOUT_MAX := 2
 
 
 static func index_for_id(id: String) -> int:
@@ -16,7 +17,7 @@ static func index_for_id(id: String) -> int:
 
 ## Three deterministic offers, with different destinations and rules.
 ## A new offer excludes both the current and previous primary biome.
-static func options(seed_value: int, next_level: int, current: int, previous: int = -1) -> Array:
+static func options(seed_value: int, next_level: int, current: int, previous: int = -1, scouts: int = 0) -> Array:
 	if next_level <= D.FINAL_LEVEL or current < 0 or current >= D.BIOMES.size():
 		return []
 	var pool: Array = range(D.BIOMES.size())
@@ -31,7 +32,7 @@ static func options(seed_value: int, next_level: int, current: int, previous: in
 		pool[j] = tmp
 	var offers: Array = []
 	for i in MODES.size():
-		var primary: int = pool[i]
+		var primary: int = pool[(i + clampi(scouts, 0, SCOUT_MAX)) % pool.size()]
 		var echo := (primary + rng.randi_range(1, D.BIOMES.size() - 1)) % D.BIOMES.size()
 		offers.append({"level": next_level, "primary": primary, "echo_index": echo,
 			"mode": MODES[i], "previous": current})
@@ -44,15 +45,22 @@ static func valid(route: Dictionary, level_num: int) -> bool:
 		and route.get("primary") != route.get("echo_index") and route.get("mode", "") in MODES
 
 
+static func guardian_boss(route: Dictionary) -> String:
+	var index: int = int(route.echo_index) if route.mode == "restless" else int(route.primary)
+	return D.BIOMES[index].boss
+
+
 static func menu_items(m) -> Array:
 	var g = m.game
 	var current := index_for_id(g.biome.id)
 	var previous: int = int(g.player.get("route", {}).get("previous", -1))
 	var out: Array = []
-	for route in options(g.run_seed, g.level_num + 1, current, previous):
+	for route in options(g.run_seed, g.level_num + 1, current, previous, int(g.player.get("route_refresh", 0))):
 		var dest: String = g.L("biome_" + D.BIOMES[route.primary].id)
-		out.append(m._btn(dest + " · " + g.L("route_" + route.mode), g.choose_route.bind(route),
-			{"tip": g.L("route_" + route.mode + "_d") + " " + g.L("route_echo") % g.L("biome_" + D.BIOMES[route.echo_index].id)}))
+		var tip: String = g.L("route_" + route.mode + "_d") + " "
+		tip += g.L("route_echo") % g.L("biome_" + D.BIOMES[route.echo_index].id)
+		tip += " " + g.L("route_guardian") % g.L("boss_" + guardian_boss(route))
+		out.append(m._btn(dest + " · " + g.L("route_" + route.mode), g.choose_route.bind(route), {"tip": tip}))
 	out.append(m._btn(g.L("m_back"), m.close))
 	return out
 
@@ -60,6 +68,44 @@ static func menu_items(m) -> Array:
 static func shard_mult(b: Dictionary) -> float:
 	return {"onslaught": 1.4, "restless": 1.3}.get(b.get("mode", ""), 1.0)
 
+
+static func scout_price(p: Dictionary) -> int:
+	return 35 + 25 * int(p.get("route_refresh", 0))
+
+
+static func scout_shop_item(m) -> Dictionary:
+	var p: Dictionary = m.game.player
+	if m.game.level_num < D.FINAL_LEVEL or int(p.get("route_refresh", 0)) >= SCOUT_MAX:
+		return {}
+	return {"type": "buy", "id": "lodestone", "price": scout_price(p), "act": buy_scout.bind(m),
+		"label": m.game.L("route_scout"), "color": Color(0.6, 0.85, 1.0),
+		"note": m.game.L("route_scout_note") % [int(p.get("route_refresh", 0)) + 1, SCOUT_MAX]}
+
+
+static func buy_scout(m) -> void:
+	var p: Dictionary = m.game.player
+	if m.game.level_num < D.FINAL_LEVEL or int(p.get("route_refresh", 0)) >= SCOUT_MAX:
+		return
+	var cost := scout_price(p)
+	if p.shards < cost:
+		m.game.sfx("error", -6.0)
+		m._message(m.game.L("shop_poor"))
+		return
+	p.shards -= cost
+	p.route_refresh = int(p.get("route_refresh", 0)) + 1
+	m.game.sfx("buy")
+	m._message(m.game.L("route_scout_done"))
+	m.game.save_run()
+
+
+static func select_route(p: Dictionary, route: Dictionary, seed_value: int, level_num: int, current: int) -> bool:
+	var previous: int = int(p.get("route", {}).get("previous", -1))
+	var scouts: int = int(p.get("route_refresh", 0))
+	if not options(seed_value, level_num + 1, current, previous, scouts).has(route):
+		return false
+	p.route = route.duplicate()
+	p.route_refresh = 0
+	return true
 
 
 static func _raw_order(seed_value: int, tour: int) -> Array:
@@ -111,4 +157,5 @@ static func biome(seed_value: int, level_num: int, route: Dictionary = {}) -> Di
 	b.echo = echo.id
 	if valid(route, level_num):
 		b.mode = route.mode
+		b.boss = guardian_boss(route)
 	return b

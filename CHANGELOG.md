@@ -17,8 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Marsh Wrap and Rime Mail, two late-game body armours with new pixel art.
   Marsh Wrap favours running and critical strikes; Rime Mail favours running
   and dash recovery. Existing iron armour and weapon stats are unchanged.
-- After the first 18 levels, each deeper floor is a shorter, four-by-three
-  room expedition with one guardian. At each exit, choose one of three routes
+- After the first 18 levels, each deeper floor is a shorter expedition with
+  one guardian. At each exit, choose one of three routes
   to different biomes, with a second biome lending enemies and colour. Routes
   offer an extra arena wave for more shards, faster foes for more shards, or
   extra blueprint fragments and shards in chests. The next choices exclude
@@ -27,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   another owned piece of the same body part for a small shard fee. This lets
   an upgraded iron set give way to later armour without buying every level
   again; the source loses exactly the level the destination gains.
+- Merchants can hone owned melee weapons three times. Each rank adds two
+  damage to that weapon; selling it returns part of the honing cost. The
+  starting blade cannot be honed, so found weapons keep their purpose.
+- After level 18, merchants can scout the next routes twice per floor for
+  shards. Each scout replaces the offered destinations; the count and cost
+  survive a reload and reset when the player chooses the next route.
 
 ### Changed
 
@@ -42,11 +48,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Side-room shuffling now uses the floor's seed, so continuing a world rebuilds
   the same chest positions. A postgame floor with no space for a side-room
   merchant places one at the safe starting point.
+- Restless expeditions face the echo biome's guardian. Relic hunts use a wider
+  five-by-three floor and prioritize a treasure room after the merchant when
+  space allows. The route menu previews each guardian before the choice.
+
+### Fixed
+
+- Repeated postgame guardians no longer announce a relic the player already owns.
 
 ### Validation
 
-- Isolated blueprint and endless-generation checks run in CI. Windowed play,
-  Normal-difficulty balance and controller layout await the next playtest.
+- Blueprint, expedition, merchant, save-state and generation regressions run
+  in CI. Windowed play, Normal-difficulty balance and controller layout await
+  the next playtest.
 
 ## [0.13.0] - 2026-10-29
 

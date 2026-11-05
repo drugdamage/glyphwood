@@ -106,8 +106,8 @@ static func create() -> Dictionary:
 		"hp": BASE_HP, "base_hp": BASE_HP, "max_hp": BASE_HP, "ink": 0.0, "shards": 0,
 		"weapon": Items.START_WEAPON, "belt": [Items.START_WEAPON, "", ""], "wslot": 0, "throw": Items.START_THROW,
 		"charms": [], "bag": [], "st": {},
-		"armor": {"head": "", "body": "", "legs": ""}, "armor_up": {},
-		"fragments": {}, "fragment_level": -1, "fragment_floor": 0, "route": {},
+		"armor": {"head": "", "body": "", "legs": ""}, "armor_up": {}, "weapon_up": {},
+		"fragments": {}, "fragment_level": -1, "fragment_floor": 0, "route": {}, "route_refresh": 0,
 		"xp": 0, "xp_level": 1, "up_hp": 0, "up_dmg": 0, "up_spd": 0, "skills": {},
 	}
 	refresh(p)

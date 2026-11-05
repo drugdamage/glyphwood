@@ -385,7 +385,8 @@ static func numbers(m, p: Dictionary, id: String) -> String:
 	var d: Dictionary = Items.def(id)
 	match d.slot:
 		"weapon":
-			return "%s %d   %s ×%.2f   %s ×%.2f   %s" % [g.L("stat_dmg"), d.dmg, g.L("stat_speed"), d.speed, g.L("stat_reach"), d.reach,
+			return "%s %d   %s ×%.2f   %s ×%.2f   %s" % [g.L("stat_dmg"), int(d.dmg + Items.WEAPON_HONE_DAMAGE * Items.weapon_hone_level(p, id)),
+				g.L("stat_speed"), d.speed, g.L("stat_reach"), d.reach,
 				g.L("class_" + d.class)]
 		"throw":
 			var tdmg: float = d.dmg * p.st.throw_dmg / p.st.throw_base

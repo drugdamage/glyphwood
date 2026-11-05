@@ -10,6 +10,7 @@ const T := preload("res://scripts/strings.gd")
 const Items := preload("res://scripts/items.gd")
 const Endless := preload("res://scripts/endless.gd")
 const Forge := preload("res://scripts/forge.gd")
+const Hone := preload("res://scripts/weapon_hone.gd")
 const Hero := preload("res://scripts/hero.gd")
 const Physics := preload("res://scripts/physics.gd")
 const Settings := preload("res://scripts/settings.gd")
@@ -273,6 +274,8 @@ func _build(name: String) -> Array:
 			out = _shop_items()
 		"forge":
 			out = Forge.menu_items(self)
+		"hone":
+			out = Hone.menu_items(self)
 		"routes":
 			out = Endless.menu_items(self)
 		"sell":
@@ -442,8 +445,13 @@ func _shop_items() -> Array:
 	if Skills.spent(p) > 0:
 		out.append({"type": "buy", "id": "forget", "price": Items.service_price(p, "forget", lvl), "act": _buy.bind("forget"),
 			"label": game.L("shop_forget"), "color": Color(0.75, 0.6, 0.95), "note": game.L("shop_forget_d")})
+	var scout := Endless.scout_shop_item(self)
+	if not scout.is_empty():
+		out.append(scout)
 	if not Forge.candidates(p).is_empty():
-		out.append(_btn(game.L("forge_transfer"), open.bind("forge")))
+		out.append(_btn(game.L("forge_button"), open.bind("forge")))
+	if not Hone.candidates(p).is_empty():
+		out.append(_btn(game.L("hone_button"), open.bind("hone")))
 	if not p.bag.is_empty():
 		out.append(_btn(game.L("shop_sell"), open.bind("sell"), {"note": str(p.bag.size())}))
 	out.append(_btn(game.L("m_leave"), close))
@@ -900,7 +908,7 @@ func _draw() -> void:
 		"inventory":
 			_fit_unit(vp, 840.0, 480.0)
 			Inventory.draw(self, vp, accent)
-		"shop", "sell", "forge":
+		"shop", "sell", "forge", "hone":
 			_draw_shop(vp, accent)
 		"skills":
 			_fit_unit(vp, 720.0, 680.0)
@@ -1284,13 +1292,15 @@ func _draw_shop(vp: Vector2, _accent: Color) -> void:
 	var r := Rect2((vp.x - w) * 0.5, (vp.y - h) * 0.5, w, h)
 	var selling := top() == "sell"
 	_panel(r, Color(0.85, 0.7, 0.95))
-	_center(r.position.y + 42 * u, game.L("forge_transfer" if top() == "forge" else "shop_sell" if selling else "act_shop"),
+	_center(r.position.y + 42 * u, game.L("hone_title" if top() == "hone" else "forge_transfer" if top() == "forge"
+		else "shop_sell" if selling else "act_shop"),
 		int(26 * u), Color(0.95, 0.95, 0.9), bold)
 	# a message (sold, too poor) takes the greeting's place
 	if _msg_t > 0.0:
 		_center(r.position.y + 70 * u, _msg, int(14 * u), Color(1.0, 0.85, 0.5, minf(1.0, _msg_t * 2.0)), bold)
 	else:
-		_center(r.position.y + 70 * u, game.L("forge_intro" if top() == "forge" else "shop_sell_greet" if selling else "shop_greet"),
+		_center(r.position.y + 70 * u, game.L("hone_intro" if top() == "hone" else "forge_intro" if top() == "forge"
+			else "shop_sell_greet" if selling else "shop_greet"),
 			int(14 * u), Color(0.75, 0.7, 0.85))
 	var money := "◆ %d" % p.shards
 	_text(Vector2(r.end.x - 26 * u - _w(money, int(17 * u), bold), r.position.y + 42 * u), money, int(17 * u), Color(1.0, 0.85, 0.35), bold)
@@ -1361,7 +1371,7 @@ func _draw_shop(vp: Vector2, _accent: Color) -> void:
 
 ## Scrolls the shop list by [rows] when [pos] is over it; true when it was.
 func _scroll_list(pos: Vector2, rows: int) -> bool:
-	if not (top() in ["shop", "sell", "forge", "settings"]) or not _list_rect.has_point(pos) or _list_max == 0:
+	if not (top() in ["shop", "sell", "forge", "hone", "settings"]) or not _list_rect.has_point(pos) or _list_max == 0:
 		return false
 	_list_top = clampi(_list_top + rows, 0, _list_max)
 	_list_sel = sel

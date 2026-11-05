@@ -179,6 +179,8 @@ const PARTS := ["head", "body", "legs"]
 const UPGRADE_MAX := 3
 const UPGRADE_STEP := 0.12
 const UPGRADE_HP := 4
+const WEAPON_HONE_MAX := 3
+const WEAPON_HONE_DAMAGE := 2.0
 
 ## Every SLOT_EVERY hero levels add a charm slot, up to MAX_CHARMS in all.
 const SLOT_EVERY := 5
@@ -218,8 +220,8 @@ static func service_price(p: Dictionary, id: String, level_num: int) -> int:
 const HASTE_MAX := 6
 
 
-## What the merchant pays for an item from the bag (half of what was spent
-## reforging it comes back too).
+## What the merchant pays for an item from the bag (half of armour reforging
+## and weapon honing expenses come back too).
 static func sell_price(id: String, p: Dictionary = {}) -> int:
 	var d := def(id)
 	if d.is_empty() or id == START_WEAPON or id == START_THROW:
@@ -229,6 +231,8 @@ static func sell_price(id: String, p: Dictionary = {}) -> int:
 	var back := 0
 	for k in upgrade_level(p, id):
 		back += upgrade_price(id, k) / 2
+	for k in weapon_hone_level(p, id):
+		back += maxi(60, int(d.price * 0.45)) * (k + 1) / 2
 	return maxi(10, int(d.price * 0.4)) + back
 
 
@@ -240,6 +244,28 @@ static func upgrade_level(p: Dictionary, id: String) -> int:
 ## Shards to reforge a piece of armour from level [lvl] to the next.
 static func upgrade_price(id: String, lvl: int) -> int:
 	return int(def(id).get("price", 100) * 0.6 * (lvl + 1))
+
+
+static func weapon_hone_level(p: Dictionary, id: String) -> int:
+	return clampi(int(p.get("weapon_up", {}).get(id, 0)), 0, WEAPON_HONE_MAX)
+
+
+static func weapon_hone_price(p: Dictionary, id: String) -> int:
+	return maxi(60, int(def(id).get("price", 0) * 0.45)) * (weapon_hone_level(p, id) + 1)
+
+
+static func hone_weapon(p: Dictionary, id: String) -> bool:
+	if id == START_WEAPON or def(id).get("slot", "") != "weapon" or not owns(p, id):
+		return false
+	var lvl := weapon_hone_level(p, id)
+	var price := weapon_hone_price(p, id)
+	if lvl >= WEAPON_HONE_MAX or p.shards < price:
+		return false
+	p.shards -= price
+	if not p.has("weapon_up"):
+		p.weapon_up = {}
+	p.weapon_up[id] = lvl + 1
+	return true
 
 
 ## Reforges an armour piece if the hero can pay; returns false otherwise.
@@ -270,7 +296,8 @@ static func stats(p: Dictionary) -> Dictionary:
 	var w: Dictionary = def(p.weapon)
 	var th: Dictionary = def(p.get("throw", START_THROW))
 	var st := {
-		"dmg": float(w.get("dmg", 10)), "speed": float(w.get("speed", 1.0)), "reach": float(w.get("reach", 1.0)),
+		"dmg": float(w.get("dmg", 10)) + WEAPON_HONE_DAMAGE * weapon_hone_level(p, p.weapon),
+		"speed": float(w.get("speed", 1.0)), "reach": float(w.get("reach", 1.0)),
 		"burn": w.get("burn", false), "crush": w.get("crush", false), "ink_hit": float(w.get("ink_hit", 1.0)),
 		"kind": w.get("kind", "sword"), "class": w.get("class", "blade"), "leech": float(w.get("leech", 0.0)),
 		"execute": w.get("execute", false), "sweep": w.get("sweep", false),
@@ -405,6 +432,14 @@ static func give(p: Dictionary, id: String) -> bool:
 	return false
 
 
+## A repeated guardian never awards or announces a relic already owned.
+static func claim_boss_relic(p: Dictionary, kind: String) -> Dictionary:
+	var id: String = BOSS_DROPS.get(kind, "")
+	if id == "" or owns(p, id):
+		return {}
+	return {"id": id, "equipped": give(p, id)}
+
+
 ## Equips or unequips an owned item. Returns false if nothing changed.
 ## A weapon from the bag goes into the hand; one on the belt but not in hand
 ## goes back into the bag.
@@ -497,6 +532,8 @@ static func sell(p: Dictionary, id: String) -> int:
 	p.bag.erase(id)
 	if p.has("armor_up"):
 		p.armor_up.erase(id)
+	if p.has("weapon_up"):
+		p.weapon_up.erase(id)
 	p.shards += price
 	return price
 

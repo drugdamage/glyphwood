@@ -54,11 +54,30 @@ jobs:
           godot --headless --path . --script tests/endless.gd
           godot --headless --path . --script tests/expeditions.gd
 
+      - name: Check translated menus
+        run: |
+          set -o pipefail
+          timeout 120 godot --headless --path . --quit-after 3600 -- --uicheck 2>&1 | tee ui.log
+          if grep -nE "UI OVERFLOW|SCRIPT ERROR|Parse Error|Failed to load script" ui.log; then
+            echo "::error::A translated menu overflowed or a script failed"
+            exit 1
+          fi
+          grep -q "UI CHECK DONE: 0 issues" ui.log
+
       - name: Smoke test (bot plays for 20 seconds)
         run: |
           set -o pipefail
           timeout 120 godot --headless --path . --quit-after 1200 -- --play --bot --seed=1 2>&1 | tee run.log
           if grep -nE "SCRIPT ERROR|Parse Error|Failed to load script" run.log; then
             echo "::error::Godot reported script errors while running the game"
+            exit 1
+          fi
+
+      - name: Postgame smoke test
+        run: |
+          set -o pipefail
+          timeout 120 godot --headless --path . --quit-after 1200 -- --play --bot --god --level=19 --boss --seed=7 2>&1 | tee postgame.log
+          if grep -nE "SCRIPT ERROR|Parse Error|Failed to load script" postgame.log; then
+            echo "::error::Godot reported script errors in postgame"
             exit 1
           fi
