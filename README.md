@@ -1,6 +1,6 @@
 <h1 align="center">Glyphwood</h1>
 
-<p align="center">A gothic pixel action platformer: an endless descent.</p>
+<p align="center">A gothic pixel art action platformer with roguelite runs.</p>
 
 <p align="center">
   <img src="docs/gameplay.gif" alt="Glyphwood gameplay" width="640">
